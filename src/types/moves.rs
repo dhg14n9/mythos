@@ -34,6 +34,10 @@ pub enum MoveKind {
 }
 
 impl Move {
+    pub fn new(from: Square, to: Square, kind: MoveKind) -> Self {
+        Move(((from as u16) & 0b0011_1111) | (((to as u16) & 0b0011_1111) << 6) | ((kind as u16) << 12))
+    }
+
     pub fn from(self) -> Square {
         Square::new((self.0 & 0b0011_1111) as u8)
     }

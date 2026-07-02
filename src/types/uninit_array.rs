@@ -20,6 +20,13 @@ impl<T: Copy, const N: usize> UninitArray<T, N> {
         self.length += 1;
     }
 
+    pub fn pop(&mut self) -> T {
+        debug_assert!(self.length > 0);
+
+        self.length -= 1;
+        unsafe { self.array[self.length].assume_init() }
+    }
+
     pub fn read(&self, index: usize) -> T {
         debug_assert!(index < self.length);
 

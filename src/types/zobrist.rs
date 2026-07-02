@@ -1,4 +1,4 @@
-use crate::types::{Castling, Color, File, Piece, PieceType, Square};
+use crate::types::{Castling, File, Piece, Square};
 
 type KeyType = u64;
 
@@ -55,27 +55,27 @@ const fn build_key() -> ZobristKeys {
     }
 }
 
-static zobrist_key: ZobristKeys = build_key();
+static ZOBRIST_KEY: ZobristKeys = build_key();
 
 #[derive(Copy, Clone)]
 pub struct ZobristHelper;
 
 impl ZobristHelper {
 
-    pub fn toggle_square(zobrist: &mut u64, square: Square, piece: Piece) {
-        *zobrist ^= zobrist_key.square_key[square][piece]
+    pub fn square(square: Square, piece: Piece) -> u64 {
+        ZOBRIST_KEY.square_key[square][piece]
     }
 
-    pub fn toggle_ep(zobrist: &mut u64, file: File) {
-        *zobrist ^= zobrist_key.ep_file_key[file]
+    pub fn ep(file: File) -> u64 {
+        ZOBRIST_KEY.ep_file_key[file]
     }
 
-    pub fn toggle_castling(zobrist: &mut u64, castling: Castling) {
-        *zobrist ^= zobrist_key.castling_key[castling.raw()]
+    pub fn castling(castling: Castling) -> u64 {
+        ZOBRIST_KEY.castling_key[castling.raw()]
     }
 
-    pub fn toggle_color(zobrist: &mut u64) {
-        *zobrist ^= zobrist_key.btm_key
+    pub fn color() -> u64 {
+        ZOBRIST_KEY.btm_key
     }
 
 }
