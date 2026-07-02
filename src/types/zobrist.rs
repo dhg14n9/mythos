@@ -12,7 +12,7 @@ const fn split_mix64(state: &mut KeyType) -> KeyType {
 
 struct ZobristKeys {
     square_key: [[KeyType; Piece::NUM]; Square::NUM],
-    ep_file_key: [KeyType; File::NUM],
+    ep_key: [KeyType; Square::NUM + 1],
     castling_key: [KeyType; Castling::NUM],
     btm_key: KeyType // black to move key
 }
@@ -37,6 +37,13 @@ const fn build_key() -> ZobristKeys {
         ep_file_key[f] = split_mix64(&mut state);
         f += 1;
     }
+    // Expand per-file keys to a square-indexed table; [Square::None] stays 0.
+    let mut ep_key = [0; Square::NUM + 1];
+    let mut sq = 0;
+    while sq < Square::NUM {
+        ep_key[sq] = ep_file_key[sq & 7];
+        sq += 1;
+    }
 
     let mut castling_key = [0; Castling::NUM];
     let mut c = 0;
@@ -49,7 +56,7 @@ const fn build_key() -> ZobristKeys {
 
     ZobristKeys {
         square_key,
-        ep_file_key,
+        ep_key,
         castling_key,
         btm_key,
     }
@@ -66,12 +73,15 @@ impl ZobristHelper {
         ZOBRIST_KEY.square_key[square][piece]
     }
 
-    pub fn ep(file: File) -> u64 {
-        ZOBRIST_KEY.ep_file_key[file]
+    // Returns 0 for Square::None, so callers can XOR unconditionally.
+    pub fn ep(square: Square) -> u64 {
+        ZOBRIST_KEY.ep_key[square as usize]
     }
 
     pub fn castling(castling: Castling) -> u64 {
-        ZOBRIST_KEY.castling_key[castling.raw()]
+        // raw() is always < 16, but LLVM can't see that through the u8 newtype;
+        // the mask removes the bounds check for free.
+        ZOBRIST_KEY.castling_key[castling.raw() & (Castling::NUM - 1)]
     }
 
     pub fn color() -> u64 {
@@ -79,5 +89,3 @@ impl ZobristHelper {
     }
 
 }
-
-
