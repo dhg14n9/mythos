@@ -57,14 +57,15 @@ impl Move {
 
     // Moves that is a capture or a queen promotion
     pub fn is_noisy(self) -> bool {
-        (self.kind() as u8 & 7) > MoveKind::KingCastle as u8
+        let kind = self.kind() as u8;
+        kind & 4 != 0 || kind == MoveKind::PromoQueen as u8
     }
     pub fn is_quiet(self) -> bool {
         self.is_present() && !self.is_noisy()
     }
 
     pub fn is_promotion(self) -> bool {
-        (self.0 & 8) != 0
+        (self.kind() as u8 & 8) != 0
     }
 
     // special move are move that is neither Normal nor Capture.
@@ -79,7 +80,7 @@ impl Move {
         self.kind() as u8 == 1
     }
     pub fn is_capture(self) -> bool {
-        self.0 & 4 != 0
+        self.kind() as u8 & 4 != 0
     }
     pub fn is_castling(self) -> bool {
         match self.kind() {
@@ -95,7 +96,7 @@ impl Move {
     }
 
     pub fn promo_piece(self) -> PieceType {
-        unsafe { std::mem::transmute(((self.0 as u8) & 0b0000_0011) + 1) } // knight = 1
+        unsafe { std::mem::transmute(((self.kind() as u8) & 0b0000_0011) + 1) } // knight = 1
     }
 
 
