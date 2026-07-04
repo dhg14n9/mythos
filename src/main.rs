@@ -1,3 +1,5 @@
+#![allow(long_running_const_eval)]
+
 use crate::types::Bitboard;
 
 pub mod types;
