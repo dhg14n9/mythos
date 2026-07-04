@@ -63,6 +63,9 @@ impl Bitboard {
         }
         Square::new((63 - self.0.leading_zeros()) as u8)
     }
+    pub fn pop_count(self) -> usize { 
+        self.0.count_ones() as usize
+    }
 
     // mask for assisted shifting to avoid bit-jumping
     const SHIFT_MASK: [Self; 8] = [
@@ -83,6 +86,37 @@ impl Bitboard {
     pub fn shift(&mut self, direction: Direction) {
         *self &= Self::SHIFT_MASK[direction];
         self.offset(Self::SHIFT_NUMBER[direction])
+    }
+}
+
+pub struct BitboardIter(u64);
+
+impl Iterator for BitboardIter {
+    type Item = Square;
+
+    fn next(&mut self) -> Option<Square> {
+        if self.0 == 0 {
+            return None;
+        }
+        let square = Square::new(self.0.trailing_zeros() as u8);
+        self.0 &= self.0 - 1;
+        Some(square)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let count = self.0.count_ones() as usize;
+        (count, Some(count))
+    }
+}
+
+impl ExactSizeIterator for BitboardIter {}
+
+impl IntoIterator for Bitboard {
+    type Item = Square;
+    type IntoIter = BitboardIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        BitboardIter(self.0)
     }
 }
 
