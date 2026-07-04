@@ -393,3 +393,81 @@ mod imp {
 }
 
 pub use imp::{rook_attack, bishop_attack};
+
+
+mod leapers {
+    use super::bit;
+    use crate::types::{Bitboard, Color, Square};
+
+    const fn leaper_table(offsets: &[(i32, i32)]) -> [Bitboard; 64] {
+        let mut table = [Bitboard::EMPTY; 64];
+        let mut sq = 0;
+        while sq < 64 {
+            let r = (sq / 8) as i32;
+            let f = (sq % 8) as i32;
+            let mut att = 0u64;
+
+            let mut i = 0;
+            while i < offsets.len() {
+                let (dr, df) = offsets[i];
+                let rr = r + dr;
+                let ff = f + df;
+                if rr >= 0 && rr <= 7 && ff >= 0 && ff <= 7 {
+                    att |= bit(rr, ff);
+                }
+                i += 1;
+            }
+
+            table[sq] = Bitboard(att);
+            sq += 1;
+        }
+        table
+    }
+
+
+    const fn pawn_table() -> [[Bitboard; 64]; Color::NUM] {
+        let mut table = [[Bitboard::EMPTY; 64]; Color::NUM];
+        let mut sq = 0;
+        while sq < 64 {
+            let r = (sq / 8) as i32;
+            let f = (sq % 8) as i32;
+
+            let mut white = 0u64;
+            if r + 1 <= 7 {
+                if f - 1 >= 0 { white |= bit(r + 1, f - 1); }
+                if f + 1 <= 7 { white |= bit(r + 1, f + 1); }
+            }
+            table[Color::White as usize][sq] = Bitboard(white);
+
+            let mut black = 0u64;
+            if r - 1 >= 0 {
+                if f - 1 >= 0 { black |= bit(r - 1, f - 1); }
+                if f + 1 <= 7 { black |= bit(r - 1, f + 1); }
+            }
+            table[Color::Black as usize][sq] = Bitboard(black);
+
+            sq += 1;
+        }
+        table
+    }
+
+    static KNIGHT_ATTACKS: [Bitboard; 64] =
+        leaper_table(&[(2, 1), (2, -1), (-2, 1), (-2, -1), (1, 2), (1, -2), (-1, 2), (-1, -2)]);
+    static KING_ATTACKS: [Bitboard; 64] =
+        leaper_table(&[(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]);
+    static PAWN_ATTACKS: [[Bitboard; 64]; Color::NUM] = pawn_table();
+
+    pub fn knight_attack(square: Square) -> Bitboard {
+        KNIGHT_ATTACKS[square as usize]
+    }
+
+    pub fn king_attack(square: Square) -> Bitboard {
+        KING_ATTACKS[square as usize]
+    }
+
+    pub fn pawn_attack(color: Color, square: Square) -> Bitboard {
+        PAWN_ATTACKS[color as usize][square as usize]
+    }
+}
+
+pub use leapers::{king_attack, knight_attack, pawn_attack};
