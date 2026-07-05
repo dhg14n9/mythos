@@ -313,6 +313,10 @@ mod imp {
         let idx = (occ.0 & m.mask).wrapping_mul(m.magic) >> m.shift;
         TABLES.table[m.start as usize + idx as usize]
     }
+
+    pub fn queen_attack(occ: Bitboard, square: Square) -> Bitboard {
+        bishop_attack(occ, square) | rook_attack(occ, square)
+    }
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
@@ -390,9 +394,13 @@ mod imp {
         let idx = unsafe { _pext_u64(occ.0, e.mask) } as usize;
         TABLES.table[e.start as usize + idx]
     }
+
+    pub fn queen_attack(occ: Bitboard, square: Square) -> Bitboard {
+        bishop_attack(occ, square) | rook_attack(occ, square)
+    }
 }
 
-pub use imp::{rook_attack, bishop_attack};
+pub use imp::{rook_attack, bishop_attack, queen_attack};
 
 
 mod leapers {
