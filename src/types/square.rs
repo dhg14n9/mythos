@@ -123,7 +123,7 @@ impl Square {
         Square::None, Square::None, Square::None, Square::None, Square::None, Square::None, Square::None, Square::None,
     ];
 
-    pub fn new(value: u8) -> Self {
+    pub const fn new(value: u8) -> Self {
         debug_assert!(value < Self::NUM as u8);
 
         unsafe { std::mem::transmute(value) }
