@@ -58,4 +58,8 @@ impl MoveList {
         self.swap(n, best);
         self.get(n)
     }
+
+    pub fn len(&self) -> usize {
+        self.array.len()
+    }
 }

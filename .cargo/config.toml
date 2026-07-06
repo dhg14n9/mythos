@@ -1,0 +1,5 @@
+[build]
+# Tune for the machine we build on. Enables BMI2/POPCNT/LZCNT etc., which the
+# bitboard code (and later magic-bitboard movegen via pext) benefits from.
+# Remove or override for portable release binaries.
+rustflags = ["-C", "target-cpu=native"]

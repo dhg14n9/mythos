@@ -1,5 +1,5 @@
 use crate::board::lookup::{bishop_attack, king_attack, knight_attack, pawn_attack, queen_attack, rook_attack};
-use crate::types::{Bitboard, Color, Direction, Move, MoveKind, MoveList, Piece, PieceType, Rank, BETWEEN, RAY};
+use crate::types::{Bitboard, CastlingKind, Color, Direction, File, Move, MoveKind, MoveList, Piece, PieceType, Rank, Square, BETWEEN, RAY};
 use super::board::Board;
 
 impl Board {
@@ -102,6 +102,31 @@ impl Board {
         }
         for to in king_target & !king_capture_target {
             quiet_list.push(Move::new(king_square, to, MoveKind::Normal))
+        }
+
+        // castling
+        if checker.is_empty() {
+            let back_rank = king_square.rank();
+            for (i, &kind) in CastlingKind::KINDS[us].iter().enumerate() {
+                if !self.castling_right.is_allowed(kind) {
+                    continue;
+                }
+
+                let rook_file = if i == 0 { File::H } else { File::A };
+                let rook_from = Square::from_rank_file(back_rank, rook_file);
+                if !(BETWEEN[king_square][rook_from] & occ).is_empty() {
+                    continue;
+                }
+
+                let king_to = CastlingKind::king_landing_square(kind);
+                let king_path = BETWEEN[king_square][king_to] | Bitboard::from_square(king_to);
+                if !(king_path & threats).is_empty() {
+                    continue;
+                }
+
+                let move_kind = if i == 0 { MoveKind::KingCastle } else { MoveKind::QueenCastle };
+                quiet_list.push(Move::new(king_square, king_to, move_kind));
+            }
         }
 
         // if its double check, only king moves are available
@@ -225,14 +250,16 @@ impl Board {
 
             // pawn push
             let to = from.offset(forward);
-            if !occ.contains(to) & restriction.contains(to) {
-                if from.rank() == promo_rank {
-                    quiet_list.push(Move::new(from, to, MoveKind::PromoBishop));
-                    quiet_list.push(Move::new(from, to, MoveKind::PromoRook));
-                    quiet_list.push(Move::new(from, to, MoveKind::PromoKnight));
-                    noisy_list.push(Move::new(from, to, MoveKind::PromoQueen));
-                } else {
-                    quiet_list.push(Move::new(from, to, MoveKind::Normal));
+            if !occ.contains(to) {
+                if restriction.contains(to) {
+                    if from.rank() == promo_rank {
+                        quiet_list.push(Move::new(from, to, MoveKind::PromoBishop));
+                        quiet_list.push(Move::new(from, to, MoveKind::PromoRook));
+                        quiet_list.push(Move::new(from, to, MoveKind::PromoKnight));
+                        noisy_list.push(Move::new(from, to, MoveKind::PromoQueen));
+                    } else {
+                        quiet_list.push(Move::new(from, to, MoveKind::Normal));
+                    }
                 }
 
                 if from.rank() == start_rank {
