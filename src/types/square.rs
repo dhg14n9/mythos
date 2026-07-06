@@ -12,6 +12,7 @@ impl File {
     pub const NUM: usize = 8;
     pub const CASTLE_KING_FILE: [File; 2] = [File::C, File::G];
     pub const CASTLE_ROOK_FILE: [File; 2] = [File::D, File::F];
+    pub const START_ROOK_FILE: [File; 2] = [File::A, File::H];
 
     pub const ALL: [Self; Self::NUM] = [
         File::A,
@@ -60,6 +61,7 @@ impl Rank {
     pub const PROMOTION_RANK: [Self; 2] = [Rank::R8, Rank::R1];
     pub const PRE_PROMOTION_RANK: [Self; 2] = [Rank::R7, Rank::R2];
     pub const PAWN_START_RANK: [Self; 2] = [Rank::R2, Rank::R7];
+    pub const FIRST_RANK: [Self; 2] = [Rank::R1, Rank::R8];
     pub const ALL: [Self; Self::NUM] = [
         Rank::R1,
         Rank::R2,
@@ -110,7 +112,18 @@ pub enum Square {
 
 impl Square {
     pub const NUM: usize = 64;
-    pub fn new(value: u8) -> Self {
+    pub const ENPASSANT: [Square; 64] = [
+        Square::None, Square::None, Square::None, Square::None, Square::None, Square::None, Square::None, Square::None,
+        Square::None, Square::None, Square::None, Square::None, Square::None, Square::None, Square::None, Square::None,
+        Square::A4, Square::B4, Square::C4, Square::D4, Square::E4, Square::F4, Square::G4, Square::H4,
+        Square::A3, Square::B3, Square::C3, Square::D3, Square::E3, Square::F3, Square::G3, Square::H3,
+        Square::A6, Square::B6, Square::C6, Square::D6, Square::E6, Square::F6, Square::G6, Square::H6,
+        Square::A5, Square::B5, Square::C5, Square::D5, Square::E5, Square::F5, Square::G5, Square::H5,
+        Square::None, Square::None, Square::None, Square::None, Square::None, Square::None, Square::None, Square::None,
+        Square::None, Square::None, Square::None, Square::None, Square::None, Square::None, Square::None, Square::None,
+    ];
+
+    pub const fn new(value: u8) -> Self {
         debug_assert!(value < Self::NUM as u8);
 
         unsafe { std::mem::transmute(value) }
@@ -197,12 +210,12 @@ impl<T> Index<Square> for [T] {
     type Output = T;
     
     fn index(&self, index: Square) -> &Self::Output {
-        &self [index as usize]
+        &self [index as usize & 63]
     }
 }
 
 impl<T> IndexMut<Square> for [T] {
     fn index_mut(&mut self, index: Square) -> &mut Self::Output {
-        &mut self [index as usize]
+        &mut self [index as usize & 63]
     }
 }

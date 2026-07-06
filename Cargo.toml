@@ -3,4 +3,21 @@ name = "mythos"
 version = "0.1.0"
 edition = "2024"
 
+# The library root is src/libs.rs (Cargo only auto-detects src/lib.rs).
+[lib]
+name = "mythos"
+path = "src/libs.rs"
+
+[[bin]]
+name = "mythos"
+path = "src/main.rs"
+
 [dependencies]
+
+[profile.dev]
+opt-level = 3
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"

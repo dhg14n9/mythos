@@ -1,4 +1,4 @@
-use crate::types::{Castling, Color, File, Piece, PieceType, Square};
+use crate::types::{Castling, File, Piece, Square};
 
 type KeyType = u64;
 
@@ -12,7 +12,7 @@ const fn split_mix64(state: &mut KeyType) -> KeyType {
 
 struct ZobristKeys {
     square_key: [[KeyType; Piece::NUM]; Square::NUM],
-    ep_file_key: [KeyType; File::NUM],
+    ep_key: [KeyType; Square::NUM + 1],
     castling_key: [KeyType; Castling::NUM],
     btm_key: KeyType // black to move key
 }
@@ -37,6 +37,13 @@ const fn build_key() -> ZobristKeys {
         ep_file_key[f] = split_mix64(&mut state);
         f += 1;
     }
+    // Expand per-file keys to a square-indexed table; [Square::None] stays 0.
+    let mut ep_key = [0; Square::NUM + 1];
+    let mut sq = 0;
+    while sq < Square::NUM {
+        ep_key[sq] = ep_file_key[sq & 7];
+        sq += 1;
+    }
 
     let mut castling_key = [0; Castling::NUM];
     let mut c = 0;
@@ -49,35 +56,36 @@ const fn build_key() -> ZobristKeys {
 
     ZobristKeys {
         square_key,
-        ep_file_key,
+        ep_key,
         castling_key,
         btm_key,
     }
 }
 
-static zobrist_key: ZobristKeys = build_key();
+static ZOBRIST_KEY: ZobristKeys = build_key();
 
 #[derive(Copy, Clone)]
 pub struct ZobristHelper;
 
 impl ZobristHelper {
 
-    pub fn toggle_square(zobrist: &mut u64, square: Square, piece: Piece) {
-        *zobrist ^= zobrist_key.square_key[square][piece]
+    pub fn square(square: Square, piece: Piece) -> u64 {
+        ZOBRIST_KEY.square_key[square][piece]
     }
 
-    pub fn toggle_ep(zobrist: &mut u64, file: File) {
-        *zobrist ^= zobrist_key.ep_file_key[file]
+    // Returns 0 for Square::None, so callers can XOR unconditionally.
+    pub fn ep(square: Square) -> u64 {
+        ZOBRIST_KEY.ep_key[square as usize]
     }
 
-    pub fn toggle_castling(zobrist: &mut u64, castling: Castling) {
-        *zobrist ^= zobrist_key.castling_key[castling.raw()]
+    pub fn castling(castling: Castling) -> u64 {
+        // raw() is always < 16, but LLVM can't see that through the u8 newtype;
+        // the mask removes the bounds check for free.
+        ZOBRIST_KEY.castling_key[castling.raw() & (Castling::NUM - 1)]
     }
 
-    pub fn toggle_color(zobrist: &mut u64) {
-        *zobrist ^= zobrist_key.btm_key
+    pub fn color() -> u64 {
+        ZOBRIST_KEY.btm_key
     }
 
 }
-
-

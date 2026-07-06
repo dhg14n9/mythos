@@ -31,7 +31,7 @@ impl Bitboard {
         Self(1 << (square as usize))
     }
 
-    pub fn set(&mut self, square: Square) {
+    pub const fn set(&mut self, square: Square) {
         self.0 |= 1 << (square as usize)
     }
     pub fn clear(&mut self, square: Square) {
@@ -63,6 +63,9 @@ impl Bitboard {
         }
         Square::new((63 - self.0.leading_zeros()) as u8)
     }
+    pub fn pop_count(self) -> usize { 
+        self.0.count_ones() as usize
+    }
 
     // mask for assisted shifting to avoid bit-jumping
     const SHIFT_MASK: [Self; 8] = [
@@ -83,6 +86,37 @@ impl Bitboard {
     pub fn shift(&mut self, direction: Direction) {
         *self &= Self::SHIFT_MASK[direction];
         self.offset(Self::SHIFT_NUMBER[direction])
+    }
+}
+
+pub struct BitboardIter(u64);
+
+impl Iterator for BitboardIter {
+    type Item = Square;
+
+    fn next(&mut self) -> Option<Square> {
+        if self.0 == 0 {
+            return None;
+        }
+        let square = Square::new(self.0.trailing_zeros() as u8);
+        self.0 &= self.0 - 1;
+        Some(square)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let count = self.0.count_ones() as usize;
+        (count, Some(count))
+    }
+}
+
+impl ExactSizeIterator for BitboardIter {}
+
+impl IntoIterator for Bitboard {
+    type Item = Square;
+    type IntoIter = BitboardIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        BitboardIter(self.0)
     }
 }
 
@@ -157,3 +191,63 @@ impl ShrAssign<u32> for Bitboard {
         self.0 >>= rhs;
     }
 }
+
+// between and ray bitboards
+const fn build_between() -> [[Bitboard; 64]; 64] {
+    let mut result = [[Bitboard::EMPTY; 64]; 64];
+    let mut sq1: i32 = 0;
+    while sq1 < 64 {
+        let mut sq2: i32 = 0;
+        while sq2 < 64 {
+            let (r1, r2) = (sq1 / 8, sq2 / 8);
+            let (f1, f2) = (sq1 % 8, sq2 % 8);
+            let (df, dr) = (f2 - f1, r2 - r1);
+            if sq1 != sq2 && (dr == 0 || df == 0 || dr.abs() == df.abs()) {
+                let offset = df.signum() + dr.signum() * 8;
+                let mut ptr = sq1 + offset;
+                while ptr != sq2 {
+                    result[sq1 as usize][sq2 as usize].set(Square::new(ptr as u8));
+                    ptr += offset;
+                }
+            }
+            sq2 += 1;
+        }
+        sq1 += 1;
+    }
+
+    result
+}
+
+
+const fn build_ray() -> [[Bitboard; 64]; 64] {
+    let mut result = [[Bitboard::EMPTY; 64]; 64];
+    let mut sq1: i32 = 0;
+    while sq1 < 64 {
+        let mut sq2: i32 = 0;
+        while sq2 < 64 {
+            let (r1, r2) = (sq1 / 8, sq2 / 8);
+            let (f1, f2) = (sq1 % 8, sq2 % 8);
+            let (df, dr) = (f2 - f1, r2 - r1);
+            if sq1 != sq2 && (dr == 0 || df == 0 || dr.abs() == df.abs()) {
+                let (sf, sr) = (df.signum(), dr.signum());
+                let (mut r, mut f) = (r1, f1);
+                while r - sr >= 0 && r - sr <= 7 && f - sf >= 0 && f - sf <= 7 {
+                    r -= sr;
+                    f -= sf;
+                }
+                while r >= 0 && r <= 7 && f >= 0 && f <= 7 {
+                    result[sq1 as usize][sq2 as usize].set(Square::new((r * 8 + f) as u8));
+                    r += sr;
+                    f += sf;
+                }
+            }
+            sq2 += 1;
+        }
+        sq1 += 1;
+    }
+
+    result
+}
+
+pub static RAY: [[Bitboard; 64]; 64] = build_ray();
+pub static BETWEEN: [[Bitboard; 64]; 64] = build_between();

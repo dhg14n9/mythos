@@ -4,6 +4,7 @@ pub mod bitboard;
 pub mod castling;
 pub mod moves;
 pub mod piece;
+pub mod uninit_array;
 pub mod move_list;
 pub mod score;
 pub mod zobrist;

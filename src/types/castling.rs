@@ -50,6 +50,18 @@ pub struct Castling(u8);
 impl Castling {
     pub const ALL: Self = Castling(0b1111);
     pub const NUM: usize = 16;
+
+    pub const SQUARE_MASK: [u8; Square::NUM] = {
+        let mut mask = [0b1111u8; Square::NUM];
+        mask[Square::A1 as usize] = 0b1111 & !(CastlingKind::WhiteQueen as u8);
+        mask[Square::H1 as usize] = 0b1111 & !(CastlingKind::WhiteKing as u8);
+        mask[Square::E1 as usize] = 0b1111 & !(CastlingKind::WhiteKing as u8 | CastlingKind::WhiteQueen as u8);
+        mask[Square::A8 as usize] = 0b1111 & !(CastlingKind::BlackQueen as u8);
+        mask[Square::H8 as usize] = 0b1111 & !(CastlingKind::BlackKing as u8);
+        mask[Square::E8 as usize] = 0b1111 & !(CastlingKind::BlackKing as u8 | CastlingKind::BlackQueen as u8);
+        mask
+    };
+
     pub fn new(value: u8) -> Self {
         debug_assert!(value < 16);
         Self(value)
@@ -72,7 +84,7 @@ impl Castling {
     }
 
     pub fn string(self) -> String {
-        if (self.0 == 0) {
+        if self.0 == 0 {
             return "-".to_string();
         }
 
