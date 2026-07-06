@@ -13,19 +13,19 @@ pub struct StateInfo {
 }
 
 pub struct Board {
-    piece_type_bb: [Bitboard; PieceType::NUM],
-    color_bb: [Bitboard; Color::NUM],
-    mailbox: [Piece; Square::NUM],
+    pub(super) piece_type_bb: [Bitboard; PieceType::NUM],
+    pub(super) color_bb: [Bitboard; Color::NUM],
+    pub(super) mailbox: [Piece; Square::NUM],
 
-    side_to_move: Color,
-    castling_right: Castling,
-    en_passant: Square,
-    half_move: u16,
-    zobrist: u64,
-    game_ply: usize,
-    piece_count: [u8; Piece::NUM],
+    pub(super) side_to_move: Color,
+    pub(super) castling_right: Castling,
+    pub(super) en_passant: Square,
+    pub(super) half_move: u16,
+    pub(super) zobrist: u64,
+    pub(super) game_ply: usize,
+    pub(super) piece_count: [u8; Piece::NUM],
 
-    state_history: UninitArray<StateInfo, MAX_STATE_ARRAY_LENGTH>
+    pub(super) state_history: UninitArray<StateInfo, MAX_STATE_ARRAY_LENGTH>
 }
 
 impl Board {
@@ -299,7 +299,9 @@ impl Board {
         }
     }
 
-    
+    pub fn occ(&self) -> Bitboard {
+        self.color_bb(Color::White) | self.color_bb(Color::Black)
+    }
 
 }
 

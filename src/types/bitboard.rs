@@ -249,5 +249,5 @@ const fn build_ray() -> [[Bitboard; 64]; 64] {
     result
 }
 
-static RAY: [[Bitboard; 64]; 64] = build_ray();
-static BETWEEN: [[Bitboard; 64]; 64] = build_between();
+pub static RAY: [[Bitboard; 64]; 64] = build_ray();
+pub static BETWEEN: [[Bitboard; 64]; 64] = build_between();
