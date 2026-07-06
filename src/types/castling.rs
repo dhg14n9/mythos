@@ -84,7 +84,7 @@ impl Castling {
     }
 
     pub fn string(self) -> String {
-        if (self.0 == 0) {
+        if self.0 == 0 {
             return "-".to_string();
         }
 

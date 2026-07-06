@@ -132,6 +132,10 @@ impl Board {
     pub fn full_move(&self) -> usize {
         self.game_ply / 2 + 1
     }
+    
+    pub fn hash(&self) -> u64 {
+        self.zobrist
+    }
 
     pub fn place_piece(&mut self, piece: Piece, square: Square) {
         self.place_piece_unhashed(piece, square);

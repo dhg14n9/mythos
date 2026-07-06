@@ -210,12 +210,12 @@ impl<T> Index<Square> for [T] {
     type Output = T;
     
     fn index(&self, index: Square) -> &Self::Output {
-        &self [index as usize]
+        &self [index as usize & 63]
     }
 }
 
 impl<T> IndexMut<Square> for [T] {
     fn index_mut(&mut self, index: Square) -> &mut Self::Output {
-        &mut self [index as usize]
+        &mut self [index as usize & 63]
     }
 }
