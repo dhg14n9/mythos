@@ -273,5 +273,30 @@ impl Board {
 
 
     }
+    
+    pub fn perft(&mut self, depth: usize) -> u64 {
+        if depth == 0 {
+            return 1;
+        }
+
+        let mut quiet = MoveList::new();
+        let mut noisy = MoveList::new();
+        self.gen_move(&mut quiet, &mut noisy);
+
+        if depth == 1 {
+            return (quiet.len() + noisy.len()) as u64;
+        }
+
+        let mut count = 0;
+        for list in [&quiet, &noisy] {
+            for i in 0..list.len() {
+                let mv = list.get(i);
+                self.make_move(mv);
+                count += self.perft(depth - 1);
+                self.unmake_move(mv);
+            }
+        }
+        count
+    }
 }
 

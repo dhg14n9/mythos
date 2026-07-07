@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::ops::{Add, BitXor, Div, Index, IndexMut};
 use crate::types::Color;
 
@@ -171,7 +172,7 @@ impl Square {
         // algebraic notation to Square
 
             match value.as_bytes() {
-                [file @ b'a'..b'h', rank @ b'1'..b'8'] => {
+                [file @ b'a'..=b'h', rank @ b'1'..=b'8'] => {
                     let rank = rank - b'1';
                     let file = file - b'a';
                     Ok(Self::new(file + (rank << 3)))
@@ -181,6 +182,20 @@ impl Square {
     }
 }
 
+
+impl Display for Square {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.is_none() {
+            return write!(f, "-");
+        }
+        write!(
+            f,
+            "{}{}",
+            (b'a' + self.file() as u8) as char,
+            (b'1' + self.rank() as u8) as char
+        )
+    }
+}
 
 impl BitXor<u8> for Square {
     type Output = Square;

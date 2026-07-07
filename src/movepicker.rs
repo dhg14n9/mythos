@@ -9,6 +9,15 @@ pub struct MovePicker<'a> {
 }
 
 impl MovePicker<'_> {
+    pub fn new(board: &Board) -> MovePicker<'_> {
+        MovePicker {
+            board,
+            quiet: MoveList::new(),
+            noisy: MoveList::new(),
+            bad_noisy: MoveList::new(),
+        }
+    }
+
     pub fn gen_move(&mut self) {
         self.board.gen_move(&mut self.quiet, &mut self.noisy)
     }

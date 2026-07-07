@@ -1,35 +1,8 @@
 use crate::board::board::Board;
-use crate::types::{Move, MoveList, PieceType, Square};
+use crate::types::MoveList;
 
-/// Count leaf nodes of the move tree at `depth` plies.
-///
-/// `gen_move` emits fully legal moves, so at `depth == 1` we can bulk-count the
-/// generated moves without making them. Both lists must be walked: `noisy` holds
-/// captures and queen promotions, `quiet` holds everything else
-fn perft(board: &mut Board, depth: usize) -> u64 {
-    if depth == 0 {
-        return 1;
-    }
-
-    let mut quiet = MoveList::new();
-    let mut noisy = MoveList::new();
-    board.gen_move(&mut quiet, &mut noisy);
-
-    if depth == 1 {
-        return (quiet.len() + noisy.len()) as u64;
-    }
-
-    let mut count = 0;
-    for list in [&quiet, &noisy] {
-        for i in 0..list.len() {
-            let mv = list.get(i);
-            board.make_move(mv);
-            count += perft(board, depth - 1);
-            board.unmake_move(mv);
-        }
-    }
-    count
-}
+// The plain perft implementation lives on Board (src/board/movegen.rs) so the
+// UCI `go perft` command shares it; only the TT-assisted variant is test-local.
 
 // ----- perft suite -----
 
@@ -71,7 +44,7 @@ fn run_suite(max_nodes: u64) {
                 break;
             }
             let depth = i + 1;
-            let got = perft(&mut board, depth);
+            let got = board.perft(depth);
             assert_eq!(got, expected, "perft(depth {depth}) mismatch for FEN `{fen}`");
         }
     }
@@ -92,69 +65,9 @@ fn perft_suite_deep() {
     run_suite(200_000_000);
 }
 
-// ----- divide (debugging) -----
-
-fn square_to_str(sq: Square) -> String {
-    if sq.is_none() {
-        return "-".to_string();
-    }
-    let file = (b'a' + (sq as u8 & 7)) as char;
-    let rank = (b'1' + (sq as u8 >> 3)) as char;
-    format!("{file}{rank}")
-}
-
-fn move_to_uci(mv: Move) -> String {
-    let mut s = format!("{}{}", square_to_str(mv.from()), square_to_str(mv.to()));
-    if mv.is_promotion() {
-        s.push(match mv.promo_piece() {
-            PieceType::Knight => 'n',
-            PieceType::Bishop => 'b',
-            PieceType::Rook => 'r',
-            PieceType::Queen => 'q',
-            _ => '?',
-        });
-    }
-    s
-}
-
-// Print the per-root-move node counts, the standard way to bisect a perft
-// discrepancy against a reference engine (e.g. `stockfish`'s `go perft N`).
-fn perft_divide(board: &mut Board, depth: usize) -> u64 {
-    let mut quiet = MoveList::new();
-    let mut noisy = MoveList::new();
-    board.gen_move(&mut quiet, &mut noisy);
-
-    let mut total = 0;
-    for list in [&quiet, &noisy] {
-        for i in 0..list.len() {
-            let mv = list.get(i);
-            board.make_move(mv);
-            let sub = if depth <= 1 { 1 } else { perft(board, depth - 1) };
-            board.unmake_move(mv);
-            println!("{}: {sub}", move_to_uci(mv));
-            total += sub;
-        }
-    }
-    println!("\nNodes searched: {total}");
-    total
-}
-
-// Divide a position to bisect a perft discrepancy. FEN and depth come from the
-// PERFT_FEN / PERFT_DEPTH env vars (Kiwipete at depth 1 by default), so no recompile
-// is needed to point it somewhere new:
-//     PERFT_FEN="<fen>" PERFT_DEPTH=3 cargo test perft_debug -- --ignored --nocapture
-#[test]
-#[ignore]
-fn perft_debug() {
-    let fen = std::env::var("PERFT_FEN")
-        .unwrap_or_else(|_| "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1".to_string());
-    let depth = std::env::var("PERFT_DEPTH")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1);
-    let mut board = Board::from_fen(&fen).expect("PERFT_FEN is not a valid FEN");
-    perft_divide(&mut board, depth);
-}
+// A per-root-move divide is available through the UCI loop (`go perft <depth>`),
+// which is the standard way to bisect a discrepancy against a reference engine:
+//     echo "position fen <fen>\ngo perft 3" | cargo run --release
 
 // ----- transposition table (perft hashing) -----
 
@@ -284,7 +197,7 @@ fn perft_bench() {
 
     // Touch the hot paths once so the timed run reflects steady-state throughput
     // (I-cache / branch predictor warmed) rather than first-call effects.
-    let _ = perft(&mut board, 2.min(depth));
+    let _ = board.perft(2.min(depth));
 
     // With the TT on, `nodes` is still the true leaf count, so `speed` is the
     // *effective* throughput (full node count / reduced time) — the number to
@@ -296,7 +209,7 @@ fn perft_bench() {
         (n, start.elapsed(), Some((tt.hits, tt.probes)))
     } else {
         let start = Instant::now();
-        let n = perft(&mut board, depth);
+        let n = board.perft(depth);
         (n, start.elapsed(), None)
     };
 
@@ -358,7 +271,7 @@ fn perft_bench_suite() {
 
     // Warm the hot paths before timing.
     if let Some(&(fen, _, _)) = cases.first() {
-        let _ = perft(&mut Board::from_fen(fen).unwrap(), 2);
+        let _ = Board::from_fen(fen).unwrap().perft(2);
     }
 
     let mut total_nodes = 0u64;
@@ -367,7 +280,7 @@ fn perft_bench_suite() {
         let mut board = Board::from_fen(fen).expect("invalid FEN in suite");
         let nodes = match tt.as_mut() {
             Some(tt) => perft_tt(&mut board, depth, tt),
-            None => perft(&mut board, depth),
+            None => board.perft(depth),
         };
         assert_eq!(nodes, expected, "perft(depth {depth}) mismatch for `{fen}`");
         total_nodes += nodes;

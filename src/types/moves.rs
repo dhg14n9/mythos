@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use crate::types::piece::PieceType;
 use crate::types::Square;
 
@@ -100,4 +101,17 @@ impl Move {
     }
 
 
+}
+
+impl Display for Move {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.is_null() {
+            return write!(f, "0000");
+        }
+        write!(f, "{}{}", self.from(), self.to())?;
+        if self.is_promotion() {
+            write!(f, "{}", self.promo_piece().to_char())?;
+        }
+        Ok(())
+    }
 }
