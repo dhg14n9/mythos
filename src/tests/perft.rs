@@ -1,5 +1,4 @@
 use crate::board::board::Board;
-use crate::types::MoveList;
 
 // The plain perft implementation lives on Board (src/board/movegen.rs) so the
 // UCI `go perft` command shares it; only the TT-assisted variant is test-local.
@@ -69,103 +68,11 @@ fn perft_suite_deep() {
 // which is the standard way to bisect a discrepancy against a reference engine:
 //     echo "position fen <fen>\ngo perft 3" | cargo run --release
 
-// ----- transposition table (perft hashing) -----
-
-// A perft subtree count depends only on (position, remaining depth), so it can be
-// cached. Keyed by the board's zobrist hash; `depth` is stored and compared so
-// entries for different depths of the same position never alias. Direct-mapped
-// (one slot per index, newest wins) — collisions only cost a recomputation.
-#[derive(Clone, Copy, Default)]
-struct PerftEntry {
-    key: u64,
-    count: u64,
-    depth: u8,
-}
-
-struct PerftTable {
-    entries: Vec<PerftEntry>,
-    mask: usize,
-    hits: u64,
-    probes: u64,
-}
-
-impl PerftTable {
-    fn with_pow2_size(bits: u32) -> Self {
-        let size = 1usize << bits;
-        Self {
-            entries: vec![PerftEntry::default(); size],
-            mask: size - 1,
-            hits: 0,
-            probes: 0,
-        }
-    }
-
-    fn probe(&mut self, key: u64, depth: usize) -> Option<u64> {
-        self.probes += 1;
-        let e = &self.entries[(key as usize) & self.mask];
-        if e.key == key && e.depth as usize == depth {
-            self.hits += 1;
-            Some(e.count)
-        } else {
-            None
-        }
-    }
-
-    fn store(&mut self, key: u64, depth: usize, count: u64) {
-        self.entries[(key as usize) & self.mask] = PerftEntry { key, count, depth: depth as u8 };
-    }
-}
-
-// perft with transposition-table lookups. Probes before generating moves so a hit
-// skips movegen entirely. depth 0/1 are trivial and never cached.
-fn perft_tt(board: &mut Board, depth: usize, tt: &mut PerftTable) -> u64 {
-    if depth == 0 {
-        return 1;
-    }
-
-    let key = board.hash();
-    if depth >= 2 {
-        if let Some(count) = tt.probe(key, depth) {
-            return count;
-        }
-    }
-
-    let mut quiet = MoveList::new();
-    let mut noisy = MoveList::new();
-    board.gen_move(&mut quiet, &mut noisy);
-
-    if depth == 1 {
-        return (quiet.len() + noisy.len()) as u64;
-    }
-
-    let mut count = 0;
-    for list in [&quiet, &noisy] {
-        for i in 0..list.len() {
-            let mv = list.get(i);
-            board.make_move(mv);
-            count += perft_tt(board, depth - 1, tt);
-            board.unmake_move(mv);
-        }
-    }
-    tt.store(key, depth, count);
-    count
-}
-
 // ----- benchmark -----
 
-// Insert thousands separators: 119060324 -> "119,060,324".
-fn group_digits(n: u64) -> String {
-    let s = n.to_string();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    let len = s.len();
-    for (i, ch) in s.chars().enumerate() {
-        if i > 0 && (len - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out
-}
+// The transposition-table perft (PerftTable / perft_tt) lives in crate::bench
+// alongside the suite runner, so the `mythos bench tt` CLI command shares it.
+use crate::bench::{group_digits, perft_tt, PerftTable};
 
 // Whether the PERFT_TT env var opts into the transposition table.
 fn tt_enabled() -> bool {
@@ -206,7 +113,7 @@ fn perft_bench() {
         let mut tt = PerftTable::with_pow2_size(22); // 2^22 entries, ~96 MB
         let start = Instant::now();
         let n = perft_tt(&mut board, depth, &mut tt);
-        (n, start.elapsed(), Some((tt.hits, tt.probes)))
+        (n, start.elapsed(), Some((tt.hits(), tt.probes())))
     } else {
         let start = Instant::now();
         let n = board.perft(depth);
@@ -230,76 +137,14 @@ fn perft_bench() {
     println!();
 }
 
-// Andrew Wagner's verified perft suite — 127 positions with known leaf counts,
-// embedded from perft_bench.epd (http://www.rocechess.ch/perft.html). Times one
-// full pass (~4.7B nodes) and reports aggregate throughput. Every position's count
-// is asserted against the file's verified value, so this is also a broad
-// correctness sweep across castling, promotions, en passant, and endgames.
+// Andrew Wagner's verified suite (127 positions, ~4.7B nodes), shared with the
+// `mythos bench` CLI command. Prints per-position nodes/time/NPS and overall
+// totals; the assert makes any count mismatch fail the test.
 // The transposition table is toggled with PERFT_TT (off by default). Run with:
 //     PERFT_TT=1 cargo test perft_bench_suite -- --ignored --nocapture
 #[test]
 #[ignore]
 fn perft_bench_suite() {
-    use std::time::Instant;
-
-    // Embedded at compile time; lives next to this file.
-    const EPD: &str = include_str!("perft_bench.epd");
-
-    // Parse "<FEN> ;D<depth> <expected>" lines, skipping comments and blanks.
-    let cases: Vec<(&str, usize, u64)> = EPD
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .map(|line| {
-            let (fen, directive) = line.split_once(';').expect("EPD line missing ';D'");
-            let mut fields = directive
-                .trim()
-                .strip_prefix('D')
-                .expect("directive must start with 'D'")
-                .split_whitespace();
-            let depth = fields.next().expect("missing depth").parse().expect("bad depth");
-            let expected = fields.next().expect("missing count").parse().expect("bad count");
-            (fen.trim(), depth, expected)
-        })
-        .collect();
-
-    let use_tt = tt_enabled();
-    // One table shared across the whole pass. Full 64-bit key + depth comparison
-    // keeps positions independent (a different position can never read another's
-    // entry), so there is no need to clear between positions.
-    let mut tt = use_tt.then(|| PerftTable::with_pow2_size(22));
-
-    // Warm the hot paths before timing.
-    if let Some(&(fen, _, _)) = cases.first() {
-        let _ = Board::from_fen(fen).unwrap().perft(2);
-    }
-
-    let mut total_nodes = 0u64;
-    let start = Instant::now();
-    for &(fen, depth, expected) in &cases {
-        let mut board = Board::from_fen(fen).expect("invalid FEN in suite");
-        let nodes = match tt.as_mut() {
-            Some(tt) => perft_tt(&mut board, depth, tt),
-            None => board.perft(depth),
-        };
-        assert_eq!(nodes, expected, "perft(depth {depth}) mismatch for `{fen}`");
-        total_nodes += nodes;
-    }
-    let elapsed = start.elapsed();
-
-    let secs = elapsed.as_secs_f64();
-    let nps = if secs > 0.0 { total_nodes as f64 / secs } else { f64::INFINITY };
-
-    println!();
-    println!("  suite     : Andrew Wagner (perft_bench.epd)");
-    println!("  positions : {}", cases.len());
-    println!("  tt        : {}", if use_tt { "on" } else { "off" });
-    println!("  nodes     : {}", group_digits(total_nodes));
-    println!("  time      : {:.3?}", elapsed);
-    println!("  speed     : {:.1} Mnps ({} nodes/s)", nps / 1e6, group_digits(nps as u64));
-    if let Some(tt) = tt.as_ref() {
-        let rate = if tt.probes > 0 { tt.hits as f64 / tt.probes as f64 * 100.0 } else { 0.0 };
-        println!("  tt hits   : {} / {} probes ({rate:.1}%)", group_digits(tt.hits), group_digits(tt.probes));
-    }
-    println!();
+    assert!(crate::bench::run(tt_enabled()), "perft bench suite had count mismatches");
 }
+

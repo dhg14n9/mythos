@@ -31,6 +31,10 @@ pub fn run() {
             "ucinewgame" => board = Board::start_pos(),
             "position" => position(&mut board, args),
             "go" => go(&mut board, args),
+            "bench" => {
+                let use_tt = args.iter().any(|a| matches!(*a, "tt" | "--tt"));
+                crate::bench::run(use_tt);
+            }
             "stop" => {} // nothing running; bestmove was already sent
             "quit" => break,
             _ => println!("info string unknown command: {cmd}"),
