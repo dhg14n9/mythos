@@ -11,6 +11,7 @@ pub enum Color {
 
 impl Color {
     pub const NUM: usize = 2;
+    pub const ALL: [Color; 2] = [Color::White, Color::Black];
 
     pub fn new(value: u8) -> Self {
         debug_assert!(value < Self::NUM as u8);

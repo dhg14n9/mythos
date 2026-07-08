@@ -16,6 +16,7 @@ pub enum PieceType {
 
 impl PieceType {
     pub const NUM: usize = 6;
+    pub const ALL: [PieceType; 6] = [PieceType::Pawn, PieceType::Knight, PieceType::Bishop, PieceType::Rook, PieceType::Queen, PieceType::King]; 
     pub fn new(value: u8) -> Self {
         debug_assert!(value < Self::NUM as u8);
 
