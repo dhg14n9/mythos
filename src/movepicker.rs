@@ -30,6 +30,10 @@ impl MovePicker {
         todo!()
     }
 
+    pub fn terminal(&self) -> bool {
+        (self.noisy.len() == 0) && (self.quiet.len() == 0)
+    }
+
     pub fn random(&mut self, board: &Board) -> Move {
         let total = self.quiet.len() + self.noisy.len();
         if total == 0 {

@@ -335,6 +335,10 @@ impl Board {
         }
         phase
     }
+
+    pub fn is_check(&self) -> bool {
+        !self.checkers(self.side_to_move).is_empty()
+    }
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@ use crate::eval::eval::eval;
 use crate::movepicker::MovePicker;
 use crate::types::Score;
 
-fn negamax(board: &mut Board, depth: usize, mut alpha: i32, mut beta: i32) -> i32 {
+fn negamax(board: &mut Board, depth: usize, mut alpha: i32, beta: i32) -> i32 {
     if depth == 0 {
         return eval(board);
     };
@@ -12,9 +12,13 @@ fn negamax(board: &mut Board, depth: usize, mut alpha: i32, mut beta: i32) -> i3
     let mut move_picker = MovePicker::new();
     move_picker.gen_move(board);
 
+    if move_picker.terminal() {
+        return if board.is_check() { -Score::MAX } else { Score::ZERO };
+    }
+
     while let Some(mv) = move_picker.next(board) {
         board.make_move(mv);
-        let score = -Score::score_color(negamax(board, depth - 1, -beta, -alpha), board.stm());
+        let score = -negamax(board, depth - 1, -beta, -alpha);
         board.unmake_move(mv);
         best = best.max(score);
         alpha = alpha.max(best);
@@ -23,7 +27,12 @@ fn negamax(board: &mut Board, depth: usize, mut alpha: i32, mut beta: i32) -> i3
             break;
         };
     }
-    best
+
+    if Score::is_mate(best) {
+        best - best.signum()
+    } else {
+        best
+    }
 }
 
 pub fn start_negamax(board: &mut Board, depth: usize) -> i32 {

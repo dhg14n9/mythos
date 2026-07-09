@@ -19,4 +19,8 @@ impl Score {
     pub fn mate_in(ply: usize, color: Color) -> i32 {
         Self::score_color(Self::MAX - ply as i32, color)
     }
+
+    pub fn is_mate(score: i32) -> bool {
+        score.abs() > 40000
+    }
 }
