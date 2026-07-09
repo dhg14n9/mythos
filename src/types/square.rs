@@ -1,6 +1,6 @@
+use crate::types::Color;
 use std::fmt::{Display, Formatter};
 use std::ops::{Add, BitXor, Div, Index, IndexMut};
-use crate::types::Color;
 
 #[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Debug)]
 #[repr(u8)]
@@ -40,13 +40,13 @@ impl<T> Index<File> for [T] {
     type Output = T;
 
     fn index(&self, index: File) -> &Self::Output {
-        &self [index as usize]
+        &self[index as usize]
     }
 }
 
 impl<T> IndexMut<File> for [T] {
     fn index_mut(&mut self, index: File) -> &mut Self::Output {
-        &mut self [index as usize]
+        &mut self[index as usize]
     }
 }
 
@@ -71,8 +71,7 @@ impl Rank {
         Rank::R5,
         Rank::R6,
         Rank::R7,
-        Rank::R8
-
+        Rank::R8,
     ];
     pub fn new(value: u8) -> Self {
         debug_assert!(value < Self::NUM as u8);
@@ -85,13 +84,13 @@ impl<T> Index<Rank> for [T] {
     type Output = T;
 
     fn index(&self, index: Rank) -> &Self::Output {
-        &self [index as usize]
+        &self[index as usize]
     }
 }
 
 impl<T> IndexMut<Rank> for [T] {
     fn index_mut(&mut self, index: Rank) -> &mut Self::Output {
-        &mut self [index as usize]
+        &mut self[index as usize]
     }
 }
 
@@ -113,6 +112,8 @@ pub enum Square {
 
 impl Square {
     pub const NUM: usize = 64;
+
+    #[rustfmt::skip]
     pub const ENPASSANT: [Square; 64] = [
         Square::None, Square::None, Square::None, Square::None, Square::None, Square::None, Square::None, Square::None,
         Square::None, Square::None, Square::None, Square::None, Square::None, Square::None, Square::None, Square::None,
@@ -139,7 +140,7 @@ impl Square {
     }
 
     pub fn file(self) -> File {
-        unsafe { std::mem::transmute(self as u8 & 7 ) }
+        unsafe { std::mem::transmute(self as u8 & 7) }
     }
 
     pub fn offset(self, value: i8) -> Self {
@@ -156,10 +157,17 @@ impl Square {
     pub fn relative_to(self, color: Color) -> Self {
         match color {
             Color::White => self,
-            Color::Black => self.flip_rank()
+            Color::Black => self.flip_rank(),
         }
     }
-    
+
+    pub fn rev_relative_to(self, color: Color) -> Self {
+        match color {
+            Color::White => self.flip_rank(),
+            Color::Black => self,
+        }
+    }
+
     pub fn is_none(self) -> bool {
         matches!(self, Self::None)
     }
@@ -171,17 +179,16 @@ impl Square {
     pub fn parse(value: &str) -> Result<Self, &'static str> {
         // algebraic notation to Square
 
-            match value.as_bytes() {
-                [file @ b'a'..=b'h', rank @ b'1'..=b'8'] => {
-                    let rank = rank - b'1';
-                    let file = file - b'a';
-                    Ok(Self::new(file + (rank << 3)))
-                },
-                _ => Err("Invalid Square")
+        match value.as_bytes() {
+            [file @ b'a'..=b'h', rank @ b'1'..=b'8'] => {
+                let rank = rank - b'1';
+                let file = file - b'a';
+                Ok(Self::new(file + (rank << 3)))
             }
+            _ => Err("Invalid Square"),
+        }
     }
 }
-
 
 impl Display for Square {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -221,16 +228,16 @@ impl Div<u8> for Square {
     }
 }
 
-impl<T> Index<Square> for [T] { 
+impl<T> Index<Square> for [T] {
     type Output = T;
-    
+
     fn index(&self, index: Square) -> &Self::Output {
-        &self [index as usize & 63]
+        &self[index as usize & 63]
     }
 }
 
 impl<T> IndexMut<Square> for [T] {
     fn index_mut(&mut self, index: Square) -> &mut Self::Output {
-        &mut self [index as usize & 63]
+        &mut self[index as usize & 63]
     }
 }

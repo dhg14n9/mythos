@@ -1,13 +1,12 @@
+use crate::types::{Direction, File, Rank, Square};
 use std::ops::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr,
-    ShrAssign
+    ShrAssign,
 };
-use crate::types::{Direction, File, Rank, Square};
 
 #[derive(Copy, Clone, Eq, PartialEq, Default)]
 #[repr(transparent)]
 pub struct Bitboard(pub u64);
-
 
 impl Bitboard {
     pub const FULL: Self = Self(u64::MAX);
@@ -38,7 +37,11 @@ impl Bitboard {
         self.0 &= !(1 << (square as usize))
     }
     pub fn offset(&mut self, value: i8) {
-        if value > 0 { self.0 <<= value } else { self.0 >>= -value }
+        if value > 0 {
+            self.0 <<= value
+        } else {
+            self.0 >>= -value
+        }
     }
 
     pub fn is_empty(self) -> bool {
@@ -59,11 +62,11 @@ impl Bitboard {
     }
     pub fn msb(self) -> Square {
         if self.is_empty() {
-            return Square::None
+            return Square::None;
         }
         Square::new((63 - self.0.leading_zeros()) as u8)
     }
-    pub fn pop_count(self) -> usize { 
+    pub fn pop_count(self) -> usize {
         self.0.count_ones() as usize
     }
 
@@ -76,11 +79,9 @@ impl Bitboard {
         Self(0xfefefefefefefe),
         Self(0x7f7f7f7f7f7f7f),
         Self(0xfefefefefefefe00),
-        Self(0x7f7f7f7f7f7f7f00)
+        Self(0x7f7f7f7f7f7f7f00),
     ];
-    const SHIFT_NUMBER: [i8; 8] = [
-        8, -8, -1, 1, 7, 9, -9, -7
-    ];
+    const SHIFT_NUMBER: [i8; 8] = [8, -8, -1, 1, 7, 9, -9, -7];
 
     // assisted shifting
     pub fn shift(&mut self, direction: Direction) {
@@ -217,7 +218,6 @@ const fn build_between() -> [[Bitboard; 64]; 64] {
 
     result
 }
-
 
 const fn build_ray() -> [[Bitboard; 64]; 64] {
     let mut result = [[Bitboard::EMPTY; 64]; 64];

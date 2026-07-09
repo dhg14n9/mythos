@@ -5,7 +5,9 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("bench") => {
-            let use_tt = args[1..].iter().any(|a| matches!(a.as_str(), "tt" | "--tt"));
+            let use_tt = args[1..]
+                .iter()
+                .any(|a| matches!(a.as_str(), "tt" | "--tt"));
             if !mythos::bench::run(use_tt) {
                 std::process::exit(1);
             }

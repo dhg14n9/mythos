@@ -1,23 +1,26 @@
-use std::ops::{Index, IndexMut};
 use crate::types::Square;
+use std::ops::{Index, IndexMut};
 
 #[derive(Copy, Clone)]
 pub enum CastlingKind {
     WhiteKing = 0b0001,
     WhiteQueen = 0b0010,
     BlackKing = 0b0100,
-    BlackQueen = 0b1000
+    BlackQueen = 0b1000,
 }
 
 impl CastlingKind {
-    pub const KINDS: [[Self; 2]; 2] = [[Self::WhiteKing, Self::WhiteQueen], [Self::BlackKing, Self::BlackQueen]];
+    pub const KINDS: [[Self; 2]; 2] = [
+        [Self::WhiteKing, Self::WhiteQueen],
+        [Self::BlackKing, Self::BlackQueen],
+    ];
 
     pub fn king_landing_square(castling_kind: CastlingKind) -> Square {
         match castling_kind {
             CastlingKind::WhiteKing => Square::G1,
             CastlingKind::WhiteQueen => Square::C1,
             CastlingKind::BlackKing => Square::G8,
-            CastlingKind::BlackQueen => Square::C8
+            CastlingKind::BlackQueen => Square::C8,
         }
     }
     pub fn rook_landing_square(castling_kind: CastlingKind) -> Square {
@@ -25,7 +28,7 @@ impl CastlingKind {
             CastlingKind::WhiteKing => Square::F1,
             CastlingKind::WhiteQueen => Square::D1,
             CastlingKind::BlackKing => Square::F8,
-            CastlingKind::BlackQueen => Square::D8
+            CastlingKind::BlackQueen => Square::D8,
         }
     }
 }
@@ -55,10 +58,12 @@ impl Castling {
         let mut mask = [0b1111u8; Square::NUM];
         mask[Square::A1 as usize] = 0b1111 & !(CastlingKind::WhiteQueen as u8);
         mask[Square::H1 as usize] = 0b1111 & !(CastlingKind::WhiteKing as u8);
-        mask[Square::E1 as usize] = 0b1111 & !(CastlingKind::WhiteKing as u8 | CastlingKind::WhiteQueen as u8);
+        mask[Square::E1 as usize] =
+            0b1111 & !(CastlingKind::WhiteKing as u8 | CastlingKind::WhiteQueen as u8);
         mask[Square::A8 as usize] = 0b1111 & !(CastlingKind::BlackQueen as u8);
         mask[Square::H8 as usize] = 0b1111 & !(CastlingKind::BlackKing as u8);
-        mask[Square::E8 as usize] = 0b1111 & !(CastlingKind::BlackKing as u8 | CastlingKind::BlackQueen as u8);
+        mask[Square::E8 as usize] =
+            0b1111 & !(CastlingKind::BlackKing as u8 | CastlingKind::BlackQueen as u8);
         mask
     };
 
@@ -96,14 +101,11 @@ impl Castling {
                     CastlingKind::WhiteKing => "W",
                     CastlingKind::WhiteQueen => "B",
                     CastlingKind::BlackKing => "w",
-                    CastlingKind::BlackQueen => "b"
+                    CastlingKind::BlackQueen => "b",
                 }
             }
-        };
+        }
 
         output
-
     }
 }
-
-

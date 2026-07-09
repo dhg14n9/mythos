@@ -20,8 +20,16 @@ pub fn cases() -> Vec<(&'static str, usize, u64)> {
                 .strip_prefix('D')
                 .expect("directive must start with 'D'")
                 .split_whitespace();
-            let depth = fields.next().expect("missing depth").parse().expect("bad depth");
-            let expected = fields.next().expect("missing count").parse().expect("bad count");
+            let depth = fields
+                .next()
+                .expect("missing depth")
+                .parse()
+                .expect("bad depth");
+            let expected = fields
+                .next()
+                .expect("missing count")
+                .parse()
+                .expect("bad count");
             (fen.trim(), depth, expected)
         })
         .collect()
@@ -84,7 +92,11 @@ impl PerftTable {
     }
 
     fn store(&mut self, key: u64, depth: usize, count: u64) {
-        self.entries[(key as usize) & self.mask] = PerftEntry { key, count, depth: depth as u8 };
+        self.entries[(key as usize) & self.mask] = PerftEntry {
+            key,
+            count,
+            depth: depth as u8,
+        };
     }
 
     pub fn hits(&self) -> u64 {
@@ -193,17 +205,33 @@ pub fn run(use_tt: bool) -> bool {
     let nps = total_nodes as f64 / elapsed.as_secs_f64().max(f64::EPSILON);
 
     println!();
-    println!("  positions : {}{}", cases.len(), if failures == 0 { "" } else { " (FAILURES!)" });
+    println!(
+        "  positions : {}{}",
+        cases.len(),
+        if failures == 0 { "" } else { " (FAILURES!)" }
+    );
     if failures > 0 {
         println!("  failures  : {failures}");
     }
     println!("  tt        : {}", if use_tt { "on" } else { "off" });
     println!("  nodes     : {}", group_digits(total_nodes));
     println!("  time      : {:.3?}", elapsed);
-    println!("  speed     : {:.1} Mnps ({} nodes/s)", nps / 1e6, group_digits(nps as u64));
+    println!(
+        "  speed     : {:.1} Mnps ({} nodes/s)",
+        nps / 1e6,
+        group_digits(nps as u64)
+    );
     if let Some(tt) = tt.as_ref() {
-        let rate = if tt.probes > 0 { tt.hits as f64 / tt.probes as f64 * 100.0 } else { 0.0 };
-        println!("  tt hits   : {} / {} probes ({rate:.1}%)", group_digits(tt.hits), group_digits(tt.probes));
+        let rate = if tt.probes > 0 {
+            tt.hits as f64 / tt.probes as f64 * 100.0
+        } else {
+            0.0
+        };
+        println!(
+            "  tt hits   : {} / {} probes ({rate:.1}%)",
+            group_digits(tt.hits),
+            group_digits(tt.probes)
+        );
     }
     println!();
 

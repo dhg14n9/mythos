@@ -44,7 +44,10 @@ fn run_suite(max_nodes: u64) {
             }
             let depth = i + 1;
             let got = board.perft(depth);
-            assert_eq!(got, expected, "perft(depth {depth}) mismatch for FEN `{fen}`");
+            assert_eq!(
+                got, expected,
+                "perft(depth {depth}) mismatch for FEN `{fen}`"
+            );
         }
     }
 }
@@ -72,7 +75,7 @@ fn perft_suite_deep() {
 
 // The transposition-table perft (PerftTable / perft_tt) lives in crate::bench
 // alongside the suite runner, so the `mythos bench tt` CLI command shares it.
-use crate::bench::{group_digits, perft_tt, PerftTable};
+use crate::bench::{PerftTable, group_digits, perft_tt};
 
 // Whether the PERFT_TT env var opts into the transposition table.
 fn tt_enabled() -> bool {
@@ -121,7 +124,11 @@ fn perft_bench() {
     };
 
     let secs = elapsed.as_secs_f64();
-    let nps = if secs > 0.0 { nodes as f64 / secs } else { f64::INFINITY };
+    let nps = if secs > 0.0 {
+        nodes as f64 / secs
+    } else {
+        f64::INFINITY
+    };
 
     println!();
     println!("  position : {fen}");
@@ -129,10 +136,22 @@ fn perft_bench() {
     println!("  tt       : {}", if use_tt { "on" } else { "off" });
     println!("  nodes    : {}", group_digits(nodes));
     println!("  time     : {:.3?}", elapsed);
-    println!("  speed    : {:.1} Mnps ({} nodes/s)", nps / 1e6, group_digits(nps as u64));
+    println!(
+        "  speed    : {:.1} Mnps ({} nodes/s)",
+        nps / 1e6,
+        group_digits(nps as u64)
+    );
     if let Some((hits, probes)) = tt_stats {
-        let rate = if probes > 0 { hits as f64 / probes as f64 * 100.0 } else { 0.0 };
-        println!("  tt hits  : {} / {} probes ({rate:.1}%)", group_digits(hits), group_digits(probes));
+        let rate = if probes > 0 {
+            hits as f64 / probes as f64 * 100.0
+        } else {
+            0.0
+        };
+        println!(
+            "  tt hits  : {} / {} probes ({rate:.1}%)",
+            group_digits(hits),
+            group_digits(probes)
+        );
     }
     println!();
 }
@@ -145,6 +164,8 @@ fn perft_bench() {
 #[test]
 #[ignore]
 fn perft_bench_suite() {
-    assert!(crate::bench::run(tt_enabled()), "perft bench suite had count mismatches");
+    assert!(
+        crate::bench::run(tt_enabled()),
+        "perft bench suite had count mismatches"
+    );
 }
-

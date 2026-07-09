@@ -14,7 +14,7 @@ struct ZobristKeys {
     square_key: [[KeyType; Piece::NUM]; Square::NUM],
     ep_key: [KeyType; Square::NUM + 1],
     castling_key: [KeyType; Castling::NUM],
-    btm_key: KeyType // black to move key
+    btm_key: KeyType, // black to move key
 }
 
 const fn build_key() -> ZobristKeys {
@@ -68,7 +68,6 @@ static ZOBRIST_KEY: ZobristKeys = build_key();
 pub struct ZobristHelper;
 
 impl ZobristHelper {
-
     pub fn square(square: Square, piece: Piece) -> u64 {
         ZOBRIST_KEY.square_key[square][piece]
     }
@@ -87,5 +86,4 @@ impl ZobristHelper {
     pub fn color() -> u64 {
         ZOBRIST_KEY.btm_key
     }
-
 }

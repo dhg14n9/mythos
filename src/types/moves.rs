@@ -1,6 +1,6 @@
-use std::fmt::{Display, Formatter};
-use crate::types::piece::PieceType;
 use crate::types::Square;
+use crate::types::piece::PieceType;
+use std::fmt::{Display, Formatter};
 
 // A move is u16, 4 bits for MoveKind, 6 bits for start square, 6 bits for destination square
 // null move = 0
@@ -10,7 +10,6 @@ use crate::types::Square;
 // +------------+------------+------------+
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Default)]
 pub struct Move(u16);
-
 
 // Move kind. Check out "https://www.chessprogramming.org/Encoding_Moves#From-To_Based"
 #[derive(Copy, Clone)]
@@ -36,7 +35,11 @@ pub enum MoveKind {
 
 impl Move {
     pub fn new(from: Square, to: Square, kind: MoveKind) -> Self {
-        Move(((from as u16) & 0b0011_1111) | (((to as u16) & 0b0011_1111) << 6) | ((kind as u16) << 12))
+        Move(
+            ((from as u16) & 0b0011_1111)
+                | (((to as u16) & 0b0011_1111) << 6)
+                | ((kind as u16) << 12),
+        )
     }
 
     pub fn from(self) -> Square {
@@ -87,7 +90,7 @@ impl Move {
         match self.kind() {
             MoveKind::KingCastle => true,
             MoveKind::QueenCastle => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -99,8 +102,6 @@ impl Move {
     pub fn promo_piece(self) -> PieceType {
         unsafe { std::mem::transmute(((self.kind() as u8) & 0b0000_0011) + 1) } // knight = 1
     }
-
-
 }
 
 impl Display for Move {

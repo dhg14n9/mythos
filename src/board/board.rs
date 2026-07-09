@@ -1,5 +1,8 @@
-use crate::types::{Bitboard, Castling, CastlingKind, Color, File, Move, MoveKind, Piece, PieceType, Rank, Square, ZobristHelper};
 use crate::types::uninit_array::UninitArray;
+use crate::types::{
+    Bitboard, Castling, CastlingKind, Color, File, Move, MoveKind, Piece, PieceType, Rank, Square,
+    ZobristHelper,
+};
 
 const MAX_STATE_ARRAY_LENGTH: usize = 1024;
 
@@ -9,7 +12,7 @@ pub struct StateInfo {
     pub half_move: u16,
     pub castling_right: Castling,
     pub en_passant: Square,
-    pub captured_piece: Piece
+    pub captured_piece: Piece,
 }
 
 pub struct Board {
@@ -25,7 +28,7 @@ pub struct Board {
     pub(super) game_ply: usize,
     pub(super) piece_count: [u8; Piece::NUM],
 
-    pub(super) state_history: UninitArray<StateInfo, MAX_STATE_ARRAY_LENGTH>
+    pub(super) state_history: UninitArray<StateInfo, MAX_STATE_ARRAY_LENGTH>,
 }
 
 impl Board {
@@ -56,8 +59,13 @@ impl Board {
         let mut file: i8 = 0;
         for ch in placement.chars() {
             match ch {
-                '/' => { rank -= 1; file = 0; }
-                '1'..='8' => { file += (ch as u8 - b'0') as i8; }
+                '/' => {
+                    rank -= 1;
+                    file = 0;
+                }
+                '1'..='8' => {
+                    file += (ch as u8 - b'0') as i8;
+                }
                 _ => {
                     let piece = Piece::parse(ch)?;
                     let sq = Square::from_rank_file(Rank::new(rank as u8), File::new(file as u8));
@@ -101,16 +109,26 @@ impl Board {
 
         // Full move number (only stored as game_ply; see full_move())
         let full = parts.next().ok_or("Missing full move number")?;
-        let full_move = full.parse::<usize>().map_err(|_| "Invalid full move number")?;
+        let full_move = full
+            .parse::<usize>()
+            .map_err(|_| "Invalid full move number")?;
 
         board.game_ply = full_move.saturating_sub(1) * 2
-            + if board.side_to_move == Color::Black { 1 } else { 0 };
+            + if board.side_to_move == Color::Black {
+                1
+            } else {
+                0
+            };
 
         Ok(board)
     }
 
     pub fn start_pos() -> Self {
         Self::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1").unwrap()
+    }
+
+    pub fn stm(&self) -> Color {
+        self.side_to_move
     }
 
     pub fn piece_at(&self, square: Square) -> Piece {
@@ -136,7 +154,7 @@ impl Board {
     pub fn full_move(&self) -> usize {
         self.game_ply / 2 + 1
     }
-    
+
     pub fn hash(&self) -> u64 {
         self.zobrist
     }
@@ -148,8 +166,8 @@ impl Board {
 
     pub fn clear_square(&mut self, square: Square) {
         match self.piece_at(square) {
-            Piece::None => {  },
-            piece => self.remove_piece(piece, square)
+            Piece::None => {}
+            piece => self.remove_piece(piece, square),
         }
     }
 
@@ -171,7 +189,7 @@ impl Board {
         self.remove_piece_unhashed(piece, square);
         self.zobrist ^= ZobristHelper::square(square, piece);
     }
-    
+
     fn move_piece_unhashed(&mut self, piece: Piece, from: Square, to: Square) {
         let mask = Bitboard::from_square(from) | Bitboard::from_square(to);
         self.piece_type_bb[piece.piece_type()] ^= mask;
@@ -192,7 +210,7 @@ impl Board {
             half_move: self.half_move,
             castling_right: self.castling_right,
             en_passant: self.en_passant,
-            captured_piece
+            captured_piece,
         })
     }
 
@@ -208,19 +226,18 @@ impl Board {
         prev_state.captured_piece
     }
 
-
     fn update_castling(&mut self, from: Square, to: Square) {
         let new_rights = Castling::new(
             self.castling_right.raw() as u8
                 & Castling::SQUARE_MASK[from]
                 & Castling::SQUARE_MASK[to],
         );
-        
-        self.zobrist ^= ZobristHelper::castling(self.castling_right)
-            ^ ZobristHelper::castling(new_rights);
+
+        self.zobrist ^=
+            ZobristHelper::castling(self.castling_right) ^ ZobristHelper::castling(new_rights);
         self.castling_right = new_rights;
     }
-    
+
     fn castle_rook_squares(kind: MoveKind, king_to: Square) -> (Square, Square) {
         if matches!(kind, MoveKind::KingCastle) {
             (king_to.offset(1), king_to.offset(-1))
@@ -239,7 +256,7 @@ impl Board {
         let us = self.side_to_move;
 
         self.push_state(captured);
-        
+
         self.zobrist ^= ZobristHelper::ep(self.en_passant);
         self.en_passant = Square::None;
 
@@ -312,10 +329,10 @@ impl Board {
     }
 
     pub fn phase(&self) -> i32 {
-        let mut phase = 0; 
-        for (piece_type, bitboard) in self.piece_type_bb.iter().enumerate() { 
-            phase += bitboard.pop_count() as i32 * Self::GAME_PHASE_INC[piece_type]; 
-        } 
+        let mut phase = 0;
+        for (piece_type, bitboard) in self.piece_type_bb.iter().enumerate() {
+            phase += bitboard.pop_count() as i32 * Self::GAME_PHASE_INC[piece_type];
+        }
         phase
     }
 }
@@ -379,7 +396,10 @@ mod tests {
     // Field-by-field so a failure names exactly what diverged.
     fn assert_snapshot_eq(a: &Snapshot, b: &Snapshot, ctx: &str) {
         for i in 0..PieceType::NUM {
-            assert_eq!(a.piece_type_bb[i], b.piece_type_bb[i], "piece_type_bb[{i}] after {ctx}");
+            assert_eq!(
+                a.piece_type_bb[i], b.piece_type_bb[i],
+                "piece_type_bb[{i}] after {ctx}"
+            );
         }
         for i in 0..Color::NUM {
             assert_eq!(a.color_bb[i], b.color_bb[i], "color_bb[{i}] after {ctx}");
@@ -388,7 +408,10 @@ mod tests {
             assert_eq!(a.mailbox[sq], b.mailbox[sq], "mailbox[{sq}] after {ctx}");
         }
         for i in 0..Piece::NUM {
-            assert_eq!(a.piece_count[i], b.piece_count[i], "piece_count[{i}] after {ctx}");
+            assert_eq!(
+                a.piece_count[i], b.piece_count[i],
+                "piece_count[{i}] after {ctx}"
+            );
         }
         assert_eq!(a.side_to_move, b.side_to_move, "side_to_move after {ctx}");
         assert_eq!(a.castling, b.castling, "castling after {ctx}");
@@ -413,14 +436,20 @@ mod tests {
             let bit = 1u64 << sq;
             let piece = b.mailbox[sq];
             if piece == Piece::None {
-                assert_eq!(occ & bit, 0, "square {sq} empty in mailbox but set in bitboards after {ctx}");
+                assert_eq!(
+                    occ & bit,
+                    0,
+                    "square {sq} empty in mailbox but set in bitboards after {ctx}"
+                );
             } else {
                 assert_ne!(
-                    b.piece_type_bb[piece.piece_type()].0 & bit, 0,
+                    b.piece_type_bb[piece.piece_type()].0 & bit,
+                    0,
                     "square {sq} missing from its piece_type_bb after {ctx}"
                 );
                 assert_ne!(
-                    b.color_bb[piece.color()].0 & bit, 0,
+                    b.color_bb[piece.color()].0 & bit,
+                    0,
                     "square {sq} missing from its color_bb after {ctx}"
                 );
             }
@@ -435,7 +464,10 @@ mod tests {
         board.make_move(mv);
         // Sanity: every legal move flips the side to move, so the hash must change.
         // Guards against a move that is silently a no-op (which would pass trivially).
-        assert_ne!(board.zobrist, before.zobrist, "make_move changed nothing for {name}");
+        assert_ne!(
+            board.zobrist, before.zobrist,
+            "make_move changed nothing for {name}"
+        );
         // The post-make position must itself be internally consistent, not just reversible.
         assert_board_consistent(&board, name);
 
@@ -447,26 +479,102 @@ mod tests {
     fn make_unmake_roundtrip_all_kinds() {
         use MoveKind::*;
         let cases: &[(&str, &str, Move)] = &[
-            ("normal",          "4k3/8/8/8/8/8/8/4K1N1 w - - 0 1",    Move::new(Square::G1, Square::F3, Normal)),
-            ("double_push",     "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1",    Move::new(Square::E2, Square::E4, DoublePush)),
-            ("king_castle_w",   "4k3/8/8/8/8/8/8/4K2R w K - 0 1",     Move::new(Square::E1, Square::G1, KingCastle)),
-            ("queen_castle_w",  "4k3/8/8/8/8/8/8/R3K3 w Q - 0 1",     Move::new(Square::E1, Square::C1, QueenCastle)),
-            ("king_castle_b",   "4k2r/8/8/8/8/8/8/4K3 b k - 0 1",     Move::new(Square::E8, Square::G8, KingCastle)),
-            ("queen_castle_b",  "r3k3/8/8/8/8/8/8/4K3 b q - 0 1",     Move::new(Square::E8, Square::C8, QueenCastle)),
-            ("capture",         "4k3/8/4n3/8/3N4/8/8/4K3 w - - 0 1",  Move::new(Square::D4, Square::E6, Capture)),
-            ("en_passant_w",    "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",  Move::new(Square::E5, Square::D6, EnPassant)),
-            ("en_passant_b",    "4k3/8/8/8/3Pp3/8/8/4K3 b - d3 0 1",  Move::new(Square::E4, Square::D3, EnPassant)),
-            ("promo_knight",    "4k3/P7/8/8/8/8/8/4K3 w - - 0 1",     Move::new(Square::A7, Square::A8, PromoKnight)),
-            ("promo_bishop",    "4k3/P7/8/8/8/8/8/4K3 w - - 0 1",     Move::new(Square::A7, Square::A8, PromoBishop)),
-            ("promo_rook",      "4k3/P7/8/8/8/8/8/4K3 w - - 0 1",     Move::new(Square::A7, Square::A8, PromoRook)),
-            ("promo_queen",     "4k3/P7/8/8/8/8/8/4K3 w - - 0 1",     Move::new(Square::A7, Square::A8, PromoQueen)),
-            ("cap_promo_knight","r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",   Move::new(Square::B7, Square::A8, CapPromoKnight)),
-            ("cap_promo_bishop","r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",   Move::new(Square::B7, Square::A8, CapPromoBishop)),
-            ("cap_promo_rook",  "r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",   Move::new(Square::B7, Square::A8, CapPromoRook)),
-            ("cap_promo_queen", "r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",   Move::new(Square::B7, Square::A8, CapPromoQueen)),
+            (
+                "normal",
+                "4k3/8/8/8/8/8/8/4K1N1 w - - 0 1",
+                Move::new(Square::G1, Square::F3, Normal),
+            ),
+            (
+                "double_push",
+                "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1",
+                Move::new(Square::E2, Square::E4, DoublePush),
+            ),
+            (
+                "king_castle_w",
+                "4k3/8/8/8/8/8/8/4K2R w K - 0 1",
+                Move::new(Square::E1, Square::G1, KingCastle),
+            ),
+            (
+                "queen_castle_w",
+                "4k3/8/8/8/8/8/8/R3K3 w Q - 0 1",
+                Move::new(Square::E1, Square::C1, QueenCastle),
+            ),
+            (
+                "king_castle_b",
+                "4k2r/8/8/8/8/8/8/4K3 b k - 0 1",
+                Move::new(Square::E8, Square::G8, KingCastle),
+            ),
+            (
+                "queen_castle_b",
+                "r3k3/8/8/8/8/8/8/4K3 b q - 0 1",
+                Move::new(Square::E8, Square::C8, QueenCastle),
+            ),
+            (
+                "capture",
+                "4k3/8/4n3/8/3N4/8/8/4K3 w - - 0 1",
+                Move::new(Square::D4, Square::E6, Capture),
+            ),
+            (
+                "en_passant_w",
+                "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",
+                Move::new(Square::E5, Square::D6, EnPassant),
+            ),
+            (
+                "en_passant_b",
+                "4k3/8/8/8/3Pp3/8/8/4K3 b - d3 0 1",
+                Move::new(Square::E4, Square::D3, EnPassant),
+            ),
+            (
+                "promo_knight",
+                "4k3/P7/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::A7, Square::A8, PromoKnight),
+            ),
+            (
+                "promo_bishop",
+                "4k3/P7/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::A7, Square::A8, PromoBishop),
+            ),
+            (
+                "promo_rook",
+                "4k3/P7/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::A7, Square::A8, PromoRook),
+            ),
+            (
+                "promo_queen",
+                "4k3/P7/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::A7, Square::A8, PromoQueen),
+            ),
+            (
+                "cap_promo_knight",
+                "r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::B7, Square::A8, CapPromoKnight),
+            ),
+            (
+                "cap_promo_bishop",
+                "r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::B7, Square::A8, CapPromoBishop),
+            ),
+            (
+                "cap_promo_rook",
+                "r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::B7, Square::A8, CapPromoRook),
+            ),
+            (
+                "cap_promo_queen",
+                "r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::B7, Square::A8, CapPromoQueen),
+            ),
             // A couple of black-to-move cases to exercise us == Black (game_ply parity, back rank).
-            ("promo_queen_b",   "4k3/8/8/8/8/8/p7/4K3 b - - 0 1",     Move::new(Square::A2, Square::A1, PromoQueen)),
-            ("cap_promo_q_b",   "4k3/8/8/8/8/8/1p6/R3K3 b - - 0 1",   Move::new(Square::B2, Square::A1, CapPromoQueen)),
+            (
+                "promo_queen_b",
+                "4k3/8/8/8/8/8/p7/4K3 b - - 0 1",
+                Move::new(Square::A2, Square::A1, PromoQueen),
+            ),
+            (
+                "cap_promo_q_b",
+                "4k3/8/8/8/8/8/1p6/R3K3 b - - 0 1",
+                Move::new(Square::B2, Square::A1, CapPromoQueen),
+            ),
         ];
 
         for &(name, fen, mv) in cases {
@@ -507,30 +615,42 @@ mod tests {
     fn make_move_hash_matches_from_fen() {
         use MoveKind::*;
         let cases: &[(&str, &str, Move, &str)] = &[
-            ("double_push_sets_ep",
-             "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-             Move::new(Square::E2, Square::E4, DoublePush),
-             "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"),
-            ("king_castle_drops_rights",
-             "4k3/8/8/8/8/8/8/4K2R w K - 0 1",
-             Move::new(Square::E1, Square::G1, KingCastle),
-             "4k3/8/8/8/8/8/8/5RK1 b - - 1 1"),
-            ("queen_castle_black",
-             "r3k3/8/8/8/8/8/8/4K3 b q - 0 1",
-             Move::new(Square::E8, Square::C8, QueenCastle),
-             "2kr4/8/8/8/8/8/8/4K3 w - - 1 2"),
-            ("capture",
-             "4k3/8/4n3/8/3N4/8/8/4K3 w - - 0 1",
-             Move::new(Square::D4, Square::E6, Capture),
-             "4k3/8/4N3/8/8/8/8/4K3 b - - 0 1"),
-            ("en_passant_clears_ep",
-             "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",
-             Move::new(Square::E5, Square::D6, EnPassant),
-             "4k3/8/3P4/8/8/8/8/4K3 b - - 0 1"),
-            ("capture_promotion",
-             "r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",
-             Move::new(Square::B7, Square::A8, CapPromoQueen),
-             "Q3k3/8/8/8/8/8/8/4K3 b - - 0 1"),
+            (
+                "double_push_sets_ep",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                Move::new(Square::E2, Square::E4, DoublePush),
+                "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+            ),
+            (
+                "king_castle_drops_rights",
+                "4k3/8/8/8/8/8/8/4K2R w K - 0 1",
+                Move::new(Square::E1, Square::G1, KingCastle),
+                "4k3/8/8/8/8/8/8/5RK1 b - - 1 1",
+            ),
+            (
+                "queen_castle_black",
+                "r3k3/8/8/8/8/8/8/4K3 b q - 0 1",
+                Move::new(Square::E8, Square::C8, QueenCastle),
+                "2kr4/8/8/8/8/8/8/4K3 w - - 1 2",
+            ),
+            (
+                "capture",
+                "4k3/8/4n3/8/3N4/8/8/4K3 w - - 0 1",
+                Move::new(Square::D4, Square::E6, Capture),
+                "4k3/8/4N3/8/8/8/8/4K3 b - - 0 1",
+            ),
+            (
+                "en_passant_clears_ep",
+                "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",
+                Move::new(Square::E5, Square::D6, EnPassant),
+                "4k3/8/3P4/8/8/8/8/4K3 b - - 0 1",
+            ),
+            (
+                "capture_promotion",
+                "r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::B7, Square::A8, CapPromoQueen),
+                "Q3k3/8/8/8/8/8/8/4K3 b - - 0 1",
+            ),
         ];
 
         for &(name, before, mv, after) in cases {
@@ -552,9 +672,9 @@ mod tests {
     #[test]
     #[ignore]
     fn bench_make_unmake() {
+        use MoveKind::*;
         use std::hint::black_box;
         use std::time::Instant;
-        use MoveKind::*;
 
         const ITERATIONS: usize = 100_000_000;
 
@@ -562,20 +682,62 @@ mod tests {
         // board, so cycling through them keeps every board valid for the whole run and
         // makes the reported time an average across all move types.
         let cases: &[(&str, Move)] = &[
-            ("4k3/8/8/8/8/8/8/4K1N1 w - - 0 1",   Move::new(Square::G1, Square::F3, Normal)),
-            ("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1",   Move::new(Square::E2, Square::E4, DoublePush)),
-            ("4k3/8/8/8/8/8/8/4K2R w K - 0 1",    Move::new(Square::E1, Square::G1, KingCastle)),
-            ("4k3/8/8/8/8/8/8/R3K3 w Q - 0 1",    Move::new(Square::E1, Square::C1, QueenCastle)),
-            ("4k3/8/4n3/8/3N4/8/8/4K3 w - - 0 1", Move::new(Square::D4, Square::E6, Capture)),
-            ("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1", Move::new(Square::E5, Square::D6, EnPassant)),
-            ("4k3/P7/8/8/8/8/8/4K3 w - - 0 1",    Move::new(Square::A7, Square::A8, PromoKnight)),
-            ("4k3/P7/8/8/8/8/8/4K3 w - - 0 1",    Move::new(Square::A7, Square::A8, PromoBishop)),
-            ("4k3/P7/8/8/8/8/8/4K3 w - - 0 1",    Move::new(Square::A7, Square::A8, PromoRook)),
-            ("4k3/P7/8/8/8/8/8/4K3 w - - 0 1",    Move::new(Square::A7, Square::A8, PromoQueen)),
-            ("r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",  Move::new(Square::B7, Square::A8, CapPromoKnight)),
-            ("r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",  Move::new(Square::B7, Square::A8, CapPromoBishop)),
-            ("r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",  Move::new(Square::B7, Square::A8, CapPromoRook)),
-            ("r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",  Move::new(Square::B7, Square::A8, CapPromoQueen)),
+            (
+                "4k3/8/8/8/8/8/8/4K1N1 w - - 0 1",
+                Move::new(Square::G1, Square::F3, Normal),
+            ),
+            (
+                "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1",
+                Move::new(Square::E2, Square::E4, DoublePush),
+            ),
+            (
+                "4k3/8/8/8/8/8/8/4K2R w K - 0 1",
+                Move::new(Square::E1, Square::G1, KingCastle),
+            ),
+            (
+                "4k3/8/8/8/8/8/8/R3K3 w Q - 0 1",
+                Move::new(Square::E1, Square::C1, QueenCastle),
+            ),
+            (
+                "4k3/8/4n3/8/3N4/8/8/4K3 w - - 0 1",
+                Move::new(Square::D4, Square::E6, Capture),
+            ),
+            (
+                "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",
+                Move::new(Square::E5, Square::D6, EnPassant),
+            ),
+            (
+                "4k3/P7/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::A7, Square::A8, PromoKnight),
+            ),
+            (
+                "4k3/P7/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::A7, Square::A8, PromoBishop),
+            ),
+            (
+                "4k3/P7/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::A7, Square::A8, PromoRook),
+            ),
+            (
+                "4k3/P7/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::A7, Square::A8, PromoQueen),
+            ),
+            (
+                "r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::B7, Square::A8, CapPromoKnight),
+            ),
+            (
+                "r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::B7, Square::A8, CapPromoBishop),
+            ),
+            (
+                "r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::B7, Square::A8, CapPromoRook),
+            ),
+            (
+                "r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",
+                Move::new(Square::B7, Square::A8, CapPromoQueen),
+            ),
         ];
 
         // Boards live on the heap so the bench thread's stack stays small.
@@ -592,7 +754,9 @@ mod tests {
         for _ in 0..ITERATIONS {
             let (board, mv) = &mut states[k];
             k += 1;
-            if k == kinds { k = 0; }
+            if k == kinds {
+                k = 0;
+            }
             // black_box stops the optimizer from proving the pair is a no-op and
             // deleting the whole loop, which would make the timing meaningless.
             let mv = black_box(*mv);

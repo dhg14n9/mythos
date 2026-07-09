@@ -19,7 +19,9 @@ pub fn run() {
     for line in io::stdin().lock().lines() {
         let Ok(line) = line else { break };
         let tokens: Vec<&str> = line.split_whitespace().collect();
-        let Some((&cmd, args)) = tokens.split_first() else { continue };
+        let Some((&cmd, args)) = tokens.split_first() else {
+            continue;
+        };
 
         match cmd {
             "uci" => {
@@ -48,7 +50,10 @@ fn position(board: &mut Board, args: &[&str]) {
     let (new_board, rest) = match args.split_first() {
         Some((&"startpos", rest)) => (Board::start_pos(), rest),
         Some((&"fen", rest)) => {
-            let fen_end = rest.iter().position(|&t| t == "moves").unwrap_or(rest.len());
+            let fen_end = rest
+                .iter()
+                .position(|&t| t == "moves")
+                .unwrap_or(rest.len());
             match Board::from_fen(&rest[..fen_end].join(" ")) {
                 Ok(b) => (b, &rest[fen_end..]),
                 Err(e) => {
@@ -105,9 +110,9 @@ fn go(board: &mut Board, args: &[&str]) {
     // No search yet: time controls are ignored and the move picker chooses a
     // legal move (deterministically pseudo-random from the position hash).
     // "bestmove 0000" signals a position with no legal moves.
-    let mut picker = MovePicker::new(board);
-    picker.gen_move();
-    println!("bestmove {}", picker.random());
+    let mut picker = MovePicker::new();
+    picker.gen_move(board);
+    println!("bestmove {}", picker.random(board));
 }
 
 // `go perft <depth>`: print per-root-move subtree counts (a "divide"), the
@@ -124,7 +129,11 @@ fn perft_divide(board: &mut Board, depth: usize) {
         for i in 0..list.len() {
             let mv = list.get(i);
             board.make_move(mv);
-            let count = if depth <= 1 { 1 } else { board.perft(depth - 1) };
+            let count = if depth <= 1 {
+                1
+            } else {
+                board.perft(depth - 1)
+            };
             board.unmake_move(mv);
             println!("{mv}: {count}");
             total += count;
@@ -134,7 +143,11 @@ fn perft_divide(board: &mut Board, depth: usize) {
     let elapsed = start.elapsed();
     let nps = total as f64 / elapsed.as_secs_f64().max(f64::EPSILON);
     println!();
-    println!("info string perft({depth}) time {} ms nps {}", elapsed.as_millis(), nps as u64);
+    println!(
+        "info string perft({depth}) time {} ms nps {}",
+        elapsed.as_millis(),
+        nps as u64
+    );
     println!("Nodes searched: {total}");
 }
 
@@ -145,9 +158,18 @@ mod tests {
 
     #[test]
     fn move_uci_notation() {
-        assert_eq!(Move::new(Square::E2, Square::E4, MoveKind::DoublePush).to_string(), "e2e4");
-        assert_eq!(Move::new(Square::E7, Square::E8, MoveKind::PromoQueen).to_string(), "e7e8q");
-        assert_eq!(Move::new(Square::B7, Square::A8, MoveKind::CapPromoKnight).to_string(), "b7a8n");
+        assert_eq!(
+            Move::new(Square::E2, Square::E4, MoveKind::DoublePush).to_string(),
+            "e2e4"
+        );
+        assert_eq!(
+            Move::new(Square::E7, Square::E8, MoveKind::PromoQueen).to_string(),
+            "e7e8q"
+        );
+        assert_eq!(
+            Move::new(Square::B7, Square::A8, MoveKind::CapPromoKnight).to_string(),
+            "b7a8n"
+        );
         assert_eq!(Move::default().to_string(), "0000");
     }
 
@@ -163,7 +185,10 @@ mod tests {
     #[test]
     fn position_moves_match_fen() {
         let mut replayed = Board::start_pos();
-        position(&mut replayed, &["startpos", "moves", "e2e4", "c7c5", "g1f3"]);
+        position(
+            &mut replayed,
+            &["startpos", "moves", "e2e4", "c7c5", "g1f3"],
+        );
 
         let direct =
             Board::from_fen("rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 3")

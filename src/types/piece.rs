@@ -1,6 +1,6 @@
+use crate::types::Color;
 use std::fmt::{Display, Formatter};
 use std::ops::{Index, IndexMut};
-use crate::types::Color;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default)]
 #[repr(u8)]
@@ -11,12 +11,20 @@ pub enum PieceType {
     Rook,
     Queen,
     King,
-    #[default] None
+    #[default]
+    None,
 }
 
 impl PieceType {
     pub const NUM: usize = 6;
-    pub const ALL: [PieceType; 6] = [PieceType::Pawn, PieceType::Knight, PieceType::Bishop, PieceType::Rook, PieceType::Queen, PieceType::King]; 
+    pub const ALL: [PieceType; 6] = [
+        PieceType::Pawn,
+        PieceType::Knight,
+        PieceType::Bishop,
+        PieceType::Rook,
+        PieceType::Queen,
+        PieceType::King,
+    ];
     pub fn new(value: u8) -> Self {
         debug_assert!(value < Self::NUM as u8);
 
@@ -31,7 +39,7 @@ impl PieceType {
             PieceType::Rook => 500,
             PieceType::Queen => 900,
             PieceType::King => 0,
-            PieceType::None => 0
+            PieceType::None => 0,
         }
     }
 
@@ -43,7 +51,7 @@ impl PieceType {
             'r' => Ok(Self::Rook),
             'q' => Ok(Self::Queen),
             'k' => Ok(Self::King),
-            _ => Err("Invalid PieceType!")
+            _ => Err("Invalid PieceType!"),
         }
     }
 
@@ -55,7 +63,7 @@ impl PieceType {
             PieceType::Rook => 'r',
             PieceType::Queen => 'q',
             PieceType::King => 'k',
-            PieceType::None => '.'
+            PieceType::None => '.',
         }
     }
 }
@@ -70,13 +78,13 @@ impl<T> Index<PieceType> for [T] {
     type Output = T;
 
     fn index(&self, index: PieceType) -> &Self::Output {
-        &self [index as usize]
+        &self[index as usize]
     }
 }
 
 impl<T> IndexMut<PieceType> for [T] {
     fn index_mut(&mut self, index: PieceType) -> &mut Self::Output {
-        &mut self [index as usize]
+        &mut self[index as usize]
     }
 }
 
@@ -95,7 +103,8 @@ pub enum Piece {
     BlackQueen,
     WhiteKing,
     BlackKing,
-    #[default] None
+    #[default]
+    None,
 }
 
 impl Piece {
@@ -124,7 +133,11 @@ impl Piece {
     }
 
     pub fn parse(ch: char) -> Result<Self, &'static str> {
-        let color = if ch.is_ascii_uppercase() { Color::White } else { Color::Black };
+        let color = if ch.is_ascii_uppercase() {
+            Color::White
+        } else {
+            Color::Black
+        };
         let piece_type = PieceType::parse(ch)?;
 
         Ok(Self::new(color, piece_type))
@@ -138,7 +151,7 @@ impl Piece {
         let ch = self.piece_type().to_char();
         match self.color() {
             Color::White => ch.to_ascii_uppercase(),
-            Color::Black => ch
+            Color::Black => ch,
         }
     }
 }
@@ -153,12 +166,12 @@ impl<T> Index<Piece> for [T] {
     type Output = T;
 
     fn index(&self, index: Piece) -> &Self::Output {
-        &self [index as usize]
+        &self[index as usize]
     }
 }
 
 impl<T> IndexMut<Piece> for [T] {
     fn index_mut(&mut self, index: Piece) -> &mut Self::Output {
-        &mut self [index as usize]
+        &mut self[index as usize]
     }
 }
