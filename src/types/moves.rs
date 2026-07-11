@@ -34,6 +34,8 @@ pub enum MoveKind {
 }
 
 impl Move {
+    pub const NULL: Move = Move(0);
+
     pub fn new(from: Square, to: Square, kind: MoveKind) -> Self {
         Move(
             ((from as u16) & 0b0011_1111)

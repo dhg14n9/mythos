@@ -26,7 +26,7 @@ impl MovePicker {
     pub fn score_noisy(&mut self) {
         todo!()
     }
-    pub fn next(&mut self, board: &Board) -> Option<Move> {
+    pub fn next(&mut self) -> Option<Move> {
         todo!()
     }
 
