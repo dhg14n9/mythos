@@ -45,21 +45,22 @@ fn start_negamax(board: &mut Board, depth: usize) -> Option<(Move, i32)> {
     if move_picker.terminal() {
         return None;
     }
-    
-    let mut best = (Move::NULL, -Score::score_color(Score::INF, board.stm())); 
 
-    while let Some(mv) = move_picker.next() { 
-        board.make_move(mv); 
-        let score = -negamax(board, depth, -Score::INF, -best.1); 
-        board.unmake_move(mv); 
-        if score >= best.1 { 
+    let mut best = (Move::NULL, -Score::INF);
+
+    while let Some(mv) = move_picker.next() {
+        board.make_move(mv);
+        let score = -negamax(board, depth - 1, -Score::INF, -best.1);
+        board.unmake_move(mv);
+        if score > best.1 {
             best = (mv, score)
         }
     }
-    
+
     Some(best)
 }
 
 pub fn iterative(board: &mut Board, depth: usize) -> Option<(Move, i32)> {
-    todo!()
+
+
 }
