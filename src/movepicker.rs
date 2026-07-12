@@ -34,13 +34,13 @@ impl MovePicker {
         (self.noisy.len() == 0) && (self.quiet.len() == 0)
     }
 
-    pub fn random(&mut self, board: &Board) -> Move {
+    pub fn random(&mut self, hash: u64) -> Move {
         let total = self.quiet.len() + self.noisy.len();
         if total == 0 {
             return Move::default();
         }
 
-        let mut z = board.hash() | 1;
+        let mut z = hash | 1;
         z = z.wrapping_add(0x9E3779B97F4A7C15);
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);

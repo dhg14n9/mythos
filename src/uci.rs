@@ -112,7 +112,7 @@ fn go(board: &mut Board, args: &[&str]) {
     // "bestmove 0000" signals a position with no legal moves.
     let mut picker = MovePicker::new();
     picker.gen_move(board);
-    println!("bestmove {}", picker.random(board));
+    println!("bestmove {}", picker.random(board.hash()));
 }
 
 // `go perft <depth>`: print per-root-move subtree counts (a "divide"), the

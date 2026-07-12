@@ -15,6 +15,7 @@ pub struct StateInfo {
     pub captured_piece: Piece,
 }
 
+#[derive(Clone)]
 pub struct Board {
     pub(super) piece_type_bb: [Bitboard; PieceType::NUM],
     pub(super) color_bb: [Bitboard; Color::NUM],
