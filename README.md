@@ -14,35 +14,6 @@ into any standard chess GUI.
 > **Status:** playable but early. Board representation, legal move generation, and
 > a basic alpha-beta search all work. Not yet rated.
 
-## Features
-
-**Board representation**
-- Bitboard board with a piece mailbox for fast lookups
-- Slider attacks via **magic bitboards**, with a **PEXT** (BMI2) path selected at
-  compile time on supported CPUs
-- Precomputed leaper attack tables (knight, king, pawn)
-- Zobrist hashing for position keys
-- Incremental `make` / `unmake` backed by an irreversible-state history stack
-
-**Move generation**
-- **Fully-legal** move generation (no pseudo-legal + post-filter pass)
-- Validated against standard [perft](https://www.chessprogramming.org/Perft)
-  reference suites, including Kiwipete and Andrew Wagner's 127-position set
-
-**Search**
-- Negamax with alpha-beta pruning
-- Iterative deepening
-- Time management with soft/hard limits (`movetime`, `wtime`/`btime` + increments,
-  `movestogo`)
-
-**Evaluation**
-- Material + piece-square tables, tapered by game phase
-
-**Interface**
-- UCI protocol
-- `go perft <depth>` with per-move divide output
-- `bench` command for a reproducible perft node-count benchmark
-
 ## Building
 
 You'll need **Rust 1.85 or later**.
