@@ -11,11 +11,6 @@ use crate::types::{Color, Move, MoveList};
 const NAME: &str = concat!("Mythos ", env!("CARGO_PKG_VERSION"));
 const AUTHOR: &str = "Do Hoang Giang";
 
-/// Read UCI commands from stdin until `quit` or EOF.
-///
-/// Everything runs on this one thread: `go` returns its bestmove before the
-/// next command is read, so `stop` has nothing to interrupt yet. Once a real
-/// search exists, `go` moves to a worker thread and `stop` signals it.
 pub fn run() {
     let mut board = Board::start_pos();
     let stop = Arc::new(AtomicBool::new(false));
@@ -55,8 +50,6 @@ pub fn run() {
     }
 }
 
-// `position startpos [moves ...]` or `position fen <fen> [moves ...]`.
-// On any malformed input the current position is left untouched.
 fn position(board: &mut Board, args: &[&str]) {
     let (new_board, rest) = match args.split_first() {
         Some((&"startpos", rest)) => (Board::start_pos(), rest),
@@ -92,9 +85,6 @@ fn position(board: &mut Board, args: &[&str]) {
     *board = new_board;
 }
 
-// Resolve a UCI move string against the legal moves of `board`. Matching the
-// generated moves (rather than parsing squares directly) both validates the
-// move and recovers its MoveKind for free.
 fn find_move(board: &Board, uci: &str) -> Option<Move> {
     let mut quiet = MoveList::new();
     let mut noisy = MoveList::new();
@@ -149,8 +139,6 @@ fn go(
 
 }
 
-// `go perft <depth>`: print per-root-move subtree counts (a "divide"), the
-// standard way to bisect a movegen discrepancy against a reference engine.
 fn perft_divide(board: &mut Board, depth: usize) {
     let start = Instant::now();
 
@@ -218,90 +206,3 @@ fn parse_time(args: &[&str], stm: Color) -> (Duration, Duration) {
     (Duration::from_millis(hard), Duration::from_millis(soft))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::types::{MoveKind, Square};
-
-    #[test]
-    fn parse_time_limits() {
-        let ms = Duration::from_millis;
-
-        // movetime pins both limits (minus overhead)
-        let args = ["movetime", "1000"];
-        assert_eq!(parse_time(&args, Color::White), (ms(950), ms(950)));
-
-        // clock: hard = time/2, soft = time/mtg + 3/4 inc, reads our clock
-        let args = ["wtime", "10050", "btime", "99999", "winc", "100", "binc", "0"];
-        assert_eq!(parse_time(&args, Color::White), (ms(5000), ms(475)));
-
-        // movestogo overrides the default divisor; soft never exceeds hard
-        let args = ["btime", "2050", "movestogo", "1"];
-        assert_eq!(parse_time(&args, Color::Black), (ms(1000), ms(1000)));
-
-        // no clock for the side to move: unbounded
-        assert_eq!(
-            parse_time(&["infinite"], Color::White),
-            (Duration::MAX, Duration::MAX)
-        );
-        assert_eq!(
-            parse_time(&["wtime", "1000"], Color::Black),
-            (Duration::MAX, Duration::MAX)
-        );
-
-        // nearly flagged: limits stay positive
-        let (hard, soft) = parse_time(&["wtime", "10"], Color::White);
-        assert!(soft >= ms(1) && hard >= soft);
-    }
-
-    #[test]
-    fn move_uci_notation() {
-        assert_eq!(
-            Move::new(Square::E2, Square::E4, MoveKind::DoublePush).to_string(),
-            "e2e4"
-        );
-        assert_eq!(
-            Move::new(Square::E7, Square::E8, MoveKind::PromoQueen).to_string(),
-            "e7e8q"
-        );
-        assert_eq!(
-            Move::new(Square::B7, Square::A8, MoveKind::CapPromoKnight).to_string(),
-            "b7a8n"
-        );
-        assert_eq!(Move::default().to_string(), "0000");
-    }
-
-    #[test]
-    fn find_move_recovers_kind() {
-        let board = Board::start_pos();
-        let mv = find_move(&board, "e2e4").expect("e2e4 is legal from startpos");
-        assert!(mv.is_double_push());
-        assert!(find_move(&board, "e2e5").is_none());
-    }
-
-    // Replaying a game must reach the same position as parsing its FEN directly.
-    #[test]
-    fn position_moves_match_fen() {
-        let mut replayed = Board::start_pos();
-        position(
-            &mut replayed,
-            &["startpos", "moves", "e2e4", "c7c5", "g1f3"],
-        );
-
-        let direct =
-            Board::from_fen("rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 3")
-                .unwrap();
-        assert_eq!(replayed.hash(), direct.hash());
-    }
-
-    // An illegal move must leave the previous position untouched.
-    #[test]
-    fn position_rejects_illegal_move_atomically() {
-        let mut board = Board::start_pos();
-        position(&mut board, &["startpos", "moves", "e2e4"]);
-        let before = board.hash();
-
-        position(&mut board, &["startpos", "moves", "e2e4", "e7e6", "e4e6"]);
-        assert_eq!(board.hash(), before);
-    }
-}

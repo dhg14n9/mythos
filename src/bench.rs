@@ -4,11 +4,9 @@ use crate::board::board::Board;
 use crate::types::MoveList;
 
 // Andrew Wagner's verified perft suite — 127 positions with known leaf counts
-// (http://www.rocechess.ch/perft.html), embedded at compile time.
+// (http://www.rocechess.ch/perft.html)
 const EPD: &str = include_str!("tests/perft_bench.epd");
 
-/// Parse the embedded EPD into `(fen, depth, expected leaf count)` cases.
-/// Lines are `<FEN> ;D<depth> <expected>`; comments and blanks are skipped.
 pub fn cases() -> Vec<(&'static str, usize, u64)> {
     EPD.lines()
         .map(str::trim)
@@ -35,7 +33,6 @@ pub fn cases() -> Vec<(&'static str, usize, u64)> {
         .collect()
 }
 
-/// Insert thousands separators: 119060324 -> "119,060,324".
 pub fn group_digits(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
@@ -49,12 +46,7 @@ pub fn group_digits(n: u64) -> String {
     out
 }
 
-// ----- transposition table (perft hashing) -----
-
-// A perft subtree count depends only on (position, remaining depth), so it can be
-// cached. Keyed by the board's zobrist hash; `depth` is stored and compared so
-// entries for different depths of the same position never alias. Direct-mapped
-// (one slot per index, newest wins) — collisions only cost a recomputation.
+// Transposition Table 
 #[derive(Clone, Copy, Default)]
 struct PerftEntry {
     key: u64,
@@ -108,8 +100,6 @@ impl PerftTable {
     }
 }
 
-/// perft with transposition-table lookups. Probes before generating moves so a
-/// hit skips movegen entirely. depth 0/1 are trivial and never cached.
 pub fn perft_tt(board: &mut Board, depth: usize, tt: &mut PerftTable) -> u64 {
     if depth == 0 {
         return 1;
@@ -143,25 +133,12 @@ pub fn perft_tt(board: &mut Board, depth: usize, tt: &mut PerftTable) -> u64 {
     count
 }
 
-// ----- suite runner -----
 
-/// Run the whole suite, printing per-position nodes/time/NPS and overall
-/// totals. Every count is checked against the file's verified value; returns
-/// `true` only if all positions matched.
-///
-/// With `use_tt` the true leaf counts are still reported, so the NPS figures
-/// are *effective* throughput (full node count / reduced time) — the numbers
-/// to compare against a TT-off run.
 pub fn run(use_tt: bool) -> bool {
     let cases = cases();
-
-    // One table shared across the whole pass. Full 64-bit key + depth
-    // comparison keeps positions independent (a different position can never
-    // read another's entry), so there is no need to clear between positions.
+    
     let mut tt = use_tt.then(|| PerftTable::with_pow2_size(22)); // 2^22 entries, ~96 MB
 
-    // Touch the hot paths once so the first timed position reflects
-    // steady-state throughput rather than first-call effects.
     if let Some(&(fen, _, _)) = cases.first() {
         let _ = Board::from_fen(fen).unwrap().perft(2);
     }
