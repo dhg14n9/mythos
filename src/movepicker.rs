@@ -1,25 +1,23 @@
 use crate::board::board::Board;
 use crate::types::{Move, MoveList};
 
-pub struct MovePicker<'a> {
-    board: &'a Board,
+pub struct MovePicker {
     quiet: MoveList,
     noisy: MoveList,
-    bad_noisy: MoveList
+    bad_noisy: MoveList,
 }
 
-impl MovePicker<'_> {
-    pub fn new(board: &Board) -> MovePicker<'_> {
+impl MovePicker {
+    pub fn new() -> MovePicker {
         MovePicker {
-            board,
             quiet: MoveList::new(),
             noisy: MoveList::new(),
             bad_noisy: MoveList::new(),
         }
     }
 
-    pub fn gen_move(&mut self) {
-        self.board.gen_move(&mut self.quiet, &mut self.noisy)
+    pub fn gen_move(&mut self, board: &Board) {
+        board.gen_move(&mut self.quiet, &mut self.noisy)
     }
 
     pub fn score_quiet(&mut self) {
@@ -28,17 +26,24 @@ impl MovePicker<'_> {
     pub fn score_noisy(&mut self) {
         todo!()
     }
-    pub fn next(&mut self) -> Move {
-        todo!()
+    pub fn next(&mut self) -> Option<Move> {
+        if let Some(mv) = self.noisy.next() {
+            return Some(mv);
+        };
+        self.quiet.next()
     }
 
-    pub fn random(&mut self) -> Move {
+    pub fn terminal(&self) -> bool {
+        (self.noisy.len() == 0) && (self.quiet.len() == 0)
+    }
+
+    pub fn random(&mut self, hash: u64) -> Move {
         let total = self.quiet.len() + self.noisy.len();
         if total == 0 {
             return Move::default();
         }
 
-        let mut z = self.board.hash() | 1;
+        let mut z = hash | 1;
         z = z.wrapping_add(0x9E3779B97F4A7C15);
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);

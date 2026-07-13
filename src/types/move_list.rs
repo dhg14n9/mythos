@@ -45,18 +45,22 @@ impl MoveList {
         self.array.swap(i1, i2);
     }
 
-    pub fn next(&mut self, n: usize) -> Move {
-        let mut best = n;
-        let mut best_score = self.get_score(n);
+    pub fn next(&mut self) -> Option<Move> {
+        if self.array.len() == 0 {
+            return None;
+        }
 
-        for i in (n + 1)..self.array.len() {
+        let mut best = 0;
+        let mut best_score = self.get_score(0);
+
+        for i in 1..self.array.len() {
             if self.get_score(i) > best_score {
                 best = i;
                 best_score = self.get_score(i);
             }
         }
-        self.swap(n, best);
-        self.get(n)
+        self.swap(best, self.array.len() - 1);
+        Some(self.array.pop().mv)
     }
 
     pub fn len(&self) -> usize {

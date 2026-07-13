@@ -1,6 +1,11 @@
-use crate::board::lookup::{bishop_attack, king_attack, knight_attack, pawn_attack, queen_attack, rook_attack};
-use crate::types::{Bitboard, CastlingKind, Color, Direction, File, Move, MoveKind, MoveList, Piece, PieceType, Rank, Square, BETWEEN, RAY};
 use super::board::Board;
+use crate::board::lookup::{
+    bishop_attack, king_attack, knight_attack, pawn_attack, queen_attack, rook_attack,
+};
+use crate::types::{
+    BETWEEN, Bitboard, CastlingKind, Color, Direction, File, Move, MoveKind, MoveList, Piece,
+    PieceType, RAY, Rank, Square,
+};
 
 impl Board {
     // us: color of the king that is being checked
@@ -10,8 +15,8 @@ impl Board {
         let occ = self.occ();
 
         let queens = self.piece_type_bb(PieceType::Queen);
-        let attackers =
-            (bishop_attack(occ, king_square) & (self.piece_type_bb(PieceType::Bishop) | queens))
+        let attackers = (bishop_attack(occ, king_square)
+            & (self.piece_type_bb(PieceType::Bishop) | queens))
             | (rook_attack(occ, king_square) & (self.piece_type_bb(PieceType::Rook) | queens))
             | (knight_attack(king_square) & self.piece_type_bb(PieceType::Knight))
             | (pawn_attack(us, king_square) & self.piece_type_bb(PieceType::Pawn));
@@ -28,7 +33,7 @@ impl Board {
 
         let queens = self.piece_type_bb(PieceType::Queen);
         let snipers = ((rook_attack(Bitboard::EMPTY, king_square)
-                & (self.piece_type_bb(PieceType::Rook) | queens))
+            & (self.piece_type_bb(PieceType::Rook) | queens))
             | (bishop_attack(Bitboard::EMPTY, king_square)
                 & (self.piece_type_bb(PieceType::Bishop) | queens)))
             & them_bb;
@@ -79,7 +84,6 @@ impl Board {
         threats
     }
 
-
     pub fn gen_move(&self, quiet_list: &mut MoveList, noisy_list: &mut MoveList) {
         quiet_list.clear();
         noisy_list.clear();
@@ -124,16 +128,25 @@ impl Board {
                     continue;
                 }
 
-                let move_kind = if i == 0 { MoveKind::KingCastle } else { MoveKind::QueenCastle };
+                let move_kind = if i == 0 {
+                    MoveKind::KingCastle
+                } else {
+                    MoveKind::QueenCastle
+                };
                 quiet_list.push(Move::new(king_square, king_to, move_kind));
             }
         }
 
         // if its double check, only king moves are available
         let check_mask = match checker.pop_count() {
-            0 => { Bitboard::FULL }
-            1 => { let checker_square = checker.lsb(); BETWEEN[king_square][checker_square] | Bitboard::from_square(checker_square) }
-            _ => { return; }
+            0 => Bitboard::FULL,
+            1 => {
+                let checker_square = checker.lsb();
+                BETWEEN[king_square][checker_square] | Bitboard::from_square(checker_square)
+            }
+            _ => {
+                return;
+            }
         };
 
         let mut pinned = Bitboard::EMPTY;
@@ -144,7 +157,9 @@ impl Board {
         // rook
         for from in self.piece_bb(Piece::new(us, PieceType::Rook)) {
             let mut restriction = check_mask;
-            if pinned.contains(from) { restriction &= RAY[king_square][from] }
+            if pinned.contains(from) {
+                restriction &= RAY[king_square][from]
+            }
             let target = rook_attack(occ, from) & !us_bb & restriction;
 
             let capture_target = target & them_bb;
@@ -159,7 +174,9 @@ impl Board {
         // bishop
         for from in self.piece_bb(Piece::new(us, PieceType::Bishop)) {
             let mut restriction = check_mask;
-            if pinned.contains(from) { restriction &= RAY[king_square][from] }
+            if pinned.contains(from) {
+                restriction &= RAY[king_square][from]
+            }
             let target = bishop_attack(occ, from) & !us_bb & restriction;
 
             let capture_target = target & them_bb;
@@ -174,7 +191,9 @@ impl Board {
         // queen
         for from in self.piece_bb(Piece::new(us, PieceType::Queen)) {
             let mut restriction = check_mask;
-            if pinned.contains(from) { restriction &= RAY[king_square][from] }
+            if pinned.contains(from) {
+                restriction &= RAY[king_square][from]
+            }
             let target = queen_attack(occ, from) & !us_bb & restriction;
 
             let capture_target = target & them_bb;
@@ -189,7 +208,9 @@ impl Board {
         // knight
         for from in self.piece_bb(Piece::new(us, PieceType::Knight)) {
             let mut restriction = check_mask;
-            if pinned.contains(from) { restriction &= RAY[king_square][from] }
+            if pinned.contains(from) {
+                restriction &= RAY[king_square][from]
+            }
             let target = knight_attack(from) & !us_bb & restriction;
 
             let capture_target = target & them_bb;
@@ -208,7 +229,9 @@ impl Board {
 
         for from in self.piece_bb(Piece::new(us, PieceType::Pawn)) {
             let mut restriction = check_mask;
-            if pinned.contains(from) { restriction &= RAY[king_square][from] }
+            if pinned.contains(from) {
+                restriction &= RAY[king_square][from]
+            }
 
             // capture (no enpassant)
             let target = pawn_attack(us, from) & them_bb & restriction;
@@ -239,14 +262,14 @@ impl Board {
                             & Bitboard::from_rank(king_square.rank());
                         if (king_vision
                             & (self.piece_bb(Piece::new(them, PieceType::Queen))
-                                | self.piece_bb(Piece::new(them, PieceType::Rook)))
-                        ).is_empty() {
+                                | self.piece_bb(Piece::new(them, PieceType::Rook))))
+                        .is_empty()
+                        {
                             noisy_list.push(Move::new(from, ep, MoveKind::EnPassant));
                         }
                     }
                 }
             }
-
 
             // pawn push
             let to = from.offset(forward);
@@ -270,10 +293,8 @@ impl Board {
                 }
             }
         }
-
-
     }
-    
+
     pub fn perft(&mut self, depth: usize) -> u64 {
         if depth == 0 {
             return 1;
@@ -299,4 +320,3 @@ impl Board {
         count
     }
 }
-
