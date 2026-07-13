@@ -27,7 +27,10 @@ impl MovePicker {
         todo!()
     }
     pub fn next(&mut self) -> Option<Move> {
-        todo!()
+        if let Some(mv) = self.noisy.next() {
+            return Some(mv);
+        };
+        self.quiet.next()
     }
 
     pub fn terminal(&self) -> bool {
