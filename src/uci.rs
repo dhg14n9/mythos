@@ -1,9 +1,12 @@
 use std::io::{self, BufRead};
-use std::time::Instant;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::board::board::Board;
-use crate::movepicker::MovePicker;
-use crate::types::{Move, MoveList};
+use crate::search::{Search, TimeControl};
+use crate::types::{Color, Move, MoveList};
 
 const NAME: &str = concat!("Mythos ", env!("CARGO_PKG_VERSION"));
 const AUTHOR: &str = "Do Hoang Giang";
@@ -15,6 +18,8 @@ const AUTHOR: &str = "Do Hoang Giang";
 /// search exists, `go` moves to a worker thread and `stop` signals it.
 pub fn run() {
     let mut board = Board::start_pos();
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut handle: Option<thread::JoinHandle<()>> = None;
 
     for line in io::stdin().lock().lines() {
         let Ok(line) = line else { break };
@@ -32,13 +37,19 @@ pub fn run() {
             "isready" => println!("readyok"),
             "ucinewgame" => board = Board::start_pos(),
             "position" => position(&mut board, args),
-            "go" => go(&mut board, args),
+            "go" => go(&mut board, args, &stop, &mut handle),
             "bench" => {
                 let use_tt = args.iter().any(|a| matches!(*a, "tt" | "--tt"));
                 crate::bench::run(use_tt);
             }
-            "stop" => {} // nothing running; bestmove was already sent
-            "quit" => break,
+            "stop" => { stop.store(true, Ordering::Relaxed) }
+            "quit" => {
+                stop.store(true, Ordering::Relaxed);
+                if let Some(h) = handle.take() {
+                    let _ = h.join();
+                }
+                break;
+            },
             _ => println!("info string unknown command: {cmd}"),
         }
     }
@@ -100,19 +111,42 @@ fn find_move(board: &Board, uci: &str) -> Option<Move> {
     None
 }
 
-fn go(board: &mut Board, args: &[&str]) {
+fn go(
+    board: &mut Board,
+    args: &[&str],
+    stop: &Arc<AtomicBool>,
+    handle: &mut Option<thread::JoinHandle<()>>
+) {
+    let start = Instant::now();
+
     if let Some((&"perft", rest)) = args.split_first() {
         let depth = rest.first().and_then(|d| d.parse().ok()).unwrap_or(1);
         perft_divide(board, depth);
         return;
     }
 
-    // No search yet: time controls are ignored and the move picker chooses a
-    // legal move (deterministically pseudo-random from the position hash).
-    // "bestmove 0000" signals a position with no legal moves.
-    let mut picker = MovePicker::new();
-    picker.gen_move(board);
-    println!("bestmove {}", picker.random(board.hash()));
+    stop.store(true, Ordering::Relaxed);
+    if let Some(h) = handle.take() {
+        let _ = h.join();
+    }
+    stop.store(false, Ordering::Relaxed);
+
+    let stop = Arc::clone(stop);
+    let (hard_lim, soft_lim) = parse_time(args, board.stm());
+    let mut board = board.clone();
+    *handle = Some(thread::spawn( move || {
+        let time_control = TimeControl {
+            stop,
+            start,
+            soft_lim,
+            hard_lim
+        };
+        let mut search = Search::new(time_control);
+        let best = search.iterative(&mut board, 100);
+        println!("bestmove {}", best.0)
+    }));
+
+
 }
 
 // `go perft <depth>`: print per-root-move subtree counts (a "divide"), the
@@ -151,10 +185,74 @@ fn perft_divide(board: &mut Board, depth: usize) {
     println!("Nodes searched: {total}");
 }
 
+fn parse_time(args: &[&str], stm: Color) -> (Duration, Duration) {
+    // GUI latency
+    const OVERHEAD_MS: u64 = 50;
+
+    let value = |key: &str| -> Option<u64> {
+        let idx = args.iter().position(|&a| a == key)?;
+        args.get(idx + 1)?.parse().ok()
+    };
+
+    if let Some(ms) = value("movetime") {
+        let lim = Duration::from_millis(ms.saturating_sub(OVERHEAD_MS).max(1));
+        return (lim, lim);
+    }
+
+    let (time_key, inc_key) = match stm {
+        Color::White => ("wtime", "winc"),
+        Color::Black => ("btime", "binc"),
+    };
+
+    let Some(time) = value(time_key) else {
+        return (Duration::MAX, Duration::MAX);
+    };
+
+    let time = time.saturating_sub(OVERHEAD_MS).max(1);
+    let inc = value(inc_key).unwrap_or(0);
+    let mtg = value("movestogo").unwrap_or(25).max(1);
+
+    let hard = (time / 2).max(1);
+    let soft = (time / mtg + inc * 3 / 4).clamp(1, hard);
+
+    (Duration::from_millis(hard), Duration::from_millis(soft))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::{MoveKind, Square};
+
+    #[test]
+    fn parse_time_limits() {
+        let ms = Duration::from_millis;
+
+        // movetime pins both limits (minus overhead)
+        let args = ["movetime", "1000"];
+        assert_eq!(parse_time(&args, Color::White), (ms(950), ms(950)));
+
+        // clock: hard = time/2, soft = time/mtg + 3/4 inc, reads our clock
+        let args = ["wtime", "10050", "btime", "99999", "winc", "100", "binc", "0"];
+        assert_eq!(parse_time(&args, Color::White), (ms(5000), ms(475)));
+
+        // movestogo overrides the default divisor; soft never exceeds hard
+        let args = ["btime", "2050", "movestogo", "1"];
+        assert_eq!(parse_time(&args, Color::Black), (ms(1000), ms(1000)));
+
+        // no clock for the side to move: unbounded
+        assert_eq!(
+            parse_time(&["infinite"], Color::White),
+            (Duration::MAX, Duration::MAX)
+        );
+        assert_eq!(
+            parse_time(&["wtime", "1000"], Color::Black),
+            (Duration::MAX, Duration::MAX)
+        );
+
+        // nearly flagged: limits stay positive
+        let (hard, soft) = parse_time(&["wtime", "10"], Color::White);
+        assert!(soft >= ms(1) && hard >= soft);
+    }
 
     #[test]
     fn move_uci_notation() {

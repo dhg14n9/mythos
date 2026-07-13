@@ -122,11 +122,10 @@ impl Search {
                 break;
             }
 
-            if !result.is_none() {
-                best = result.unwrap();
+            if let Some(r) = result {
+                best = r
             }
         }
-
         best
     }
 }
