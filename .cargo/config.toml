@@ -3,3 +3,6 @@
 # bitboard code (and later magic-bitboard movegen via pext) benefits from.
 # Remove or override for portable release binaries.
 rustflags = ["-C", "target-cpu=native"]
+
+[alias]
+xtask = "run -p xtask --"
