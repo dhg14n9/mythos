@@ -46,6 +46,46 @@ go movetime 1000
 ```
 
 
+## Development
+
+Dev and test automation lives in the `xtask` crate. Run it with no arguments for
+an interactive menu, or call a command directly:
+
+```bash
+cargo xtask              # interactive menu
+cargo xtask <command>    # run a command directly
+```
+
+| Command | What it does |
+|---|---|
+| `test [filter]` | run the test suite |
+| `perft` | fast perft suite (~17M nodes) |
+| `perft-deep` | thorough perft suite (~800M nodes) |
+| `perft-bench [--tt] [fen] [depth]` | time a perft and report nodes / elapsed / NPS |
+| `bench-suite [--tt]` | Andrew Wagner's verified suite (127 positions, ~4.7B nodes) |
+| `divide [fen] [depth]` | per-move node counts via UCI `go perft`, to bisect a perft mismatch |
+| `bench` | make/unmake micro-benchmark |
+| `sprt` | SPRT match of the working tree vs a git ref |
+
+Plain `cargo build` / `cargo test` / `cargo run` are unchanged — xtask only wraps
+the workflows that need extra flags or orchestration.
+
+### Strength testing (SPRT)
+
+```bash
+cargo xtask sprt [--ref REF] [--elo0 E] [--elo1 E] [--tc TC]
+                 [--concurrency N] [--rounds N] [--book PATH]
+```
+
+Builds the working tree and a baseline (`--ref`, default `HEAD`), then plays a
+[SPRT](https://www.chessprogramming.org/Sequential_Probability_Ratio_Test) match
+between them until the elo bounds (default `[0, 5]`) are accepted or rejected.
+Defaults: `8+0.08` time control, half the CPU cores, 20000-round cap. Requires
+[fastchess](https://github.com/Disservin/fastchess) on `PATH`. Games are saved to
+`target/sprt/games.pgn`. Openings come from `xtask/books/openings.epd`, a
+500-position sample of `noob_3moves.epd` from the
+[official-stockfish books](https://github.com/official-stockfish/books) collection.
+
 ## Acknowledgements
 
 Mythos leans heavily on the work and generosity of the computer-chess community:

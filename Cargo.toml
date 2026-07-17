@@ -13,6 +13,11 @@ name = "mythos"
 path = "src/main.rs"
 
 [dependencies]
+log = "0.4.33"
+
+[workspace]
+members = ["xtask"]
+exclude = ["target"]
 
 [profile.dev]
 opt-level = 3
