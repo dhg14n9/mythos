@@ -122,6 +122,14 @@ impl Search {
                 break;
             }
 
+            // info
+            let ellapsed = self.time_control.start.elapsed();
+            let nps = (self.nodes as f64 / ellapsed.as_secs_f64().max(f64::EPSILON)) as u64;
+            println!(
+                "info depth {depth} score cp {} nodes {} nps {nps} time {} pv {}",
+                best.1, self.nodes, ellapsed.as_millis(), best.0
+            );
+
             if let Some(r) = result {
                 best = r
             }
