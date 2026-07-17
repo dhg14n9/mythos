@@ -12,6 +12,7 @@ const ITEMS: &[&str] = &[
     "bench-suite — Andrew Wagner 127-position suite",
     "divide — per-move node counts via UCI go perft",
     "bench — make/unmake micro-benchmark",
+    "search-bench — fixed-depth search node-count fingerprint",
     "sprt — SPRT match vs a git ref",
     "quit",
 ];
@@ -38,6 +39,7 @@ pub fn menu() -> Result<()> {
             "bench-suite" => prompt_bench_suite(),
             "divide" => prompt_divide(),
             "bench" => tasks::bench(),
+            "search-bench" => prompt_search_bench(),
             "sprt" => prompt_sprt(),
             _ => unreachable!(),
         };
@@ -97,6 +99,11 @@ fn prompt_divide() -> Result<()> {
     let fen = ask(Text::new("FEN").with_default(STARTPOS))?;
     let depth = ask(Text::new("depth").with_default("1"))?;
     tasks::divide(Some(&fen), Some(&depth))
+}
+
+fn prompt_search_bench() -> Result<()> {
+    let depth = ask(Text::new("depth").with_default("7"))?;
+    tasks::search_bench(Some(&depth))
 }
 
 fn prompt_sprt() -> Result<()> {

@@ -36,6 +36,7 @@ fn dispatch(args: &[String]) -> Result<()> {
             rest.get(1).map(String::as_str),
         ),
         "bench" => tasks::bench(),
+        "search-bench" => tasks::search_bench(rest.first().map(String::as_str)),
         "sprt" => sprt::sprt(&parse_sprt_flags(rest)?),
         "help" | "-h" | "--help" => {
             print!("{USAGE}");
@@ -86,6 +87,10 @@ Run with no command for an interactive menu, or call a command directly:
                      per-move node counts via UCI `go perft`, to bisect a
                      perft mismatch (start position at depth 1 by default)
   bench              make/unmake micro-benchmark (100M pairs)
+  search-bench [depth]
+                     run the search to a fixed depth over 22 suite positions
+                     and report the node count — a functional fingerprint of
+                     the search (depth 7 by default)
 
   sprt [--ref REF] [--elo0 E] [--elo1 E] [--tc TC]
        [--concurrency N] [--rounds N] [--book PATH]

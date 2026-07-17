@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use crate::board::board::Board;
+use crate::search::{Search, TimeControl};
 use crate::types::MoveList;
 
 // Andrew Wagner's verified perft suite — 127 positions with known leaf counts
@@ -46,7 +47,61 @@ pub fn group_digits(n: u64) -> String {
     out
 }
 
-// Transposition Table 
+// Search bench: run the real search to a fixed depth over a spread of suite
+// positions and report the node count. The total is a functional fingerprint
+// of the search — a patch that shouldn't change search behavior must not
+// change it.
+pub fn search_bench(depth: usize) {
+    let cases = cases();
+    let positions: Vec<&str> = cases.iter().step_by(6).map(|&(fen, _, _)| fen).collect();
+
+    let mut total_nodes = 0u64;
+    let suite_start = Instant::now();
+
+    for (i, fen) in positions.iter().enumerate() {
+        let mut board = Board::from_fen(fen).expect("invalid FEN in suite");
+        let mut search = Search::new(TimeControl::infinite());
+        search.silent = true;
+
+        let start = Instant::now();
+        let (best, _) = search.iterative(&mut board, depth);
+        let elapsed = start.elapsed();
+
+        total_nodes += search.nodes;
+        let nps = search.nodes as f64 / elapsed.as_secs_f64().max(f64::EPSILON);
+
+        println!(
+            "{:>3}/{}  depth {:>2}  nodes {:>13}  time {:>7.3}s  speed {:>7.1} Mnps  bestmove {:<5}  {}",
+            i + 1,
+            positions.len(),
+            depth,
+            group_digits(search.nodes),
+            elapsed.as_secs_f64(),
+            nps / 1e6,
+            best.to_string(),
+            fen,
+        );
+    }
+
+    let elapsed = suite_start.elapsed();
+    let nps = total_nodes as f64 / elapsed.as_secs_f64().max(f64::EPSILON);
+
+    println!();
+    println!("  positions : {}", positions.len());
+    println!("  depth     : {depth}");
+    println!("  nodes     : {}", group_digits(total_nodes));
+    println!("  time      : {:.3?}", elapsed);
+    println!(
+        "  speed     : {:.1} Mnps ({} nodes/s)",
+        nps / 1e6,
+        group_digits(nps as u64)
+    );
+    println!();
+    // Machine-friendly last line, same shape OpenBench-style tooling expects.
+    println!("Nodes searched: {total_nodes}");
+}
+
+// Transposition Table
 #[derive(Clone, Copy, Default)]
 struct PerftEntry {
     key: u64,

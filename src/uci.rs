@@ -123,6 +123,12 @@ fn go(
 
     let stop = Arc::clone(stop);
     let (hard_lim, soft_lim) = parse_time(args, board.stm());
+    let max_depth = args
+        .iter()
+        .position(|&a| a == "depth")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|d| d.parse().ok())
+        .unwrap_or(100);
     let mut board = board.clone();
     *handle = Some(thread::spawn( move || {
         let time_control = TimeControl {
@@ -132,7 +138,7 @@ fn go(
             hard_lim
         };
         let mut search = Search::new(time_control);
-        let best = search.iterative(&mut board, 100);
+        let best = search.iterative(&mut board, max_depth);
         println!("bestmove {}", best.0)
     }));
 

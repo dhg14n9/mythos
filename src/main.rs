@@ -9,8 +9,17 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("searchbench") => {
+            let depth = args
+                .get(1)
+                .and_then(|d| d.parse().ok())
+                .unwrap_or(7);
+            mythos::bench::search_bench(depth);
+        }
         Some(arg) => {
-            eprintln!("unknown argument: {arg} (expected `bench [tt]` or no arguments for UCI)");
+            eprintln!(
+                "unknown argument: {arg} (expected `bench [tt]`, `searchbench [depth]` or no arguments for UCI)"
+            );
             std::process::exit(2);
         }
         None => mythos::uci::run(),

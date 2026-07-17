@@ -54,6 +54,15 @@ pub fn perft_bench(tt: bool, fen: Option<&str>, depth: Option<&str>) -> Result<(
         ]))
 }
 
+pub fn search_bench(depth: Option<&str>) -> Result<()> {
+    let mut cmd = cargo();
+    cmd.args(["run", "--release", "--quiet", "--", "searchbench"]);
+    if let Some(d) = depth {
+        cmd.arg(d);
+    }
+    run(&mut cmd)
+}
+
 pub fn bench_suite(tt: bool) -> Result<()> {
     let mut cmd = cargo();
     cmd.args(["run", "--release", "--quiet", "--", "bench"]);

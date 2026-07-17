@@ -15,15 +15,27 @@ pub struct TimeControl {
     pub hard_lim: Duration,
 }
 
+impl TimeControl {
+    pub fn infinite() -> Self {
+        Self {
+            stop: Arc::new(AtomicBool::new(false)),
+            start: Instant::now(),
+            soft_lim: Duration::MAX,
+            hard_lim: Duration::MAX,
+        }
+    }
+}
+
 pub struct Search {
     pub time_control: TimeControl,
     pub nodes: u64,
     pub stopped: bool,
+    pub silent: bool,
 }
 
 impl Search {
     pub fn new(time_control: TimeControl) -> Self {
-        Self { time_control, nodes: 0, stopped: false }
+        Self { time_control, nodes: 0, stopped: false, silent: false }
     }
 
     fn should_stop(&mut self) -> bool {
@@ -123,12 +135,14 @@ impl Search {
             }
 
             // info
-            let ellapsed = self.time_control.start.elapsed();
-            let nps = (self.nodes as f64 / ellapsed.as_secs_f64().max(f64::EPSILON)) as u64;
-            println!(
-                "info depth {depth} score cp {} nodes {} nps {nps} time {} pv {}",
-                best.1, self.nodes, ellapsed.as_millis(), best.0
-            );
+            if !self.silent {
+                let ellapsed = self.time_control.start.elapsed();
+                let nps = (self.nodes as f64 / ellapsed.as_secs_f64().max(f64::EPSILON)) as u64;
+                println!(
+                    "info depth {depth} score cp {} nodes {} nps {nps} time {} pv {}",
+                    best.1, self.nodes, ellapsed.as_millis(), best.0
+                );
+            }
 
             if let Some(r) = result {
                 best = r
