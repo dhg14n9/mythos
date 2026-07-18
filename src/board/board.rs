@@ -1,3 +1,4 @@
+use crate::board::lookup::{bishop_attack, king_attack, knight_attack, pawn_attack, rook_attack};
 use crate::types::uninit_array::UninitArray;
 use crate::types::{
     Bitboard, Castling, CastlingKind, Color, File, Move, MoveKind, Piece, PieceType, Rank, Square,
@@ -339,6 +340,19 @@ impl Board {
 
     pub fn is_check(&self) -> bool {
         !self.checkers(self.side_to_move).is_empty()
+    }
+
+    // SEE helper
+    pub fn attackers_to(&self, square: Square, occ: Bitboard) -> Bitboard {
+        let mut result = Bitboard::EMPTY;
+        result |= bishop_attack(occ, square) & (self.piece_type_bb(PieceType::Bishop) | self.piece_type_bb(PieceType::Queen));
+        result |= rook_attack(occ, square) & (self.piece_type_bb(PieceType::Rook) | self.piece_type_bb(PieceType::Queen));
+        result |= king_attack(square) & self.piece_type_bb(PieceType::King);
+        result |= knight_attack(square) & self.piece_type_bb(PieceType::Knight);
+        result |= pawn_attack(Color::White, square) & self.piece_bb(Piece::BlackPawn);
+        result |= pawn_attack(Color::Black, square) & self.piece_bb(Piece::WhitePawn);
+
+        result
     }
 }
 
