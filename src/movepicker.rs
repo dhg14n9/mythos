@@ -21,24 +21,32 @@ impl MovePicker {
     }
 
     pub fn score_quiet(&mut self) {
-        todo!()
+
     }
-    pub fn score_noisy(&mut self) {
-        todo!()
+    pub fn score_noisy(&mut self, board: &Board) {
+        for i in (self.noisy.len() - 1)..=0 {
+            if !see(board, self.noisy.get(i), 0) {
+                self.bad_noisy.push(self.noisy.remove(i));
+            }
+        }
+
+
     }
     pub fn next(&mut self) -> Option<Move> {
         if let Some(mv) = self.noisy.next() {
             return Some(mv);
-        };
+        } else if let Some(mv) = self.bad_noisy.next() {
+            return Some(mv);
+        }
         self.quiet.next()
     }
 
     pub fn terminal(&self) -> bool {
-        (self.noisy.len() == 0) && (self.quiet.len() == 0)
+        (self.noisy.len() == 0) && (self.quiet.len() == 0) && (self.bad_noisy.len() == 0)
     }
 
     pub fn random(&mut self, hash: u64) -> Move {
-        let total = self.quiet.len() + self.noisy.len();
+        let total = self.quiet.len() + self.noisy.len() + self.bad_noisy.len();
         if total == 0 {
             return Move::default();
         }
@@ -52,8 +60,10 @@ impl MovePicker {
         let r = (z % total as u64) as usize;
         if r < self.noisy.len() {
             self.noisy.get(r)
+        } else if r < self.noisy.len() + self.bad_noisy.len() {
+            self.bad_noisy.get(r - self.noisy.len())
         } else {
-            self.quiet.get(r - self.noisy.len())
+            self.quiet.get(r - self.noisy.len() - self.bad_noisy.len())
         }
     }
 }

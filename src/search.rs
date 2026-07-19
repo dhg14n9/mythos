@@ -95,6 +95,8 @@ impl Search {
 
         let mut move_picker = MovePicker::new();
         move_picker.gen_move(board);
+        move_picker.score_quiet();
+        move_picker.score_noisy(board);
 
         if move_picker.terminal() {
             return None;
