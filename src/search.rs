@@ -50,6 +50,51 @@ impl Search {
         self.stopped
     }
 
+    pub fn qsearch(&mut self, board: &mut Board, mut alpha: i32, beta: i32) -> i32 {
+        self.nodes += 1;
+        if self.should_stop() {
+            return 0; // search cancelled
+        }
+
+        let in_check = board.is_check();
+        let mut best = -Score::MAX;
+
+        if !in_check {
+            best = eval(board);
+            if best >= beta {
+                return best;
+            }
+            alpha = alpha.max(best);
+        }
+
+        let mut move_picker = MovePicker::new();
+        move_picker.gen_move(board, true);
+        move_picker.score_quiet();
+        move_picker.score_noisy(board);
+
+        if in_check && move_picker.terminal() {
+            return -Score::MAX;
+        }
+
+        while let Some(mv) = move_picker.next() {
+            board.make_move(mv);
+            let score = -self.qsearch(board, -beta, -alpha);
+            board.unmake_move(mv);
+            best = best.max(score);
+            alpha = alpha.max(best);
+
+            if alpha >= beta {
+                break;
+            };
+        }
+
+        if Score::is_mate(best) {
+            best - best.signum()
+        } else {
+            best
+        }
+    }
+
     pub fn negamax(&mut self, board: &mut Board, depth: usize, mut alpha: i32, beta: i32) -> i32 {
         self.nodes += 1;
         if self.should_stop() {
@@ -57,12 +102,14 @@ impl Search {
         }
 
         if depth == 0 {
-            return eval(board);
+            return self.qsearch(board, alpha, beta);
         };
         let mut best = -Score::MAX;
 
         let mut move_picker = MovePicker::new();
-        move_picker.gen_move(board);
+        move_picker.gen_move(board, false);
+        move_picker.score_quiet();
+        move_picker.score_noisy(board);
 
         if move_picker.terminal() {
             return if board.is_check() { -Score::MAX } else { Score::ZERO };
@@ -94,7 +141,9 @@ impl Search {
         if depth == 0 { return None };
 
         let mut move_picker = MovePicker::new();
-        move_picker.gen_move(board);
+        move_picker.gen_move(board, false);
+        move_picker.score_quiet();
+        move_picker.score_noisy(board);
 
         if move_picker.terminal() {
             return None;
@@ -119,7 +168,7 @@ impl Search {
 
         let mut best = {
             let mut picker = MovePicker::new();
-            picker.gen_move(board);
+            picker.gen_move(board, false);
             (picker.random(board.hash()), 0)
         };
 
