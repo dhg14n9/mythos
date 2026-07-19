@@ -41,6 +41,10 @@ impl MoveList {
         self.array.read_mut(index).score = score;
     }
 
+    pub fn remove(&mut self, index: usize) -> Move {
+        self.array.remove(index).mv
+    }
+
     fn swap(&mut self, i1: usize, i2: usize) {
         self.array.swap(i1, i2);
     }

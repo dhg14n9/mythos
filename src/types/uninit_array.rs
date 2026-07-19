@@ -39,6 +39,15 @@ impl<T: Copy, const N: usize> UninitArray<T, N> {
         unsafe { self.array[index].assume_init_mut() }
     }
 
+    pub fn remove(&mut self, index: usize) -> T {
+        debug_assert!(index < self.length);
+
+        let value = unsafe { self.array[index].assume_init() };
+        self.length -= 1;
+        self.array[index] = self.array[self.length];
+        value
+    }
+
     pub fn swap(&mut self, i: usize, j: usize) {
         debug_assert!(i < self.length && j < self.length);
 
