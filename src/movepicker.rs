@@ -1,5 +1,5 @@
 use crate::board::board::Board;
-use crate::types::{Move, MoveList};
+use crate::types::{Bitboard, Color, Move, MoveList, Piece, PieceType, Square};
 
 pub struct MovePicker {
     quiet: MoveList,
@@ -59,3 +59,44 @@ impl MovePicker {
 }
 
 // SEE move ordering
+fn see(board: &Board, mv: Move, threshold: i32) -> bool {
+    let balance = board.piece_at(mv.capture_square()).value() - threshold;
+    if balance < 0 {
+        return false;
+    }
+
+    let attacker = board.piece_at(mv.from()).value();
+    if balance - attacker >= 0 {
+        return true;
+    }
+
+    let mut occ = board.occ();
+    occ.clear(mv.from());
+    if mv.is_enpassant() {
+        occ.clear(mv.capture_square());
+    }
+
+    balance - inner_see(board, mv.to(), !board.stm(), &mut occ, attacker) >= 0
+}
+
+fn inner_see(board: &Board, square: Square, stm: Color, occ: &mut Bitboard, occupier: i32) -> i32 {
+    let attackers = board.attackers_to(square, *occ);
+
+    let (piece_type, from) = 'lva: {
+        for piece_type in PieceType::ALL {
+            let bb = attackers & board.piece_bb(Piece::new(stm, piece_type));
+            if !bb.is_empty() {
+                break 'lva (piece_type, bb.lsb())
+            }
+        }
+        return 0;
+    };
+
+    if piece_type == PieceType::King && !(attackers & board.color_bb(!stm)).is_empty() {
+        return 0;
+    }
+
+    occ.clear(from);
+    (occupier - inner_see(board, square, !stm, occ, piece_type.value())).max(0)
+}
+
