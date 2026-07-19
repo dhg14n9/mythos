@@ -24,7 +24,7 @@ impl MovePicker {
 
     }
     pub fn score_noisy(&mut self, board: &Board) {
-        for i in (self.noisy.len() - 1)..=0 {
+        for i in 0..self.noisy.len() {
             if !see(board, self.noisy.get(i), 0) {
                 self.bad_noisy.push(self.noisy.remove(i));
             }
