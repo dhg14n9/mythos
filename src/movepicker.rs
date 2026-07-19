@@ -16,8 +16,8 @@ impl MovePicker {
         }
     }
 
-    pub fn gen_move(&mut self, board: &Board) {
-        board.gen_move(&mut self.quiet, &mut self.noisy)
+    pub fn gen_move(&mut self, board: &Board, noisy_only: bool) {
+        board.gen_move(&mut self.quiet, &mut self.noisy, noisy_only)
     }
 
     pub fn score_quiet(&mut self) {

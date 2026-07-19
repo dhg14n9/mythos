@@ -169,7 +169,7 @@ pub fn perft_tt(board: &mut Board, depth: usize, tt: &mut PerftTable) -> u64 {
 
     let mut quiet = MoveList::new();
     let mut noisy = MoveList::new();
-    board.gen_move(&mut quiet, &mut noisy);
+    board.gen_move(&mut quiet, &mut noisy, false);
 
     if depth == 1 {
         return (quiet.len() + noisy.len()) as u64;

@@ -62,7 +62,7 @@ impl Search {
         let mut best = -Score::MAX;
 
         let mut move_picker = MovePicker::new();
-        move_picker.gen_move(board);
+        move_picker.gen_move(board, false);
         move_picker.score_quiet();
         move_picker.score_noisy(board);
 
@@ -96,7 +96,7 @@ impl Search {
         if depth == 0 { return None };
 
         let mut move_picker = MovePicker::new();
-        move_picker.gen_move(board);
+        move_picker.gen_move(board, false);
         move_picker.score_quiet();
         move_picker.score_noisy(board);
 
@@ -123,7 +123,7 @@ impl Search {
 
         let mut best = {
             let mut picker = MovePicker::new();
-            picker.gen_move(board);
+            picker.gen_move(board, false);
             (picker.random(board.hash()), 0)
         };
 
