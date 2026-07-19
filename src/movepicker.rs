@@ -24,21 +24,23 @@ impl MovePicker {
 
     }
     pub fn score_noisy(&mut self, board: &Board) {
-        for i in 0..self.noisy.len() {
+        let mut i = 0;
+        while i < self.noisy.len() {
             if !see(board, self.noisy.get(i), 0) {
                 self.bad_noisy.push(self.noisy.remove(i));
+            } else {
+                i += 1;
             }
         }
-
 
     }
     pub fn next(&mut self) -> Option<Move> {
         if let Some(mv) = self.noisy.next() {
             return Some(mv);
-        } else if let Some(mv) = self.bad_noisy.next() {
+        } else if let Some(mv) = self.quiet.next() {
             return Some(mv);
         }
-        self.quiet.next()
+        self.bad_noisy.next()
     }
 
     pub fn terminal(&self) -> bool {
