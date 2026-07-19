@@ -352,7 +352,7 @@ impl Board {
         result |= pawn_attack(Color::White, square) & self.piece_bb(Piece::BlackPawn);
         result |= pawn_attack(Color::Black, square) & self.piece_bb(Piece::WhitePawn);
 
-        result
+        result & occ
     }
 }
 
