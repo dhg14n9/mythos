@@ -88,7 +88,7 @@ fn position(board: &mut Board, args: &[&str]) {
 fn find_move(board: &Board, uci: &str) -> Option<Move> {
     let mut quiet = MoveList::new();
     let mut noisy = MoveList::new();
-    board.gen_move(&mut quiet, &mut noisy);
+    board.gen_move(&mut quiet, &mut noisy, false);
 
     for list in [&quiet, &noisy] {
         for i in 0..list.len() {
@@ -150,7 +150,7 @@ fn perft_divide(board: &mut Board, depth: usize) {
 
     let mut quiet = MoveList::new();
     let mut noisy = MoveList::new();
-    board.gen_move(&mut quiet, &mut noisy);
+    board.gen_move(&mut quiet, &mut noisy, false);
 
     let mut total = 0u64;
     for list in [&quiet, &noisy] {
