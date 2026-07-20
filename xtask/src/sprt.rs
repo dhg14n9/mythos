@@ -68,6 +68,18 @@ pub fn sprt(cfg: &SprtConfig) -> Result<()> {
     let sprt_dir = root.join("target/sprt");
     std::fs::create_dir_all(&sprt_dir).map_err(|e| format!("cannot create target/sprt: {e}"))?;
 
+    // Binaries are cached in target/sprt and shared across runs; the per-run
+    // outputs (config, PGN) live in their own timestamped folder so runs don't
+    // clobber each other.
+    let stamp = run_capture(Command::new("date").arg("+%Y%m%d-%H%M%S"))
+        .unwrap_or_else(|_| "run".into());
+    let run_name = format!("{stamp}-vs-{sha}");
+    let run_dir = sprt_dir.join("runs").join(&run_name);
+    std::fs::create_dir_all(&run_dir)
+        .map_err(|e| format!("cannot create {}: {e}", run_dir.display()))?;
+    // fastchess runs with cwd = root, so its output args must be root-relative.
+    let run_rel = format!("target/sprt/runs/{run_name}");
+
     // Children (cargo, fastchess) receive SIGINT with the process group and die
     // on their own; we just note the interrupt so error messages make sense and
     // unwind normally, which runs the worktree guard.
@@ -147,9 +159,9 @@ pub fn sprt(cfg: &SprtConfig) -> Result<()> {
         .args(["-resign", "movecount=4", "score=600", "twosided=true"])
         .args(["-recover", "-ratinginterval", "10", "-autosaveinterval", "0"])
         // fastchess saves its session config on exit; keep it out of the repo root.
-        .args(["-config", "outname=target/sprt/config.json"])
-        .args(["-pgnout", "file=target/sprt/games.pgn", "notation=san"])));
+        .args(["-config", &format!("outname={run_rel}/config.json")])
+        .args(["-pgnout", &format!("file={run_rel}/games.pgn"), "notation=san"])));
 
-    println!("[sprt] baseline was {sha}; games saved to target/sprt/games.pgn");
+    println!("[sprt] baseline was {sha}; results saved to {run_rel}/");
     result
 }
