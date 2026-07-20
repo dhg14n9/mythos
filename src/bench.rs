@@ -60,7 +60,7 @@ pub fn search_bench(depth: usize) {
 
     for (i, fen) in positions.iter().enumerate() {
         let mut board = Board::from_fen(fen).expect("invalid FEN in suite");
-        let mut search = Search::new(TimeControl::infinite());
+        let mut search = Search::new(TimeControl::infinite(), 16);
         search.silent = true;
 
         let start = Instant::now();

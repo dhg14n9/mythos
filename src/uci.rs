@@ -137,7 +137,7 @@ fn go(
             soft_lim,
             hard_lim
         };
-        let mut search = Search::new(time_control);
+        let mut search = Search::new(time_control, 16);
         let best = search.iterative(&mut board, max_depth);
         println!("bestmove {}", best.0)
     }));
