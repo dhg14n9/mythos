@@ -3,6 +3,7 @@ use inquire::{Confirm, InquireError, Select, Text};
 use crate::sprt::{self, SprtConfig};
 use crate::tasks;
 use crate::util::{Result, STARTPOS};
+use crate::vs_bench;
 
 const ITEMS: &[&str] = &[
     "test — run the test suite (optional filter)",
@@ -13,6 +14,7 @@ const ITEMS: &[&str] = &[
     "divide — per-move node counts via UCI go perft",
     "bench — make/unmake micro-benchmark",
     "search-bench — fixed-depth search node-count fingerprint",
+    "vs-search-bench — diff search-bench of working tree vs a git ref",
     "sprt — SPRT match vs a git ref",
     "quit",
 ];
@@ -40,6 +42,7 @@ pub fn menu() -> Result<()> {
             "divide" => prompt_divide(),
             "bench" => tasks::bench(),
             "search-bench" => prompt_search_bench(),
+            "vs-search-bench" => prompt_vs_search_bench(),
             "sprt" => prompt_sprt(),
             _ => unreachable!(),
         };
@@ -104,6 +107,12 @@ fn prompt_divide() -> Result<()> {
 fn prompt_search_bench() -> Result<()> {
     let depth = ask(Text::new("depth").with_default("7"))?;
     tasks::search_bench(Some(&depth))
+}
+
+fn prompt_vs_search_bench() -> Result<()> {
+    let gitref = ask(Text::new("base ref").with_default("HEAD"))?;
+    let depth = ask(Text::new("depth").with_default("7"))?;
+    vs_bench::vs_search_bench(&gitref, &depth)
 }
 
 fn prompt_sprt() -> Result<()> {

@@ -133,6 +133,9 @@ impl Search {
             if self.stopped {
                 break;
             }
+            if let Some(r) = result {
+                best = r
+            }
 
             // info
             if !self.silent {
@@ -142,10 +145,6 @@ impl Search {
                     "info depth {depth} score cp {} nodes {} nps {nps} time {} pv {}",
                     best.1, self.nodes, ellapsed.as_millis(), best.0
                 );
-            }
-
-            if let Some(r) = result {
-                best = r
             }
         }
         best

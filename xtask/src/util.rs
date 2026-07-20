@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub type Result<T> = std::result::Result<T, String>;
@@ -16,6 +16,21 @@ pub fn cargo() -> Command {
     let mut cmd = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
     cmd.current_dir(workspace_root());
     cmd
+}
+
+/// Removes a temporary git worktree when dropped, so it is cleaned up
+/// on the error path (including Ctrl-C, which unwinds via a failed wait).
+pub struct WorktreeGuard {
+    pub dir: PathBuf,
+}
+
+impl Drop for WorktreeGuard {
+    fn drop(&mut self) {
+        let _ = git()
+            .args(["worktree", "remove", "--force"])
+            .arg(&self.dir)
+            .status();
+    }
 }
 
 pub fn git() -> Command {

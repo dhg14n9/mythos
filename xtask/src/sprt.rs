@@ -3,7 +3,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::util::{Result, cargo, git, run, run_capture, workspace_root};
+use crate::util::{Result, WorktreeGuard, cargo, git, run, run_capture, workspace_root};
 
 pub struct SprtConfig {
     pub gitref: String,
@@ -33,21 +33,6 @@ impl Default for SprtConfig {
             rounds: "20000".into(),
             book: None,
         }
-    }
-}
-
-/// Removes the baseline build worktree when dropped, so it is cleaned up
-/// on the error path (including Ctrl-C, which unwinds via a failed wait).
-struct WorktreeGuard {
-    dir: PathBuf,
-}
-
-impl Drop for WorktreeGuard {
-    fn drop(&mut self) {
-        let _ = git()
-            .args(["worktree", "remove", "--force"])
-            .arg(&self.dir)
-            .status();
     }
 }
 

@@ -2,6 +2,7 @@ mod menu;
 mod sprt;
 mod tasks;
 mod util;
+mod vs_bench;
 
 use sprt::SprtConfig;
 use util::Result;
@@ -37,6 +38,10 @@ fn dispatch(args: &[String]) -> Result<()> {
         ),
         "bench" => tasks::bench(),
         "search-bench" => tasks::search_bench(rest.first().map(String::as_str)),
+        "vs-search-bench" => {
+            let (gitref, depth) = parse_vs_args(rest)?;
+            vs_bench::vs_search_bench(gitref, depth)
+        }
         "sprt" => sprt::sprt(&parse_sprt_flags(rest)?),
         "help" | "-h" | "--help" => {
             print!("{USAGE}");
@@ -44,6 +49,21 @@ fn dispatch(args: &[String]) -> Result<()> {
         }
         other => Err(format!("unknown command: {other}\n\n{USAGE}")),
     }
+}
+
+/// `vs-search-bench [ref] [depth]` in either order: a purely numeric
+/// argument is the depth, anything else is the git ref.
+fn parse_vs_args(args: &[String]) -> Result<(&str, &str)> {
+    let mut gitref = "HEAD";
+    let mut depth = "7";
+    for a in args {
+        if a.chars().all(|c| c.is_ascii_digit()) {
+            depth = a;
+        } else {
+            gitref = a;
+        }
+    }
+    Ok((gitref, depth))
 }
 
 fn parse_sprt_flags(args: &[String]) -> Result<SprtConfig> {
@@ -91,6 +111,9 @@ Run with no command for an interactive menu, or call a command directly:
                      run the search to a fixed depth over 22 suite positions
                      and report the node count — a functional fingerprint of
                      the search (depth 7 by default)
+  vs-search-bench [ref] [depth]
+                     search-bench the working tree vs a git ref (default
+                     HEAD) and diff per-position node counts and best moves
 
   sprt [--ref REF] [--elo0 E] [--elo1 E] [--tc TC]
        [--concurrency N] [--rounds N] [--book PATH]
