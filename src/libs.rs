@@ -5,6 +5,7 @@ pub mod board;
 pub mod movepicker;
 pub mod types;
 pub mod uci;
+mod trans;
 
 mod eval;
 mod search;

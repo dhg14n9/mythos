@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::eval::eval::eval;
 use crate::movepicker::MovePicker;
+use crate::trans::{BoundType, TransTable};
 use crate::types::{Move, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
@@ -31,11 +32,12 @@ pub struct Search {
     pub nodes: u64,
     pub stopped: bool,
     pub silent: bool,
+    pub trans_table: TransTable,
 }
 
 impl Search {
-    pub fn new(time_control: TimeControl) -> Self {
-        Self { time_control, nodes: 0, stopped: false, silent: false }
+    pub fn new(time_control: TimeControl, tt_size: usize) -> Self {
+        Self { time_control, nodes: 0, stopped: false, silent: false, trans_table: TransTable::new(tt_size) }
     }
 
     fn should_stop(&mut self) -> bool {
@@ -67,7 +69,7 @@ impl Search {
             alpha = alpha.max(best);
         }
 
-        let mut move_picker = MovePicker::new();
+        let mut move_picker = MovePicker::new(Move::NULL);
         move_picker.gen_move(board, true);
         move_picker.score_quiet();
         move_picker.score_noisy(board);
@@ -101,12 +103,25 @@ impl Search {
             return 0; // search cancelled
         }
 
+        let mut tt_move = Move::NULL;
+        if let Some((score, best, entry_depth, bound)) = self.trans_table.probe(board.hash()) {
+            tt_move = best;
+            if entry_depth >= depth {
+                match bound {
+                    BoundType::Exact => {return score}
+                    BoundType::Lower => {if score >= beta {return score}}
+                    BoundType::Upper => {if score <= alpha {return score}}
+                }
+            }
+        }
+
         if depth == 0 {
             return self.qsearch(board, alpha, beta);
         };
         let mut best = -Score::MAX;
+        let mut best_move = Move::NULL;
 
-        let mut move_picker = MovePicker::new();
+        let mut move_picker = MovePicker::new(tt_move);
         move_picker.gen_move(board, false);
         move_picker.score_quiet();
         move_picker.score_noisy(board);
@@ -115,11 +130,15 @@ impl Search {
             return if board.is_check() { -Score::MAX } else { Score::ZERO };
         }
 
+        let alpha_orig = alpha;
         while let Some(mv) = move_picker.next() {
             board.make_move(mv);
             let score = -self.negamax(board, depth - 1, -beta, -alpha);
             board.unmake_move(mv);
-            best = best.max(score);
+            if score > best {
+                best = score;
+                best_move = mv;
+            }
             alpha = alpha.max(best);
 
             if alpha >= beta {
@@ -127,11 +146,24 @@ impl Search {
             };
         }
 
-        if Score::is_mate(best) {
+        if self.stopped {
+            return 0;
+        }
+
+        let bound =
+        if best <= alpha_orig { BoundType::Upper }
+        else if best >= beta  { BoundType::Lower }
+        else                  { BoundType::Exact };
+
+        let score = if Score::is_mate(best) {
             best - best.signum()
         } else {
             best
-        }
+        };
+
+        self.trans_table.store(board.hash(), score, best_move, depth, bound);
+
+        score
     }
 
     // return bestmove + score
@@ -140,7 +172,9 @@ impl Search {
 
         if depth == 0 { return None };
 
-        let mut move_picker = MovePicker::new();
+        let tt_move = self.trans_table.probe(board.hash()).map_or(Move::NULL, |(_, best, _, _)| best);
+
+        let mut move_picker = MovePicker::new(tt_move);
         move_picker.gen_move(board, false);
         move_picker.score_quiet();
         move_picker.score_noisy(board);
@@ -167,7 +201,7 @@ impl Search {
     pub fn iterative(&mut self, board: &mut Board, max_depth: usize) -> (Move, i32) {
 
         let mut best = {
-            let mut picker = MovePicker::new();
+            let mut picker = MovePicker::new(Move::NULL);
             picker.gen_move(board, false);
             (picker.random(board.hash()), 0)
         };

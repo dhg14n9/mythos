@@ -5,14 +5,18 @@ pub struct MovePicker {
     quiet: MoveList,
     noisy: MoveList,
     bad_noisy: MoveList,
+    tt_move: Move,
+    tt_yielded: bool
 }
 
 impl MovePicker {
-    pub fn new() -> MovePicker {
+    pub fn new(tt_move: Move) -> MovePicker {
         MovePicker {
             quiet: MoveList::new(),
             noisy: MoveList::new(),
             bad_noisy: MoveList::new(),
+            tt_move,
+            tt_yielded: false
         }
     }
 
@@ -35,12 +39,35 @@ impl MovePicker {
 
     }
     pub fn next(&mut self) -> Option<Move> {
-        if let Some(mv) = self.noisy.next() {
-            return Some(mv);
-        } else if let Some(mv) = self.quiet.next() {
-            return Some(mv);
+        // tt move first
+        if !self.tt_yielded {
+            self.tt_yielded = true;
+            if !self.tt_move.is_null() && self.generated(self.tt_move) {
+                return Some(self.tt_move);
+            }
         }
-        self.bad_noisy.next()
+        
+        while let Some(mv) = self.noisy.next() {
+            if mv != self.tt_move {
+                return Some(mv);
+            }
+        }
+        while let Some(mv) = self.quiet.next() {
+            if mv != self.tt_move {
+                return Some(mv);
+            }
+        }
+        while let Some(mv) = self.bad_noisy.next() {
+            if mv != self.tt_move {
+                return Some(mv);
+            }
+        }
+        None
+    }
+
+    fn generated(&self, mv: Move) -> bool {
+        let contains = |list: &MoveList| (0..list.len()).any(|i| list.get(i) == mv);
+        contains(&self.noisy) || contains(&self.quiet) || contains(&self.bad_noisy)
     }
 
     pub fn terminal(&self) -> bool {

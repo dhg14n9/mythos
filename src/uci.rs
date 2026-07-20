@@ -11,10 +11,15 @@ use crate::types::{Color, Move, MoveList};
 const NAME: &str = concat!("Mythos ", env!("CARGO_PKG_VERSION"));
 const AUTHOR: &str = "Do Hoang Giang";
 
+const HASH_DEFAULT: usize = 16;
+const HASH_MIN: usize = 1;
+const HASH_MAX: usize = 4096;
+
 pub fn run() {
     let mut board = Board::start_pos();
     let stop = Arc::new(AtomicBool::new(false));
     let mut handle: Option<thread::JoinHandle<()>> = None;
+    let mut hash_mb = HASH_DEFAULT;
 
     for line in io::stdin().lock().lines() {
         let Ok(line) = line else { break };
@@ -27,12 +32,14 @@ pub fn run() {
             "uci" => {
                 println!("id name {NAME}");
                 println!("id author {AUTHOR}");
+                println!("option name Hash type spin default {HASH_DEFAULT} min {HASH_MIN} max {HASH_MAX}");
                 println!("uciok");
             }
             "isready" => println!("readyok"),
             "ucinewgame" => board = Board::start_pos(),
+            "setoption" => set_option(args, &mut hash_mb),
             "position" => position(&mut board, args),
-            "go" => go(&mut board, args, &stop, &mut handle),
+            "go" => go(&mut board, args, &stop, &mut handle, hash_mb),
             "bench" => {
                 let use_tt = args.iter().any(|a| matches!(*a, "tt" | "--tt"));
                 crate::bench::run(use_tt);
@@ -47,6 +54,30 @@ pub fn run() {
             },
             _ => println!("info string unknown command: {cmd}"),
         }
+    }
+}
+
+fn set_option(args: &[&str], hash_mb: &mut usize) {
+    // setoption name <id> value <x>
+    let name = args
+        .iter()
+        .position(|&a| a == "name")
+        .and_then(|i| args.get(i + 1))
+        .copied();
+    let value = args
+        .iter()
+        .position(|&a| a == "value")
+        .and_then(|i| args.get(i + 1));
+
+    match name {
+        Some(n) if n.eq_ignore_ascii_case("hash") => {
+            match value.and_then(|v| v.parse::<usize>().ok()) {
+                Some(mb) => *hash_mb = mb.clamp(HASH_MIN, HASH_MAX),
+                None => println!("info string invalid value for Hash"),
+            }
+        }
+        Some(n) => println!("info string unknown option: {n}"),
+        None => println!("info string malformed setoption"),
     }
 }
 
@@ -105,7 +136,8 @@ fn go(
     board: &mut Board,
     args: &[&str],
     stop: &Arc<AtomicBool>,
-    handle: &mut Option<thread::JoinHandle<()>>
+    handle: &mut Option<thread::JoinHandle<()>>,
+    hash_mb: usize
 ) {
     let start = Instant::now();
 
@@ -137,7 +169,7 @@ fn go(
             soft_lim,
             hard_lim
         };
-        let mut search = Search::new(time_control);
+        let mut search = Search::new(time_control, hash_mb);
         let best = search.iterative(&mut board, max_depth);
         println!("bestmove {}", best.0)
     }));
