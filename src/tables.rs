@@ -2,9 +2,10 @@ use crate::types::{Color, Move, Square};
 
 // trans table
 #[derive(Default, Copy, Clone)]
+#[repr(u8)]
 pub enum BoundType {
     #[default]
-    Exact,
+    Exact = 0,
     Lower,
     Upper
 }
@@ -49,6 +50,26 @@ impl TransTable {
             key, score, best, depth: depth as u8, bound_type
         };
     }
+
+    // pack score, move, depth, bound into a u64.
+    // score must be on top because when score as u64, every bit on the right will be corrupted into
+    // ones. score on top will throw these (ones) on top as redundant bits
+    fn pack(score: i32, best: Move, depth: usize, bound_type: BoundType) -> u64 {
+        ((score as u64) << 26) | ((best.raw() as u64) << 10) | ((depth as u64) << 2) | bound_type as u64
+    }
+
+    fn unpack(data: u64) -> (i32, Move, usize, BoundType) {
+        let score = (data >> 26) as i32;
+        let mv = Move::from_raw(((data >> 10) & 0xffff) as u16);
+        let depth = ((data >> 2) & 0xff) as usize;
+        let bound_type = match data & 3 {
+            0 => BoundType::Exact,
+            1 => BoundType::Lower,
+            _ => BoundType::Upper
+        };
+        (score, mv, depth, bound_type)
+    }
+
 }
 
 // killer heuristics
