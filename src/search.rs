@@ -52,7 +52,13 @@ impl Search {
         self.stopped
     }
 
-    pub fn qsearch(&mut self, board: &mut Board, mut alpha: i32, beta: i32) -> i32 {
+    pub fn qsearch(
+        &mut self,
+        board: &mut Board,
+        mut alpha: i32,
+        beta: i32,
+        ply: usize
+    ) -> i32 {
         self.nodes += 1;
         if self.should_stop() {
             return 0; // search cancelled
@@ -80,7 +86,7 @@ impl Search {
 
         while let Some(mv) = move_picker.next() {
             board.make_move(mv);
-            let score = -self.qsearch(board, -beta, -alpha);
+            let score = -self.qsearch(board, -beta, -alpha, ply + 1);
             board.unmake_move(mv);
             best = best.max(score);
             alpha = alpha.max(best);
@@ -97,7 +103,14 @@ impl Search {
         }
     }
 
-    pub fn negamax(&mut self, board: &mut Board, depth: usize, mut alpha: i32, beta: i32) -> i32 {
+    pub fn negamax(
+        &mut self,
+        board: &mut Board,
+        depth: usize,
+        mut alpha: i32,
+        beta: i32,
+        ply: usize
+    ) -> i32 {
         self.nodes += 1;
         if self.should_stop() {
             return 0; // search cancelled
@@ -116,7 +129,7 @@ impl Search {
         }
 
         if depth == 0 {
-            return self.qsearch(board, alpha, beta);
+            return self.qsearch(board, alpha, beta, ply);
         };
         let mut best = -Score::MAX;
         let mut best_move = Move::NULL;
@@ -133,7 +146,7 @@ impl Search {
         let alpha_orig = alpha;
         while let Some(mv) = move_picker.next() {
             board.make_move(mv);
-            let score = -self.negamax(board, depth - 1, -beta, -alpha);
+            let score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1);
             board.unmake_move(mv);
             if score > best {
                 best = score;
@@ -187,7 +200,7 @@ impl Search {
 
         while let Some(mv) = move_picker.next() {
             board.make_move(mv);
-            let score = -self.negamax(board, depth - 1, -Score::INF, -best.1);
+            let score = -self.negamax(board, depth - 1, -Score::INF, -best.1, 1);
             board.unmake_move(mv);
             if score > best.1 {
                 best = (mv, score)
