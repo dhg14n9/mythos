@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::eval::eval::eval;
 use crate::movepicker::MovePicker;
-use crate::tables::{BoundType, TransTable};
+use crate::tables::{BoundType, ThreadData, TransTable};
 use crate::types::{Move, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
@@ -33,11 +33,12 @@ pub struct Search {
     pub stopped: bool,
     pub silent: bool,
     pub trans_table: TransTable,
+    pub thread_data: ThreadData
 }
 
 impl Search {
-    pub fn new(time_control: TimeControl, tt_size: usize) -> Self {
-        Self { time_control, nodes: 0, stopped: false, silent: false, trans_table: TransTable::new(tt_size) }
+    pub fn new(time_control: TimeControl, trans_table: TransTable, thread_data: ThreadData) -> Self {
+        Self { time_control, nodes: 0, stopped: false, silent: false, trans_table, thread_data }
     }
 
     fn should_stop(&mut self) -> bool {

@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use crate::board::board::Board;
 use crate::search::{Search, TimeControl};
+use crate::tables::{ThreadData, TransTable};
 use crate::types::{Color, Move, MoveList};
 
 const NAME: &str = concat!("Mythos ", env!("CARGO_PKG_VERSION"));
@@ -169,7 +170,7 @@ fn go(
             soft_lim,
             hard_lim
         };
-        let mut search = Search::new(time_control, hash_mb);
+        let mut search = Search::new(time_control, TransTable::new(hash_mb), ThreadData::new());
         let best = search.iterative(&mut board, max_depth);
         println!("bestmove {}", best.0)
     }));

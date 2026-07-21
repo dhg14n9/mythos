@@ -2,6 +2,7 @@ use std::time::Instant;
 
 use crate::board::board::Board;
 use crate::search::{Search, TimeControl};
+use crate::tables::{ThreadData, TransTable};
 use crate::types::MoveList;
 
 // Andrew Wagner's verified perft suite — 127 positions with known leaf counts
@@ -60,7 +61,7 @@ pub fn search_bench(depth: usize) {
 
     for (i, fen) in positions.iter().enumerate() {
         let mut board = Board::from_fen(fen).expect("invalid FEN in suite");
-        let mut search = Search::new(TimeControl::infinite(), 16);
+        let mut search = Search::new(TimeControl::infinite(), TransTable::new(16), ThreadData::new());
         search.silent = true;
 
         let start = Instant::now();
