@@ -1,5 +1,6 @@
-use crate::types::Move;
+use crate::types::{Color, Move, Square};
 
+// trans table
 #[derive(Default, Copy, Clone)]
 pub enum BoundType {
     #[default]
@@ -50,4 +51,63 @@ impl TransTable {
     }
 }
 
+// killer heuristics
+const MAX_PLY: usize = 256;
+
+pub struct Killer {
+    array: Box<[[Move; 2]; MAX_PLY]>
+}
+
+impl Killer {
+    pub fn new() -> Self {
+        Self {
+            array: Box::from([[Move::NULL; 2]; MAX_PLY])
+        }
+    }
+
+    pub fn store(&mut self, mv: Move, ply: usize) {
+        if self.array[ply][0] != mv {
+            self.array[ply][1] = self.array[ply][0];
+            self.array[ply][0] = mv;
+        }
+    }
+
+    // return NULL if there isn't a
+    pub fn probe(&self, ply: usize) -> (Move, Move) {
+        self.array[ply].into()
+    }
+
+}
+
+// History heuristic
+const MAX: i32 = 8192;
+pub struct History {
+    array: Box<[[[i32; 64]; 64]; 2]>
+}
+
+impl History {
+    pub fn new() -> Self {
+        Self {
+            array: Box::from([[[0; 64]; 64]; 2])
+        }
+    }
+    pub fn probe(&self, color: Color, from: Square, to: Square) -> i32 {
+        self.array[color][from][to]
+    }
+
+    fn apply_bonus(&mut self, color: Color, from: Square, to: Square, bonus: i32) {
+        self.array[color][from][to] += bonus - self.array[color][from][to] * bonus.abs() / MAX
+    }
+
+    pub fn bonus(&mut self, color: Color, from: Square, to: Square, depth: usize) {
+        let bonus = (depth * depth).min(1200) as i32;
+        self.apply_bonus(color, from, to, bonus)
+    }
+
+    pub fn malus(&mut self, color: Color, from: Square, to: Square, depth: usize) {
+        let malus = -((depth * depth).min(1200) as i32);
+        self.apply_bonus(color, from, to, malus)
+    }
+
+}
 
