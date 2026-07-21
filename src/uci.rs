@@ -2,6 +2,7 @@ use std::io::{self, BufRead};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::board::board::Board;
@@ -19,8 +20,11 @@ const HASH_MAX: usize = 4096;
 pub fn run() {
     let mut board = Board::start_pos();
     let stop = Arc::new(AtomicBool::new(false));
-    let mut handle: Option<thread::JoinHandle<()>> = None;
     let mut hash_mb = HASH_DEFAULT;
+
+    let mut trans_table = TransTable::new(hash_mb);
+    let mut thread_data: Option<ThreadData> = Some(ThreadData::new());
+    let mut handle: Option<JoinHandle<ThreadData>> = None;
 
     for line in io::stdin().lock().lines() {
         let Ok(line) = line else { break };
@@ -37,10 +41,20 @@ pub fn run() {
                 println!("uciok");
             }
             "isready" => println!("readyok"),
-            "ucinewgame" => board = Board::start_pos(),
-            "setoption" => set_option(args, &mut hash_mb),
+            "ucinewgame" => {
+                join_thread(&*stop, &mut handle, &mut thread_data);
+                board = Board::start_pos();
+                trans_table.clear();
+                if let Some(td) = thread_data.as_mut() { td.clear() }
+            },
+            "setoption" => {
+                if set_option(args, &mut hash_mb) {
+                    join_thread(&*stop, &mut handle, &mut thread_data);
+                    trans_table = TransTable::new(hash_mb)
+                }
+            },
             "position" => position(&mut board, args),
-            "go" => go(&mut board, args, &stop, &mut handle, hash_mb),
+            "go" => go(&mut board, args, &stop, &mut handle, &trans_table, &mut thread_data),
             "bench" => {
                 let use_tt = args.iter().any(|a| matches!(*a, "tt" | "--tt"));
                 crate::bench::run(use_tt);
@@ -58,7 +72,7 @@ pub fn run() {
     }
 }
 
-fn set_option(args: &[&str], hash_mb: &mut usize) {
+fn set_option(args: &[&str], hash_mb: &mut usize) -> bool {
     // setoption name <id> value <x>
     let name = args
         .iter()
@@ -73,13 +87,19 @@ fn set_option(args: &[&str], hash_mb: &mut usize) {
     match name {
         Some(n) if n.eq_ignore_ascii_case("hash") => {
             match value.and_then(|v| v.parse::<usize>().ok()) {
-                Some(mb) => *hash_mb = mb.clamp(HASH_MIN, HASH_MAX),
+                Some(mb) => {
+                    if mb != *hash_mb {
+                        *hash_mb = mb.clamp(HASH_MIN, HASH_MAX);
+                        return true;
+                    }
+                },
                 None => println!("info string invalid value for Hash"),
             }
         }
         Some(n) => println!("info string unknown option: {n}"),
         None => println!("info string malformed setoption"),
     }
+    return false;
 }
 
 fn position(board: &mut Board, args: &[&str]) {
@@ -137,8 +157,9 @@ fn go(
     board: &mut Board,
     args: &[&str],
     stop: &Arc<AtomicBool>,
-    handle: &mut Option<thread::JoinHandle<()>>,
-    hash_mb: usize
+    handle: &mut Option<thread::JoinHandle<ThreadData>>,
+    trans_table: &TransTable,
+    thread_data: &mut Option<ThreadData>
 ) {
     let start = Instant::now();
 
@@ -148,11 +169,7 @@ fn go(
         return;
     }
 
-    stop.store(true, Ordering::Relaxed);
-    if let Some(h) = handle.take() {
-        let _ = h.join();
-    }
-    stop.store(false, Ordering::Relaxed);
+    join_thread(stop, handle, thread_data);
 
     let stop = Arc::clone(stop);
     let (hard_lim, soft_lim) = parse_time(args, board.stm());
@@ -163,6 +180,8 @@ fn go(
         .and_then(|d| d.parse().ok())
         .unwrap_or(100);
     let mut board = board.clone();
+    let tt = trans_table.clone();
+    let td = thread_data.take().expect("No thread data");
     *handle = Some(thread::spawn( move || {
         let time_control = TimeControl {
             stop,
@@ -170,12 +189,24 @@ fn go(
             soft_lim,
             hard_lim
         };
-        let mut search = Search::new(time_control, TransTable::new(hash_mb), ThreadData::new());
+        let mut search = Search::new(time_control, tt, td);
         let best = search.iterative(&mut board, max_depth);
-        println!("bestmove {}", best.0)
+        println!("bestmove {}", best.0);
+
+        search.thread_data
     }));
+}
 
-
+fn join_thread(
+    stop: &AtomicBool,
+    handle: &mut Option<JoinHandle<ThreadData>>,
+    thread_data: &mut Option<ThreadData>
+) {
+    stop.store(true, Ordering::Relaxed);
+    if let Some(h) = handle.take() {
+        *thread_data = Some(h.join().unwrap())
+    }
+    stop.store(false, Ordering::Relaxed);
 }
 
 fn perft_divide(board: &mut Board, depth: usize) {

@@ -18,6 +18,7 @@ pub struct Slot {
     data: AtomicU64
 }
 
+#[derive(Clone)]
 pub struct TransTable {
     array: Arc<[Slot]>,
     num_entry: usize
