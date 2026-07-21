@@ -65,6 +65,7 @@ impl Search {
             return 0; // search cancelled
         }
 
+        let stm = board.stm();
         let in_check = board.is_check();
         let mut best = -Score::MAX;
 
@@ -78,7 +79,7 @@ impl Search {
 
         let mut move_picker = MovePicker::new(Move::NULL);
         move_picker.gen_move(board, true);
-        move_picker.score_quiet();
+        move_picker.score_quiet(&self.thread_data, stm, ply);
         move_picker.score_noisy(board);
 
         if in_check && move_picker.terminal() {
@@ -135,9 +136,14 @@ impl Search {
         let mut best = -Score::MAX;
         let mut best_move = Move::NULL;
 
+        let stm = board.stm();
+        // store quiets that doesn't get cut off to give malus
+        let mut failure: [Move; 32] = [Move::NULL; 32];
+        let mut n_failed: usize = 0;
+
         let mut move_picker = MovePicker::new(tt_move);
         move_picker.gen_move(board, false);
-        move_picker.score_quiet();
+        move_picker.score_quiet(&self.thread_data, stm, ply);
         move_picker.score_noisy(board);
 
         if move_picker.terminal() {
@@ -156,8 +162,26 @@ impl Search {
             alpha = alpha.max(best);
 
             if alpha >= beta {
+                if mv.is_quiet() {
+                    // add to killer + history
+                    self.thread_data.killer.store(mv, ply);
+                    self.thread_data.history.bonus(stm, mv.from(), mv.to(), depth);
+
+                    // malus other moves
+                    for i in 0..n_failed {
+                        let mv = failure[i];
+                        self.thread_data.history.malus(stm, mv.from(), mv.to(), depth);
+                    }
+                }
+
                 break;
             };
+
+            if n_failed != 32 && mv.is_quiet() {
+                failure[n_failed] = mv;
+                n_failed += 1;
+            }
+
         }
 
         if self.stopped {
@@ -190,7 +214,7 @@ impl Search {
 
         let mut move_picker = MovePicker::new(tt_move);
         move_picker.gen_move(board, false);
-        move_picker.score_quiet();
+        move_picker.score_quiet(&self.thread_data, board.stm(), 0);
         move_picker.score_noisy(board);
 
         if move_picker.terminal() {
