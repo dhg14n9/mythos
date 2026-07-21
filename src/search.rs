@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::eval::eval::eval;
 use crate::movepicker::MovePicker;
-use crate::trans::{BoundType, TransTable};
+use crate::tables::{BoundType, TransTable};
 use crate::types::{Move, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
