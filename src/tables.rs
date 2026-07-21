@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use crate::types::{Color, Move, Square};
 
 // trans table
@@ -10,45 +12,50 @@ pub enum BoundType {
     Upper
 }
 
-#[derive(Default, Copy, Clone)]
-pub struct TTEntry {
-    key: u64,
-    score: i32,
-    best: Move,
-    depth: u8,
-    bound_type: BoundType
+#[derive(Default)]
+pub struct Slot {
+    key: AtomicU64,
+    data: AtomicU64
 }
 
 pub struct TransTable {
-    array: Vec<TTEntry>,
+    array: Arc<[Slot]>,
     num_entry: usize
 }
 
 impl TransTable {
     pub fn new(size_mb: usize) -> Self {
-        let num_entry = (size_mb.max(1) * 1024 * 1024) / size_of::<TTEntry>();
-        Self {
-            array: vec![TTEntry::default(); num_entry],
-            num_entry
-        }
+        let num_entry = (size_mb.max(1) * 1024 * 1024) / size_of::<Slot>();
+        let array: Arc<[Slot]> = (0..num_entry).map(|_| Slot::default()).collect();
+        Self { array, num_entry }
     }
-    fn index( key: u64, num_entry: usize) -> usize {
+    fn index(key: u64, num_entry: usize) -> usize {
         ((key as u128 * num_entry as u128) >> 64) as usize
     }
 
     pub fn probe(&self, key: u64) -> Option<(i32, Move, usize, BoundType)> {
-        let entry = self.array[Self::index(key, self.num_entry)];
-        if entry.key == key {
-            Some((entry.score, entry.best, entry.depth as usize, entry.bound_type))
+        let slot = &self.array[Self::index(key, self.num_entry)];
+        let key_cell = slot.key.load(Ordering::Relaxed);
+        let data = slot.data.load(Ordering::Relaxed);
+        if key_cell ^ data == key {
+            Some(Self::unpack(data))
         } else {
             None
         }
     }
 
-    pub fn store(&mut self, key: u64, score: i32, best: Move, depth: usize, bound_type: BoundType) {
-        self.array[Self::index(key, self.num_entry)] = TTEntry {
-            key, score, best, depth: depth as u8, bound_type
-        };
+    pub fn store(&self, key: u64, score: i32, best: Move, depth: usize, bound_type: BoundType) {
+        let slot = &self.array[Self::index(key, self.num_entry)];
+        let data = Self::pack(score, best, depth, bound_type);
+        slot.key.store(key ^ data, Ordering::Relaxed);
+        slot.data.store(data, Ordering::Relaxed);
+    }
+
+    pub fn clear(&self) {
+        for slot in self.array.iter() {
+            slot.key.store(0, Ordering::Relaxed);
+            slot.data.store(0, Ordering::Relaxed);
+        }
     }
 
     // pack score, move, depth, bound into a u64.
