@@ -139,3 +139,21 @@ impl History {
 
 }
 
+pub struct ThreadData {
+    pub history: History,
+    pub killer: Killer,
+}
+
+impl ThreadData {
+    pub fn new() -> Self {
+        Self {
+            history: History::new(),
+            killer: Killer::new()
+        }
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::new();
+    }
+
+}
