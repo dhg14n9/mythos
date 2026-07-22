@@ -153,11 +153,12 @@ impl Search {
         let alpha_orig = alpha;
         let mut i = 0; // move num in move ordering
         while let Some(mv) = move_picker.next() {
+            let escaping_check = board.is_check();
             board.make_move(mv);
             let mut score: i32;
 
-            if is_reducable(i, depth, mv) {
-                let reduction = reduction(depth, i);
+            if self.is_reducable(i, depth, ply, mv, board, escaping_check) {
+                let reduction = Self::reduction(depth, i);
                 score = -self.negamax(board, depth - 1 - reduction, -beta, -alpha, ply + 1);
 
                 // unexpectedly good move
@@ -170,6 +171,8 @@ impl Search {
 
 
             board.unmake_move(mv);
+            i += 1;
+
             if score > best {
                 best = score;
                 best_move = mv;
@@ -215,7 +218,6 @@ impl Search {
         };
 
         self.trans_table.store(board.hash(), score, best_move, depth, bound);
-        i += 1;
 
         score
     }
@@ -286,14 +288,26 @@ impl Search {
         }
         best
     }
+
+    // check if move is reducable, i is move number in move ordering
+    fn is_reducable(&self, i: usize, depth: usize, ply: usize, mv: Move, board: &mut Board, escaping_check: bool) -> bool {
+        if i < 4 { return false }
+        if depth < 3 { return false }
+        if mv.is_capture() { return false }
+        if mv.is_promotion() { return false }
+        let (k1, k2) = self.thread_data.killer.probe(ply);
+        if k1 == mv || k2 == mv {
+            return false
+        }
+        if board.is_check() { return false }
+        if escaping_check { return false }
+        true
+    }
+
+    fn reduction(depth: usize, i: usize) -> usize {
+        ((0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25) as usize).min(depth - 2)
+    }
+
 }
 
-// check if move is reducable, i is move number in move ordering
-fn is_reducable(i: usize, depth: usize, mv: Move) -> bool {
-    false
-}
-
-fn reduction(depth: usize, i: usize) -> usize {
-    todo!()
-}
 
