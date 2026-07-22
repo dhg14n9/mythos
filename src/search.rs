@@ -5,7 +5,7 @@ use crate::board::board::Board;
 use crate::eval::eval::eval;
 use crate::movepicker::MovePicker;
 use crate::tables::{BoundType, ThreadData, TransTable};
-use crate::types::{Move, Score};
+use crate::types::{Color, Move, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
 
@@ -111,7 +111,8 @@ impl Search {
         depth: usize,
         mut alpha: i32,
         beta: i32,
-        ply: usize
+        ply: usize,
+        allow_null: bool
     ) -> i32 {
         self.nodes += 1;
         if self.should_stop() {
@@ -133,6 +134,15 @@ impl Search {
         if depth == 0 {
             return self.qsearch(board, alpha, beta, ply);
         };
+
+        if allow_null && self.should_nmp(beta, depth, board) {
+            board.make_null_move();
+            let score = -self.negamax(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth)), -beta, -beta + 1, ply + 1, false);
+            board.unmake_null_move();
+
+            if score >= beta { return score }
+        }
+
         let mut best = -Score::MAX;
         let mut best_move = Move::NULL;
 
@@ -157,16 +167,16 @@ impl Search {
             board.make_move(mv);
             let mut score: i32;
 
-            if self.is_reducable(i, depth, ply, mv, board, escaping_check) {
-                let reduction = Self::reduction(depth, i);
-                score = -self.negamax(board, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1);
+            if self.should_lmr(i, depth, ply, mv, board, escaping_check) {
+                let reduction = Self::lmr_reduction(depth, i);
+                score = -self.negamax(board, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, true);
 
                 // unexpectedly good move
                 if score > alpha {
-                    score = -self.negamax(board, depth - 1, -alpha - 1, -alpha, ply + 1); // full depth search
+                    score = -self.negamax(board, depth - 1, -alpha - 1, -alpha, ply + 1, true); // full depth search
                 }
             } else {
-                score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1);
+                score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1, true);
             }
 
 
@@ -243,7 +253,7 @@ impl Search {
 
         while let Some(mv) = move_picker.next() {
             board.make_move(mv);
-            let score = -self.negamax(board, depth - 1, -Score::INF, -best.1, 1);
+            let score = -self.negamax(board, depth - 1, -Score::INF, -best.1, 1, true);
             board.unmake_move(mv);
             if score > best.1 {
                 best = (mv, score)
@@ -290,7 +300,7 @@ impl Search {
     }
 
     // check if move is reducable, i is move number in move ordering
-    fn is_reducable(&self, i: usize, depth: usize, ply: usize, mv: Move, board: &Board, escaping_check: bool) -> bool {
+    fn should_lmr(&self, i: usize, depth: usize, ply: usize, mv: Move, board: &Board, escaping_check: bool) -> bool {
         if i < 4 { return false }
         if depth < 3 { return false }
         if mv.is_capture() { return false }
@@ -304,10 +314,34 @@ impl Search {
         true
     }
 
-    fn reduction(depth: usize, i: usize) -> usize {
+    // allow null move pruning
+    fn should_nmp(&self, beta: i32, depth: usize, board: &Board) -> bool {
+        if depth < 3 { return false }
+        if board.is_check() { return false }
+        if Score::is_mate(beta) { return false }
+        if eval(board) < beta { return false }
+        if !has_non_pawn_piece(board, board.stm()) { return false }
+        if Score::is_mate(beta) { return false }
+        true
+    }
+
+    fn lmr_reduction(depth: usize, i: usize) -> usize {
         ((0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25) as usize).min(depth - 2)
+    }
+
+    fn nmp_reduction(depth: usize) -> usize {
+        3 + depth / 3
     }
 
 }
 
+fn has_non_pawn_piece(board: &Board, color: Color) -> bool {
+    let bb =
+            board.piece_type_bb(PieceType::Queen) |
+            board.piece_type_bb(PieceType::Bishop) |
+            board.piece_type_bb(PieceType::Knight) |
+            board.piece_type_bb(PieceType::Rook);
 
+    !(bb & board.color_bb(color)).is_empty()
+
+}
