@@ -151,9 +151,24 @@ impl Search {
         }
 
         let alpha_orig = alpha;
+        let mut i = 0; // move num in move ordering
         while let Some(mv) = move_picker.next() {
             board.make_move(mv);
-            let score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1);
+            let mut score: i32;
+
+            if is_reducable(i, depth, mv) {
+                let reduction = reduction(depth, i);
+                score = -self.negamax(board, depth - 1 - reduction, -beta, -alpha, ply + 1);
+
+                // unexpectedly good move
+                if score > alpha {
+                    score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1); // full depth search
+                }
+            } else {
+                score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1);
+            }
+
+
             board.unmake_move(mv);
             if score > best {
                 best = score;
@@ -200,6 +215,7 @@ impl Search {
         };
 
         self.trans_table.store(board.hash(), score, best_move, depth, bound);
+        i += 1;
 
         score
     }
@@ -270,5 +286,14 @@ impl Search {
         }
         best
     }
+}
+
+// check if move is reducable, i is move number in move ordering
+fn is_reducable(i: usize, depth: usize, mv: Move) -> bool {
+    false
+}
+
+fn reduction(depth: usize, i: usize) -> usize {
+    todo!()
 }
 
