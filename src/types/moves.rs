@@ -44,6 +44,14 @@ impl Move {
         )
     }
 
+    pub const fn raw(&self) -> u16 {
+        self.0
+    }
+
+    pub const fn from_raw(bits: u16) -> Self {
+        Self(bits)
+    }
+
     pub fn from(self) -> Square {
         Square::new((self.0 & 0b0011_1111) as u8)
     }

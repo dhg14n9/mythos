@@ -1,5 +1,9 @@
 use crate::board::board::Board;
+use crate::tables::ThreadData;
 use crate::types::{Bitboard, Color, Move, MoveList, Piece, PieceType, Square};
+
+const KILLER1_SCORE: i32 = 1_000_000;
+const KILLER2_SCORE: i32 = 900_000;
 
 pub struct MovePicker {
     quiet: MoveList,
@@ -24,8 +28,15 @@ impl MovePicker {
         board.gen_move(&mut self.quiet, &mut self.noisy, noisy_only)
     }
 
-    pub fn score_quiet(&mut self) {
-
+    pub fn score_quiet(&mut self, thread_data: &ThreadData, stm: Color, ply: usize) {
+        let (killer1, killer2) = thread_data.killer.probe(ply);
+        for i in 0..self.quiet.len() {
+            let mv = self.quiet.get(i);
+            let score = if mv == killer1      { KILLER1_SCORE }
+                             else if mv == killer2 { KILLER2_SCORE }
+                             else { thread_data.history.probe(stm, mv.from(), mv.to()) };
+            self.quiet.score(i, score)
+        }
     }
     pub fn score_noisy(&mut self, board: &Board) {
         let mut i = 0;
