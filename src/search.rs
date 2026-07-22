@@ -159,11 +159,11 @@ impl Search {
 
             if self.is_reducable(i, depth, ply, mv, board, escaping_check) {
                 let reduction = Self::reduction(depth, i);
-                score = -self.negamax(board, depth - 1 - reduction, -beta, -alpha, ply + 1);
+                score = -self.negamax(board, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1);
 
                 // unexpectedly good move
                 if score > alpha {
-                    score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1); // full depth search
+                    score = -self.negamax(board, depth - 1, -alpha - 1, -alpha, ply + 1); // full depth search
                 }
             } else {
                 score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1);
@@ -290,7 +290,7 @@ impl Search {
     }
 
     // check if move is reducable, i is move number in move ordering
-    fn is_reducable(&self, i: usize, depth: usize, ply: usize, mv: Move, board: &mut Board, escaping_check: bool) -> bool {
+    fn is_reducable(&self, i: usize, depth: usize, ply: usize, mv: Move, board: &Board, escaping_check: bool) -> bool {
         if i < 4 { return false }
         if depth < 3 { return false }
         if mv.is_capture() { return false }
