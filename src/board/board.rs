@@ -354,6 +354,26 @@ impl Board {
 
         result & occ
     }
+
+    pub fn make_null_move(&mut self) {
+        self.push_state(Piece::None);
+
+        self.zobrist ^= ZobristHelper::ep(self.en_passant);
+        self.en_passant = Square::None;
+
+        self.half_move += 1;
+        self.game_ply += 1;
+        self.side_to_move = !self.side_to_move;
+        self.zobrist ^= ZobristHelper::color();
+    }
+
+    pub fn unmake_null_move(&mut self) {
+        self.pop_state();
+
+        self.game_ply -= 1;
+        self.side_to_move = !self.side_to_move;
+    }
+
 }
 
 #[cfg(test)]
