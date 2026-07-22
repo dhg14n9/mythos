@@ -3,6 +3,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::sprt_report;
 use crate::util::{Result, WorktreeGuard, cargo, git, run, run_capture, workspace_root};
 
 pub struct SprtConfig {
@@ -162,6 +163,13 @@ pub fn sprt(cfg: &SprtConfig) -> Result<()> {
         .args(["-config", &format!("outname={run_rel}/config.json")])
         .args(["-pgnout", &format!("file={run_rel}/games.pgn"), "notation=san"])));
 
+    // fastchess writes config.json (with the tallies so far) on exit, even
+    // after Ctrl-C, so a report is generated on the interrupt path too. A
+    // report failure must never mask the match result.
+    match sprt_report::generate(&run_dir) {
+        Ok(path) => println!("[sprt] report: {}", path.display()),
+        Err(e) => eprintln!("[sprt] warning: no report generated: {e}"),
+    }
     println!("[sprt] baseline was {sha}; results saved to {run_rel}/");
     result
 }

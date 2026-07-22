@@ -1,8 +1,9 @@
 use inquire::{Confirm, InquireError, Select, Text};
 
 use crate::sprt::{self, SprtConfig};
+use crate::sprt_report;
 use crate::tasks;
-use crate::util::{Result, STARTPOS};
+use crate::util::{Result, STARTPOS, workspace_root};
 use crate::vs_bench;
 
 const ITEMS: &[&str] = &[
@@ -16,6 +17,7 @@ const ITEMS: &[&str] = &[
     "search-bench — fixed-depth search node-count fingerprint",
     "vs-search-bench — diff search-bench of working tree vs a git ref",
     "sprt — SPRT match vs a git ref",
+    "sprt-report — regenerate the report for a past SPRT run",
     "quit",
 ];
 
@@ -44,6 +46,7 @@ pub fn menu() -> Result<()> {
             "search-bench" => prompt_search_bench(),
             "vs-search-bench" => prompt_vs_search_bench(),
             "sprt" => prompt_sprt(),
+            "sprt-report" => prompt_sprt_report(),
             _ => unreachable!(),
         };
 
@@ -127,4 +130,28 @@ fn prompt_sprt() -> Result<()> {
         book: None,
     };
     sprt::sprt(&cfg)
+}
+
+fn prompt_sprt_report() -> Result<()> {
+    let runs = workspace_root().join("target/sprt/runs");
+    let mut names: Vec<String> = std::fs::read_dir(&runs)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    if names.is_empty() {
+        return Err("no SPRT runs found under target/sprt/runs".into());
+    }
+    names.sort_unstable_by(|a, b| b.cmp(a)); // timestamp prefix: newest first
+    let pick = match Select::new("run", names).prompt() {
+        Ok(pick) => pick,
+        Err(InquireError::OperationCanceled | InquireError::OperationInterrupted) => {
+            return Err(CANCELED.into());
+        }
+        Err(e) => return Err(e.to_string()),
+    };
+    sprt_report::report_cmd(&pick)
 }

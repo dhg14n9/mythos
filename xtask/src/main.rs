@@ -1,5 +1,6 @@
 mod menu;
 mod sprt;
+mod sprt_report;
 mod tasks;
 mod util;
 mod vs_bench;
@@ -43,6 +44,10 @@ fn dispatch(args: &[String]) -> Result<()> {
             vs_bench::vs_search_bench(gitref, depth)
         }
         "sprt" => sprt::sprt(&parse_sprt_flags(rest)?),
+        "sprt-report" => match rest {
+            [dir] => sprt_report::report_cmd(dir),
+            _ => Err("usage: cargo xtask sprt-report <run-dir>".into()),
+        },
         "help" | "-h" | "--help" => {
             print!("{USAGE}");
             Ok(())
@@ -119,7 +124,10 @@ Run with no command for an interactive menu, or call a command directly:
        [--concurrency N] [--rounds N] [--book PATH]
                      SPRT match of the working tree vs a git ref (default
                      HEAD) via fastchess; defaults: elo bounds [0, 5],
-                     tc 8+0.08, half the cores, 20000-round cap
+                     tc 8+0.08, half the cores, 20000-round cap; writes an
+                     annotated report.md into the run folder
+  sprt-report RUN    (re)generate report.md for an SPRT run folder — RUN is
+                     a target/sprt/runs/<run> path or just the run name
 
   help               show this help
 ";

@@ -67,6 +67,7 @@ cargo xtask <command>    # run a command directly
 | `bench` | make/unmake micro-benchmark |
 | `search-bench [depth]` | fixed-depth search over 22 positions, reports the node count (a functional fingerprint of the search) |
 | `sprt` | SPRT match of the working tree vs a git ref |
+| `sprt-report <run>` | regenerate the annotated report for a past SPRT run |
 
 Plain `cargo build` / `cargo test` / `cargo run` are unchanged — xtask only wraps
 the workflows that need extra flags or orchestration.
@@ -80,11 +81,15 @@ cargo xtask sprt [--ref REF] [--elo0 E] [--elo1 E] [--tc TC]
 
 Builds the working tree and a baseline (`--ref`, default `HEAD`), then plays a
 [SPRT](https://www.chessprogramming.org/Sequential_Probability_Ratio_Test) match
-between them until the elo bounds (default `[0, 5]`) are accepted or rejected.
-Defaults: `8+0.08` time control, half the CPU cores, 20000-round cap. Requires
-[fastchess](https://github.com/Disservin/fastchess) on `PATH`. Games are saved to
-`target/sprt/games.pgn`. Openings come from `xtask/books/openings.epd`, a
-500-position sample of `noob_3moves.epd` from the
+between them until the elo bounds (default `[0, 5]`, in normalized Elo) are
+accepted or rejected. Defaults: `8+0.08` time control, half the CPU cores,
+20000-round cap. Requires [fastchess](https://github.com/Disservin/fastchess)
+on `PATH`. Each run gets its own folder under `target/sprt/runs/` holding the
+games (`games.pgn`), the exact fastchess configuration (`config.json`), and
+`report.md` — an annotated report that recomputes LLR / Elo / nElo / LOS from
+the final tallies and explains what every value means; regenerate it for any
+past run with `cargo xtask sprt-report <run>`. Openings come from
+`xtask/books/openings.epd`, a 500-position sample of `noob_3moves.epd` from the
 [official-stockfish books](https://github.com/official-stockfish/books) collection.
 
 ## Acknowledgements
