@@ -28,3 +28,6 @@ sprt_*.txt
 
 # --- Claude Code ---
 CLAUDE.md
+
+# --- Ginormous Opening Books ---
+xtask/books/*.epd

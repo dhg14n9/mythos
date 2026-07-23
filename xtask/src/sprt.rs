@@ -46,15 +46,17 @@ pub fn sprt(cfg: &SprtConfig) -> Result<()> {
     let book = cfg
         .book
         .clone()
-        .unwrap_or_else(|| root.join("xtask/books/openings.epd"));
+        .unwrap_or_else(|| root.join("xtask/books/UHO_Lichess_4852_v1.epd"));
     if !book.is_file() {
         return Err(format!(
             "opening book not found: {}\n\
              SPRT needs varied openings; games all starting from the start position \
              would be correlated and the result meaningless.\n\
-             Download a balanced EPD book (e.g. noob_3moves.epd from \
-             https://github.com/official-stockfish/books), place it at \
-             xtask/books/openings.epd, or pass --book <path>.",
+             Download a book (e.g. UHO_Lichess_4852_v1.epd from \
+             https://github.com/official-stockfish/books is preferred), place it at \
+             xtask/books/UHO_Lichess_4852_v1.epd, or pass --book <path>.\n\
+             The project is not shipped with an opening book because of the size of the book. \
+             ",
             book.display()
         ));
     }

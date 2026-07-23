@@ -88,9 +88,10 @@ on `PATH`. Each run gets its own folder under `target/sprt/runs/` holding the
 games (`games.pgn`), the exact fastchess configuration (`config.json`), and
 `report.md` — an annotated report that recomputes LLR / Elo / nElo / LOS from
 the final tallies and explains what every value means; regenerate it for any
-past run with `cargo xtask sprt-report <run>`. Openings come from
-`xtask/books/openings.epd`, a 500-position sample of `noob_3moves.epd` from the
-[official-stockfish books](https://github.com/official-stockfish/books) collection.
+past run with `cargo xtask sprt-report <run>`. Openings for sprt come from 
+`xtask/books/UHO_Lichess_4852_v1.epd` (not commited because of file size, must be downloaded
+manually from [official-stockfish books](https://github.com/official-stockfish/books)) and 
+place in `xtask/books`. 
 
 ## Acknowledgements
 
