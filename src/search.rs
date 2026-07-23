@@ -173,17 +173,30 @@ impl Search {
             board.make_move(mv);
             let mut score: i32;
 
-            if self.should_lmr(i, depth, ply, mv, board, escaping_check) {
-                let reduction = Self::lmr_reduction(depth, i);
-                score = -self.negamax(board, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, true);
-
-                // unexpectedly good move
-                if score > alpha {
-                    score = -self.negamax(board, depth - 1, -alpha - 1, -alpha, ply + 1, true); // full depth search
-                }
-            } else {
+            if i == 0 {
                 score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1, true);
+            } else {
+                if self.should_lmr(i, depth, ply, mv, board, escaping_check) {
+                    let reduction = Self::lmr_reduction(depth, i);
+                    score = -self.negamax(board, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, true);
+
+                    // unexpectedly good move
+                    if score > alpha {
+                        score = -self.negamax(board, depth - 1, -alpha - 1, -alpha, ply + 1, true); // full depth search
+
+                        if score > alpha && score < beta {
+                            score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1, true); // full winndow search 
+                        }
+                    }
+                } else {
+                    score = -self.negamax(board, depth - 1, -alpha - 1, -alpha, ply + 1, true);
+
+                    if score > alpha && score < beta {
+                        score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1, true);
+                    }
+                }
             }
+
 
 
             board.unmake_move(mv);
