@@ -88,6 +88,7 @@ fn parse_sprt_flags(args: &[String]) -> Result<SprtConfig> {
             "--concurrency" => cfg.concurrency = value("--concurrency")?,
             "--rounds" => cfg.rounds = value("--rounds")?,
             "--book" => cfg.book = Some(value("--book")?.into()),
+            "--affinity" => cfg.affinity = Some(value("--affinity")?),
             other => return Err(format!("unknown sprt flag: {other}")),
         }
     }
@@ -121,11 +122,13 @@ Run with no command for an interactive menu, or call a command directly:
                      HEAD) and diff per-position node counts and best moves
 
   sprt [--ref REF] [--elo0 E] [--elo1 E] [--tc TC]
-       [--concurrency N] [--rounds N] [--book PATH]
+       [--concurrency N] [--rounds N] [--book PATH] [--affinity CPUS]
                      SPRT match of the working tree vs a git ref (default
                      HEAD) via fastchess; defaults: elo bounds [0, 5],
                      tc 8+0.08, half the cores, 20000-round cap; writes an
-                     annotated report.md into the run folder
+                     annotated report.md into the run folder.
+                     --affinity pins engines to cores: a CPU list like
+                     0-7 or 3,5,7-11, or `auto` to let fastchess choose
   sprt-report RUN    (re)generate report.md for an SPRT run folder — RUN is
                      a target/sprt/runs/<run> path or just the run name
 

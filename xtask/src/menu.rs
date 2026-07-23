@@ -128,6 +128,12 @@ fn prompt_sprt() -> Result<()> {
         concurrency: ask(Text::new("concurrency").with_default(&defaults.concurrency))?,
         rounds: ask(Text::new("max rounds").with_default(&defaults.rounds))?,
         book: None,
+        affinity: match ask(
+            Text::new("affinity (cpu list, `auto`, or empty for none)").with_default(""),
+        )? {
+            s if s.is_empty() => None,
+            s => Some(s),
+        },
     };
     sprt::sprt(&cfg)
 }

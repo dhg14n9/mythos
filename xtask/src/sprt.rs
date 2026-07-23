@@ -14,6 +14,10 @@ pub struct SprtConfig {
     pub concurrency: String,
     pub rounds: String,
     pub book: Option<PathBuf>,
+    /// CPU pinning via fastchess `-use-affinity`: `None` leaves scheduling
+    /// to the OS, `"auto"` lets fastchess pick cores, anything else is a
+    /// CPU list like `0-7` or `3,5,7-11`.
+    pub affinity: Option<String>,
 }
 
 pub fn default_concurrency() -> usize {
@@ -33,6 +37,7 @@ impl Default for SprtConfig {
             concurrency: default_concurrency().to_string(),
             rounds: "20000".into(),
             book: None,
+            affinity: None,
         }
     }
 }
@@ -133,10 +138,18 @@ pub fn sprt(cfg: &SprtConfig) -> Result<()> {
     }
 
     println!(
-        "[sprt] dev (working tree) vs base ({sha}), tc {}, sprt [{}, {}], concurrency {}",
-        cfg.tc, cfg.elo0, cfg.elo1, cfg.concurrency
+        "[sprt] dev (working tree) vs base ({sha}), tc {}, sprt [{}, {}], concurrency {}{}",
+        cfg.tc,
+        cfg.elo0,
+        cfg.elo1,
+        cfg.concurrency,
+        match &cfg.affinity {
+            Some(cpus) => format!(", affinity {cpus}"),
+            None => String::new(),
+        }
     );
-    let result = check_interrupt(run(Command::new("fastchess")
+    let mut fastchess = Command::new("fastchess");
+    fastchess
         .current_dir(root)
         .args(["-engine", &format!("cmd={}", dev_bin.display()), "name=dev"])
         .args(["-engine", &format!("cmd={}", base_bin.display()), "name=base"])
@@ -163,7 +176,14 @@ pub fn sprt(cfg: &SprtConfig) -> Result<()> {
         .args(["-recover", "-ratinginterval", "10", "-autosaveinterval", "0"])
         // fastchess saves its session config on exit; keep it out of the repo root.
         .args(["-config", &format!("outname={run_rel}/config.json")])
-        .args(["-pgnout", &format!("file={run_rel}/games.pgn"), "notation=san"])));
+        .args(["-pgnout", &format!("file={run_rel}/games.pgn"), "notation=san"]);
+    if let Some(cpus) = &cfg.affinity {
+        fastchess.arg("-use-affinity");
+        if cpus != "auto" {
+            fastchess.arg(cpus);
+        }
+    }
+    let result = check_interrupt(run(&mut fastchess));
 
     // fastchess writes config.json (with the tallies so far) on exit, even
     // after Ctrl-C, so a report is generated on the interrupt path too. A

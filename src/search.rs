@@ -131,6 +131,8 @@ impl Search {
             }
         }
 
+        let static_eval = eval(board);
+
         if depth == 0 {
             return self.qsearch(board, alpha, beta, ply);
         };
@@ -141,6 +143,10 @@ impl Search {
             board.unmake_null_move();
 
             if score >= beta { return score }
+        }
+
+        if self.should_rfp(board, beta, depth) && static_eval > beta + Self::rfp_margin(depth) {
+            return static_eval
         }
 
         let mut best = -Score::MAX;
@@ -325,12 +331,23 @@ impl Search {
         true
     }
 
+    fn should_rfp(&self, board: &Board, beta: i32, depth: usize) -> bool {
+        if board.is_check() { return false }
+        if Score::is_mate(beta) { return false }
+        if depth > 5 { return false }
+        true
+    }
+
     fn lmr_reduction(depth: usize, i: usize) -> usize {
         ((0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25) as usize).min(depth - 2)
     }
 
     fn nmp_reduction(depth: usize) -> usize {
         3 + depth / 3
+    }
+
+    fn rfp_margin(depth: usize) -> i32 {
+        150 * depth as i32
     }
 
 }
