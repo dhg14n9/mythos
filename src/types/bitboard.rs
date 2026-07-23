@@ -15,6 +15,8 @@ impl Bitboard {
     pub const FIRST_ROWS: [Self; 2] = [Self(0xff), Self(0xff00000000000000)]; // piece starting row
     pub const THIRD_ROWS: [Self; 2] = [Self(0xff0000), Self(0xff0000000000)]; // row next to pawn
     pub const EN_PASSANT_ROWS: [Self; 2] = [Self(0xff00000000), Self(0xff000000)]; // row a pawn needs to be on when able to take en passant
+    pub const NOT_FILE_A: Self = Self(0xfefefefefefefefe);
+    pub const NOT_FILE_H: Self = Self(0x7f7f7f7f7f7f7f7f);
 
     pub const fn new(value: u64) -> Self {
         Self(value)
@@ -87,6 +89,13 @@ impl Bitboard {
     pub fn shift(&mut self, direction: Direction) {
         *self &= Self::SHIFT_MASK[direction];
         self.offset(Self::SHIFT_NUMBER[direction])
+    }
+
+    pub fn shifted(&self, direction: Direction) -> Self {
+        let mut result = self.clone();
+        result &= Self::SHIFT_MASK[direction];
+        result.offset(Self::SHIFT_NUMBER[direction]);
+        result
     }
 
     // pawn eval helper
