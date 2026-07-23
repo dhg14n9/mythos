@@ -22,7 +22,7 @@ impl Bitboard {
         Self(value)
     }
 
-    pub fn from_file(file: File) -> Self {
+    pub const fn from_file(file: File) -> Self {
         Self(0x101010101010101u64 << (file as usize))
     }
     pub fn from_rank(rank: Rank) -> Self {
