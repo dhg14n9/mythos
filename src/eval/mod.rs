@@ -1,11 +1,12 @@
 use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
+use crate::types::Color;
 
 pub mod eval;
 mod piece_square;
 
 // mg, eg
 #[derive(Copy, Clone, Default)]
-struct S(i32, i32);
+pub struct S(i32, i32);
 
 impl Add for S {
     type Output = S;
@@ -51,5 +52,12 @@ impl Mul<i32> for S {
             0: self.0 * rhs,
             1: self.1 * rhs
         }
+    }
+}
+
+fn s_color(s: S, color: Color) -> S {
+    s * match color {
+        Color::White => {1}
+        Color::Black => {-1}
     }
 }
