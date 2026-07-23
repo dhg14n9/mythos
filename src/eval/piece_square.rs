@@ -4,7 +4,7 @@
 //! These are pure positional data (piece values are kept separate below).
 
 use crate::board::board::Board;
-use crate::eval::S;
+use crate::eval::{s_color, S};
 use crate::types::{Color, Piece, PieceType};
 
 pub const MG_VALUE: [i32; 6] = [82, 337, 365, 477, 1025, 0];
@@ -186,10 +186,7 @@ pub fn psqt(board: &Board) -> S {
         for piece_type in PieceType::ALL {
             for square in board.piece_bb(Piece::new(color, piece_type)) {
                 let entry = TABLES[piece_type][square.rev_relative_to(color)];
-                match color {
-                    Color::White => score += entry,
-                    Color::Black => score -= entry,
-                }
+                score += s_color(entry, color);
             }
         }
     }
