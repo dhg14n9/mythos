@@ -4,7 +4,8 @@
 //! These are pure positional data (piece values are kept separate below).
 
 use crate::board::board::Board;
-use crate::types::{Color, Piece, PieceType, Score};
+use crate::eval::S;
+use crate::types::{Color, Piece, PieceType};
 
 pub const MG_VALUE: [i32; 6] = [82, 337, 365, 477, 1025, 0];
 pub const EG_VALUE: [i32; 6] = [94, 281, 297, 512, 936, 0];
@@ -153,41 +154,45 @@ pub const EG_KING: [i32; 64] = [
     -53, -34, -21, -11, -28, -14, -24, -43,
 ];
 
-pub const MG_TABLES: [[i32; 64]; 6] = [MG_PAWN, MG_KNIGHT, MG_BISHOP, MG_ROOK, MG_QUEEN, MG_KING];
-pub const EG_TABLES: [[i32; 64]; 6] = [EG_PAWN, EG_KNIGHT, EG_BISHOP, EG_ROOK, EG_QUEEN, EG_KING];
+const MG_TABLES: [[i32; 64]; 6] = [MG_PAWN, MG_KNIGHT, MG_BISHOP, MG_ROOK, MG_QUEEN, MG_KING];
+const EG_TABLES: [[i32; 64]; 6] = [EG_PAWN, EG_KNIGHT, EG_BISHOP, EG_ROOK, EG_QUEEN, EG_KING];
 
-fn interpolation(mg: i32, eg: i32, phase: i32) -> i32 {
-    let mg_phase = phase.min(Board::GAME_PHASE_MAX);
-    (mg * mg_phase + eg * (Board::GAME_PHASE_MAX - mg_phase)) / Board::GAME_PHASE_MAX
+pub const TABLES: [[S; 64]; 6] = build_tables();
+
+const fn build_tables() -> [[S; 64]; 6] {
+    let mut tables = [[S(0, 0); 64]; 6];
+
+    let mut pt = 0;
+    while pt < 6 {
+        let mut sq = 0;
+        while sq < 64 {
+            tables[pt][sq] = S(
+                MG_TABLES[pt][sq] + MG_VALUE[pt],
+                EG_TABLES[pt][sq] + EG_VALUE[pt],
+            );
+            sq += 1;
+        }
+        pt += 1;
+    }
+
+    tables
 }
 
-pub fn pst_eval(board: &Board, phase: i32) -> i32 {
-    let mut eval = 0;
+
+pub fn psqt(board: &Board) -> S {
+    let mut score = S::default();
+
     for color in Color::ALL {
         for piece_type in PieceType::ALL {
             for square in board.piece_bb(Piece::new(color, piece_type)) {
-                let sq = square.rev_relative_to(color);
-                let score =
-                    interpolation(MG_TABLES[piece_type][sq], EG_TABLES[piece_type][sq], phase);
-                eval += Score::score_color(score, color);
+                let entry = TABLES[piece_type][square.rev_relative_to(color)];
+                match color {
+                    Color::White => score += entry,
+                    Color::Black => score -= entry,
+                }
             }
         }
     }
 
-    eval
-}
-
-pub fn raw_eval(board: &Board, phase: i32) -> i32 {
-    let mut eval = 0;
-    for color in Color::ALL {
-        for piece_type in PieceType::ALL {
-            eval += Score::score_color(
-                interpolation(MG_VALUE[piece_type], EG_VALUE[piece_type], phase)
-                    * board.piece_bb(Piece::new(color, piece_type)).pop_count() as i32,
-                color,
-            )
-        }
-    }
-
-    eval
+    score
 }
