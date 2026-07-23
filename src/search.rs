@@ -119,6 +119,10 @@ impl Search {
             return 0; // search cancelled
         }
 
+        if ply > 0 && board.is_draw() {
+            return Score::ZERO;
+        }
+
         let mut tt_move = Move::NULL;
         if let Some((score, best, entry_depth, bound)) = self.trans_table.probe(board.hash()) {
             tt_move = best;
@@ -197,8 +201,6 @@ impl Search {
                 }
             }
 
-
-
             board.unmake_move(mv);
             i += 1;
 
@@ -220,7 +222,6 @@ impl Search {
                         self.thread_data.history.malus(stm, mv.from(), mv.to(), depth);
                     }
                 }
-
                 break;
             };
 

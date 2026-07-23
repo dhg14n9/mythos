@@ -374,6 +374,22 @@ impl Board {
         self.side_to_move = !self.side_to_move;
     }
 
+    pub fn is_draw(&self) -> bool {
+        if self.half_move >= 100 { return true }
+
+        let mut i = 2;
+        let state_len = self.state_history.len();
+        let cur_zobrist = self.zobrist;
+        while (i as u16) <= self.half_move.min(state_len as u16) {
+            if self.state_history.read(state_len - i).hash == cur_zobrist {
+                return true
+            }
+            i += 2;
+        }
+
+        false
+    }
+
 }
 
 #[cfg(test)]
