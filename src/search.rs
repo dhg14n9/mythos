@@ -252,7 +252,7 @@ impl Search {
     }
 
     // return bestmove + score
-    pub fn start_negamax(&mut self, board: &mut Board, depth: usize) -> Option<(Move, i32)> {
+    pub fn start_negamax(&mut self, board: &mut Board, depth: usize, alpha: i32, beta: i32) -> Option<(Move, i32)> {
         self.nodes += 1;
 
         if depth == 0 { return None };
@@ -269,13 +269,20 @@ impl Search {
         }
 
         let mut best = (Move::NULL, -Score::INF);
+        let mut alpha = alpha;
 
         while let Some(mv) = move_picker.next() {
             board.make_move(mv);
-            let score = -self.negamax(board, depth - 1, -Score::INF, -best.1, 1, true);
+            let score = -self.negamax(board, depth - 1, -beta, -alpha, 1, true);
             board.unmake_move(mv);
+
             if score > best.1 {
                 best = (mv, score)
+            }
+            alpha = alpha.max(score);
+
+            if alpha >= beta {
+                break;
             }
         }
 
@@ -291,19 +298,53 @@ impl Search {
             (picker.random(board.hash()), 0)
         };
 
+        let mut alpha = -Score::INF;
+        let mut beta = Score::INF;
+
         for depth in 1..=max_depth {
             if self.time_control.start.elapsed() > self.time_control.soft_lim {
                 break;
             }
+            let mut alpha_tries: usize = 0;
+            let mut beta_tries: usize = 0;
 
-            let result = self.start_negamax(board, depth);
+            let mut result = match self.start_negamax(board, depth, alpha, beta) {
+                Some(r) => r,
+                None => break, // no legal moves at the root
+            };
+
+            while !self.stopped && (alpha >= result.1 || beta <= result.1) {
+                if alpha >= result.1 {
+                    alpha -= match alpha_tries {
+                        0 => 30,
+                        1 => 120,
+                        2 => 200,
+                        _ => alpha + Score::INF
+                    };
+                    alpha_tries += 1;
+                }
+                if beta <= result.1 {
+                    beta += match beta_tries {
+                        0 => 30,
+                        1 => 120,
+                        2 => 200,
+                        _ => Score::INF - beta
+                    };
+                    beta_tries += 1;
+                }
+                result = match self.start_negamax(board, depth, alpha, beta) {
+                    Some(r) => r,
+                    None => break,
+                };
+            }
 
             if self.stopped {
                 break;
             }
-            if let Some(r) = result {
-                best = r
-            }
+
+            alpha = result.1 - 30;
+            beta = result.1 + 30;
+            best = result;
 
             // info
             if !self.silent {
