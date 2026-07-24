@@ -19,7 +19,7 @@ pub fn eval(board: &Board) -> i32 {
             + bishop_pair(board)
             + pawns(board)
             + mobility(board)
-            + king_safety()
+            + king_safety(board)
         ;
     Score::score_color(taper(score, board.phase()), board.stm())
 }
