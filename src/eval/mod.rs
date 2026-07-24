@@ -5,6 +5,7 @@ pub mod eval;
 mod piece_square;
 mod pawn;
 mod mobility;
+mod king_safety;
 
 // mg, eg
 #[derive(Copy, Clone, Default)]

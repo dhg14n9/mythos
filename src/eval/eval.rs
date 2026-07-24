@@ -1,5 +1,6 @@
 use crate::board::board::Board;
 use crate::eval::{s_color, S};
+use crate::eval::king_safety::king_safety;
 use crate::eval::mobility::mobility;
 use crate::eval::pawn::pawns;
 use crate::eval::piece_square::psqt;
@@ -18,6 +19,7 @@ pub fn eval(board: &Board) -> i32 {
             + bishop_pair(board)
             + pawns(board)
             + mobility(board)
+            + king_safety()
         ;
     Score::score_color(taper(score, board.phase()), board.stm())
 }
