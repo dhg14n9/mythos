@@ -1,6 +1,6 @@
 use crate::board::board::Board;
 use crate::board::lookup::{bishop_attack, knight_attack, queen_attack, rook_attack};
-use crate::eval::{spread, S};
+use crate::eval::{s_color, spread, S};
 use crate::types::{Bitboard, Color, Direction, Piece, PieceType, Square};
 
 fn pawn_attack(pawn_bb: Bitboard, color: Color) -> Bitboard {
@@ -51,30 +51,63 @@ fn knight_mobility(square: Square, board: &Board, them_pawn_attack: Bitboard) ->
     knight_attack(square) & (!them_pawn_attack) & (!board.color_bb(board.piece_at(square).color()))
 }
 
-// Reckless's Mobility Seed
+// Placeholder mobility values: small, self-scaled, monotonic, centered near each
+// piece's typical mobility so a balanced position nets ~0. Tune with SPRT.
 #[rustfmt::skip]
 static BISHOP_SEED: [S; 14] = [
-    S(  0,   0), S(-47, -57), S(-34, -44), S(-26, -11), S(-14,  -2), S( -8,   7), S(  4,  23),
-    S( 13,  29), S( 20,  40), S( 21,  44), S( 26,  51), S( 29,  47), S( 30,  47), S( 57,  37),
+    S(-30, -35), S(-22, -26), S(-15, -18), S( -9, -11), S( -4,  -5), S(  0,   0), S(  4,   5),
+    S(  8,  10), S( 12,  15), S( 15,  19), S( 18,  23), S( 21,  27), S( 24,  31), S( 27,  35),
 ];
 
 #[rustfmt::skip]
 static ROOK_SEED: [S; 15] = [
-    S(  0,   0), S(  0,   0), S(-85,  43), S(-76,  56), S(-69,  63), S(-64,  66), S(-61,  70),
-    S(-58,  75), S(-52,  77), S(-45,  80), S(-38,  84), S(-31,  86), S(-26,  90), S(-17,  93),
-    S(-13,  93),
+    S(-24, -30), S(-18, -22), S(-13, -15), S( -8,  -9), S( -4,  -4), S(  0,   0), S(  3,   5),
+    S(  6,  10), S(  9,  15), S( 11,  20), S( 13,  25), S( 15,  30), S( 17,  36), S( 19,  42),
+    S( 21,  48),
 ];
 
 #[rustfmt::skip]
 static QUEEN_SEED: [S; 28] = [
-    S(  0,   0), S(  0,   0), S(  0,   0), S( -7,  -1), S(-31, -27), S(  5, -24), S(  5,   2),
-    S(  3,  73), S(  8,  90), S(  8, 111), S( 12, 118), S( 15, 130), S( 17, 142), S( 20, 145),
-    S( 24, 151), S( 24, 161), S( 25, 168), S( 27, 176), S( 27, 183), S( 28, 189), S( 30, 198),
-    S( 33, 198), S( 35, 201), S( 45, 198), S( 49, 195), S( 69, 189), S(125, 156), S(132, 167),
+    S(-20, -26), S(-17, -22), S(-14, -18), S(-11, -14), S( -8, -11), S( -6,  -8), S( -4,  -5),
+    S( -2,  -2), S(  0,   0), S(  1,   2), S(  3,   5), S(  4,   8), S(  5,  11), S(  6,  14),
+    S(  8,  17), S(  9,  20), S( 10,  23), S( 11,  26), S( 12,  29), S( 13,  32), S( 14,  35),
+    S( 15,  38), S( 16,  41), S( 17,  44), S( 18,  47), S( 19,  50), S( 20,  53), S( 21,  56),
 ];
 
 #[rustfmt::skip]
 pub static KNIGHT_MOBILITY: [S; 9] = [
-    S(  0,   0), S(  0,   0), S(-38, -42), S(-25, -25), S(-14, -10), S( -5,   2), S(  4,  14),
-    S( 13,  24), S( 22,  32),
+    S(-30, -30), S(-22, -22), S(-14, -14), S( -7,  -7), S(  0,   0), S(  6,   6), S( 12,  12),
+    S( 17,  17), S( 22,  22),
 ];
+
+pub fn mobility(board: &Board) -> S {
+    let mut result = S(0, 0);
+
+    for color in Color::ALL {
+        let them_pawn_attack = pawn_attack(board.piece_bb(Piece::new(!color, PieceType::Pawn)), !color);
+
+        // queen
+        for sq in board.piece_bb(Piece::new(color, PieceType::Queen)) {
+            result += s_color(QUEEN_SEED[queen_mobility(sq, board, them_pawn_attack).pop_count()], color)
+        }
+
+        // rook
+        for sq in board.piece_bb(Piece::new(color, PieceType::Rook)) {
+            result += s_color(ROOK_SEED[rook_mobility(sq, board, them_pawn_attack).pop_count()], color)
+        }
+
+        // knight
+        for sq in board.piece_bb(Piece::new(color, PieceType::Knight)) {
+            result += s_color(KNIGHT_MOBILITY[knight_mobility(sq, board, them_pawn_attack).pop_count()], color)
+        }
+
+        // bishop
+        for sq in board.piece_bb(Piece::new(color, PieceType::Bishop)) {
+            result += s_color(BISHOP_SEED[bishop_mobility(sq, board, them_pawn_attack).pop_count()], color)
+        }
+    }
+
+    result
+}
+
+
