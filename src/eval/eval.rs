@@ -1,5 +1,6 @@
 use crate::board::board::Board;
 use crate::eval::{s_color, S};
+use crate::eval::pawn::pawns;
 use crate::eval::piece_square::psqt;
 use crate::types::{Color, Piece, PieceType, Score};
 
@@ -14,6 +15,7 @@ pub fn eval(board: &Board) -> i32 {
               psqt(board)
             + tempo(board.stm())
             + bishop_pair(board)
+            + pawns(board)
         ;
     Score::score_color(taper(score, board.phase()), board.stm())
 }
