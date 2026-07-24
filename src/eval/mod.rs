@@ -4,6 +4,7 @@ use crate::types::Color;
 pub mod eval;
 mod piece_square;
 mod pawn;
+mod mobility;
 
 // mg, eg
 #[derive(Copy, Clone, Default)]
