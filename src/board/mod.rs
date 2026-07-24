@@ -1,3 +1,3 @@
 pub mod board;
-mod lookup;
+pub(crate) mod lookup;
 pub mod movegen;
