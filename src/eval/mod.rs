@@ -1,5 +1,5 @@
 use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
-use crate::types::Color;
+use crate::types::{Bitboard, Color};
 
 pub mod eval;
 mod piece_square;
@@ -62,4 +62,9 @@ fn s_color(s: S, color: Color) -> S {
         Color::White => {1}
         Color::Black => {-1}
     }
+}
+
+// spread left and right 
+fn spread(bb: Bitboard) -> Bitboard {
+    ((bb & Bitboard::NOT_FILE_A) >> 1) | ((bb & Bitboard::NOT_FILE_H) << 1)
 }

@@ -1,5 +1,5 @@
 use crate::board::board::Board;
-use crate::eval::{s_color, S};
+use crate::eval::{s_color, spread, S};
 use crate::types::{Bitboard, Color, Piece};
 
 const PASS_PAWN_BONUS: [S; 8] = [
@@ -8,10 +8,6 @@ const PASS_PAWN_BONUS: [S; 8] = [
 
 const ISO_PAWN_MALUS: S = S(5, 15);
 const DOUBLE_PAWN_MALUS: S = S(10, 20);
-
-fn spread(bb: Bitboard) -> Bitboard {
-    ((bb & Bitboard::NOT_FILE_A) >> 1) | ((bb & Bitboard::NOT_FILE_H) << 1)
-}
 
 pub fn pawns(board: &Board) -> S {
     pawn_structure(board.piece_bb(Piece::WhitePawn), board.piece_bb(Piece::BlackPawn))
