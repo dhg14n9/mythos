@@ -6,6 +6,7 @@ pub mod piece_square;
 pub mod pawn;
 pub mod mobility;
 pub mod king_safety;
+pub mod trace;
 
 // mg, eg
 #[derive(Copy, Clone, Default)]
