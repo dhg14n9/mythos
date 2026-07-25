@@ -1,9 +1,12 @@
 use crate::board::board::Board;
 use crate::board::lookup::{bishop_attack, king_attack, knight_attack, queen_attack, rook_attack};
-use crate::eval::S;
+use crate::eval::{s_color, S};
 use crate::types::{Color, Piece, PieceType};
 
 const ATTACK_WEIGHT: [i32; 6] = [0, 2, 2, 3, 5, 0];
+
+const DANGER_SCALE: i32 = 10;
+const DANGER_CAP: i32 = 400;
 
 pub fn king_safety(board: &Board) -> S {
     let mut result = S(0, 0);
@@ -57,7 +60,10 @@ pub fn king_safety(board: &Board) -> S {
             }
         }
 
-        let _ = (attacker, danger_level);
+        if attacker >= 2 {
+            let penalty = (danger_level * danger_level / DANGER_SCALE).min(DANGER_CAP);
+            result -= s_color(S(penalty, penalty / 4), color);
+        }
     }
 
     result
