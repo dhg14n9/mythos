@@ -31,3 +31,9 @@ CLAUDE.md
 
 # --- Ginormous Opening Books ---
 xtask/books/*.epd
+
+# --- Eval tuner ---
+# Training datasets — 80MB+, re-downloadable
+tuner/data/
+# Local working plan / notes
+tuner/PLAN.md

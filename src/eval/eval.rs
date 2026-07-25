@@ -24,6 +24,18 @@ pub fn eval(board: &Board) -> i32 {
     Score::score_color(taper(score, board.phase()), board.stm())
 }
 
+pub fn s_eval(board: &Board) -> i32 {
+    let score =
+        psqt(board)
+            + tempo(board.stm())
+            + bishop_pair(board)
+            + pawns(board)
+            + mobility(board)
+            + king_safety(board)
+        ;
+    taper(score, board.phase())
+}
+
 fn tempo(stm: Color) -> S {
     const TEMPO_BONUS: S = S(20, 10);
 

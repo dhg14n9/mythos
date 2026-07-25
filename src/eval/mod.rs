@@ -2,14 +2,14 @@ use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 use crate::types::{Bitboard, Color};
 
 pub mod eval;
-mod piece_square;
-mod pawn;
-mod mobility;
-mod king_safety;
+pub mod piece_square;
+pub mod pawn;
+pub mod mobility;
+pub mod king_safety;
 
 // mg, eg
 #[derive(Copy, Clone, Default)]
-pub struct S(i32, i32);
+pub struct S(pub i32, pub i32);
 
 impl Add for S {
     type Output = S;
