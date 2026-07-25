@@ -12,39 +12,32 @@ fn taper(score: S, phase: i32) -> i32 {
     (score.0 * mg_phase + score.1 * eg_phase) / Board::GAME_PHASE_MAX
 }
 
-pub fn eval(board: &Board) -> i32 {
-    let score =
+pub const TEMPO_BONUS: S = S(20, 10);
+pub const BISHOP_PAIR_BONUS: S = S(25, 45);
+
+// White eval score
+pub fn eval_score(board: &Board) -> S {
               psqt(board)
             + tempo(board.stm())
             + bishop_pair(board)
             + pawns(board)
             + mobility(board)
             + king_safety(board)
-        ;
-    Score::score_color(taper(score, board.phase()), board.stm())
+}
+
+pub fn eval(board: &Board) -> i32 {
+    Score::score_color(taper(eval_score(board), board.phase()), board.stm())
 }
 
 pub fn s_eval(board: &Board) -> i32 {
-    let score =
-        psqt(board)
-            + tempo(board.stm())
-            + bishop_pair(board)
-            + pawns(board)
-            + mobility(board)
-            + king_safety(board)
-        ;
-    taper(score, board.phase())
+    taper(eval_score(board), board.phase())
 }
 
-fn tempo(stm: Color) -> S {
-    const TEMPO_BONUS: S = S(20, 10);
-
+pub fn tempo(stm: Color) -> S {
     s_color(TEMPO_BONUS, stm)
 }
 
-fn bishop_pair(board: &Board) -> S {
-    const BISHOP_PAIR_BONUS: S = S(25, 45);
-
+pub fn bishop_pair(board: &Board) -> S {
     let mut result = S(0, 0);
     for color in Color::ALL {
         if board.piece_bb(Piece::new(color, PieceType::Bishop)).pop_count() >= 2 {

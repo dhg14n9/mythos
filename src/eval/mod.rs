@@ -9,7 +9,7 @@ pub mod king_safety;
 pub mod trace;
 
 // mg, eg
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, PartialEq, Eq, Debug)]
 pub struct S(pub i32, pub i32);
 
 impl Add for S {
