@@ -20,7 +20,7 @@ fn main() {
         }
     };
 
-    data::parse_data("tuner/data/quiet-labeled.epd", temp);
+    data::parse_data("tuner/data/quiet-labeled.epd", None, temp);
 
     print!("win: {win}\nlose: {lose}\ndraw: {draw}")
 
