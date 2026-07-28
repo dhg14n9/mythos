@@ -3,6 +3,7 @@ use mythos::board::board::Board;
 pub mod data;
 pub mod format;
 pub mod prepare;
+pub mod verify;
 
 const EPD: &str = "tuner/data/quiet-labeled.epd";
 const DIR: &str = "tuner/data";
