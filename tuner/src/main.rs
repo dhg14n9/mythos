@@ -1,5 +1,3 @@
-use mythos::board::board::Board;
-
 pub mod data;
 pub mod format;
 pub mod prepare;
@@ -20,31 +18,8 @@ fn main() {
 
     match args.first().map(String::as_str) {
         Some("prepare") => prepare::prepare(EPD, DIR, limit),
-        Some("stats") | None => stats(limit),
+        Some("verify") => verify::verify(EPD, DIR, limit),
         Some(other) => panic!("unknown command {other}"),
+        None => panic!("No command provide")
     }
-}
-
-// The original label-split check. Superseded once the read-back check recomputes
-// the split from entries.rec instead.
-fn stats(limit: Option<usize>) {
-    let mut win = 0;
-    let mut draw = 0;
-    let mut lose = 0;
-
-    let temp = |_board: &Board, score: f32| {
-        if score == 1.0 {
-            win += 1;
-        }
-        else if score == 0.5 {
-            draw += 1;
-        }
-        else {
-            lose += 1;
-        }
-    };
-
-    data::parse_data(EPD, limit, temp);
-
-    print!("win: {win}\nlose: {lose}\ndraw: {draw}\n")
 }
