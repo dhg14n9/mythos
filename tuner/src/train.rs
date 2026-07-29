@@ -77,7 +77,7 @@ impl Trainer {
 
         }
 
-        result / (len as f64)
+        -result / (len as f64)
     }
 
     pub fn frozen_energies(&self, range: Range<usize>) -> (Vec<f64>, Vec<f64>) {
