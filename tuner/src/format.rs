@@ -16,7 +16,10 @@ pub fn unpack(packed: u16) -> (usize, i16) {
     ((packed & 1023) as usize, ((packed >> 10) as i16) - 32)
 }
 
-pub const SIZE: usize = 16;
+// Derived, not written down: the mapped reader casts bytes straight to Record, so a
+// hand-typed 16 that ever disagreed with the real layout would pass the length check
+// and then fail inside the cast. repr(C) plus Pod guarantee this is 16 with no padding.
+pub const SIZE: usize = size_of::<Record>();
 
 // pack Record into bytes
 #[repr(C)]
