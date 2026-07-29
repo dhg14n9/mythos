@@ -54,4 +54,8 @@ impl Record {
         }
     }
 
+    pub fn get_result(&self) -> f64 {
+        self.result as f64 / 2.0
+    }
+
 }
