@@ -222,7 +222,7 @@ pub fn fit_k(dir: &str) {
 // function. This is the §4 counterpart to the trace equivalence test.
 pub fn check_gradient(dir: &str) {
     let mut trainer = Trainer::new(Dataset::open(dir));
-    let analytic = trainer.gradient();
+    let (analytic, _) = trainer.gradient();
     let range = trainer.train_range();
     let k = trainer.k();
 
