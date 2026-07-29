@@ -71,8 +71,10 @@ impl Trainer {
         let mut result = 0f64;
         for i in range {
             let (record, coeff) = dataset.entry(i);
-            let diff = sigmoid(k * Self::energy(record, coeff, weights)) - record.get_result();
-            result += diff * diff
+            let r = record.get_result();
+            let s = sigmoid(k * Self::energy(record, coeff, weights));
+            result += r * s.ln() + (1.0 - r) * (1.0 - s).ln()
+
         }
 
         result / (len as f64)
