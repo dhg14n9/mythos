@@ -4,6 +4,8 @@
 // if in the future I want to add more params. value will probably NOT exceed ±32 so 6 bits will be
 // more than enough, value in [-32, 31] + 32 -> [0, 63] so it can be easily stored
 
+use bytemuck::{Pod, Zeroable};
+
 pub fn pack(index: usize, value: i16) -> u16 {
     debug_assert!((index < 1024) && ((-32..32).contains(&value)));
 
@@ -17,7 +19,8 @@ pub fn unpack(packed: u16) -> (usize, i16) {
 pub const SIZE: usize = 16;
 
 // pack Record into bytes
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
 pub struct Record {
     pub start: u64,
     pub len: u16,
