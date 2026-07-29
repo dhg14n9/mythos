@@ -125,9 +125,10 @@ impl Trainer {
         todo!()
     }
 
-    fn gradient(&self) -> Weights {
+    fn gradient(&self) -> (Weights, f64) {
         let mut gradient: Weights = [[0.0; 2]; NUM_PARAMS];
         let len = (self.train_range().end - self.train_range().start) as f64;
+        let mut loss: f64 = 0.0;
 
         for i in self.train_range() {
             let (record, coeffs) = self.dataset.entry(i);
@@ -148,16 +149,18 @@ impl Trainer {
             let s = squash(self.k() * e);
             let r = record.get_result();
 
-            let g = self.k() * (s - r);
+            let g = self.k() * (s - r) / len;
 
             for packed in coeffs {
                 let (index, val) = unpack(*packed);
-                gradient[index][0] += g * mg_weight * (val as f64) / len;
-                gradient[index][1] += g * eg_weight * (val as f64) / len;
+                gradient[index][0] += g * mg_weight * (val as f64);
+                gradient[index][1] += g * eg_weight * (val as f64);
             }
+
+            loss += r * s.ln() + (1.0 - r) * (1.0 - s).ln();
         }
 
-        gradient
+        (gradient, -loss / len)
     }
 }
 
