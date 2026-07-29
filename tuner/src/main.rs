@@ -21,6 +21,7 @@ fn main() {
         Some("prepare") => prepare::prepare(EPD, DIR, limit),
         Some("verify") => dataset::verify(EPD, DIR, limit),
         Some("fit-k") => train::fit_k(DIR),
+        Some("check-grad") => train::check_gradient(DIR),
         Some(other) => panic!("unknown command {other}"),
         None => panic!("No command provide")
     }

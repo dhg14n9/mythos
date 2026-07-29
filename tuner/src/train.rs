@@ -1,5 +1,5 @@
 use std::ops::Range;
-use mythos::eval::trace::{initial_weights, NUM_PARAMS};
+use mythos::eval::trace::{initial_weights, NUM_PARAMS, TEMPO};
 use crate::dataset::Dataset;
 use crate::format::{unpack, Record};
 
@@ -206,4 +206,79 @@ pub fn fit_k(dir: &str) {
     assert!(loss < loss_over(&energies, &results, 0.001)
          && loss < loss_over(&energies, &results, 0.02),
         "fitted K is worse than a bracket endpoint — the search ran backwards");
+}
+
+// gradient() is the chain rule done by hand, which is where sign flips and dropped
+// constants hide. But a derivative is only a slope, and a slope can be measured
+// without any calculus: nudge one weight, see how far the loss moved. If the two
+// disagree, the symbolic version is wrong.
+//
+// Worth the runtime because every plausible mistake here is invisible downstream —
+// a stray factor, a missing 1/N, even a dropped s(1-s) all still point roughly
+// downhill, so the loss falls and the run looks healthy while fitting the wrong
+// function. This is the §4 counterpart to the trace equivalence test.
+pub fn check_gradient(dir: &str) {
+    let mut trainer = Trainer::new(Dataset::open(dir));
+    let analytic = trainer.gradient();
+    let range = trainer.train_range();
+    let k = trainer.k();
+
+    // Weights are centipawn-scale, so h this large is still a small relative nudge.
+    // The textbook 1e-5 would put the loss difference down among the f64 rounding
+    // noise of summing 1.28M terms.
+    let h = 1e-2;
+
+    // Structurally dead params have a true gradient of exactly zero and would match
+    // trivially, proving nothing. Ranking by magnitude keeps the probes on params
+    // the data actually exercises. TEMPO is pinned because every position touches it.
+    let mut ranked: Vec<(usize, usize)> =
+        (0..NUM_PARAMS).flat_map(|i| [(i, 0), (i, 1)]).collect();
+    ranked.sort_by(|a, b| analytic[b.0][b.1].abs().total_cmp(&analytic[a.0][a.1].abs()));
+
+    let mut probes = vec![(TEMPO, 0), (TEMPO, 1)];
+    for &p in ranked.iter().take(10) {
+        if !probes.contains(&p) {
+            probes.push(p);
+        }
+    }
+
+    println!("central differences at h = {h}, over {} training positions", range.len());
+    println!("{:>5} {:>5} {:>16} {:>16} {:>10}", "param", "half", "analytic", "numeric", "rel err");
+
+    let mut worst = 0f64;
+    for (i, j) in probes {
+        let original = trainer.weights[i][j];
+
+        trainer.weights[i][j] = original + h;
+        let up = Trainer::loss(&trainer.dataset, &trainer.weights, k, range.clone());
+
+        trainer.weights[i][j] = original - h;
+        let down = Trainer::loss(&trainer.dataset, &trainer.weights, k, range.clone());
+
+        // Restore before the next probe, or the perturbations compound and every
+        // measurement after the first is taken at the wrong point.
+        trainer.weights[i][j] = original;
+
+        // Central, not one-sided: the error is O(h²) instead of O(h), which is the
+        // difference between matching to six digits and matching to two.
+        let numeric = (up - down) / (2.0 * h);
+        let a = analytic[i][j];
+
+        // Relative, because gradient magnitudes span orders of magnitude across
+        // params — one absolute tolerance would either pass everything or fail it.
+        let rel = (a - numeric).abs() / a.abs().max(numeric.abs()).max(1e-12);
+        worst = worst.max(rel);
+
+        println!("{i:>5} {:>5} {a:>16.9} {numeric:>16.9} {rel:>10.2e}",
+            if j == 0 { "mg" } else { "eg" });
+    }
+
+    println!();
+    println!("worst relative error = {worst:.2e}");
+
+    assert!(worst < 1e-4,
+        "gradient disagrees with finite differences. A clean ratio between the two \
+         columns names the dropped factor: 2 = differentiated squared error instead \
+         of cross-entropy, N = missing the 1/N, 24 = a taper weight applied to E but \
+         not to the gradient. A sign flip is r-s vs s-r.");
 }
