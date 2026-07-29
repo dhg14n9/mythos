@@ -9,6 +9,13 @@ fn sigmoid(x: f64) -> f64 {
     1f64 / (1f64 + (-x).exp())
 }
 
+// divergent guard
+const EPS: f64 = 1e-15;
+
+fn squash(x: f64) -> f64 {
+    sigmoid(x).clamp(EPS, 1.0 - EPS)
+}
+
 fn from_initial() -> Weights {
     let mut result: Weights = [[0f64; 2]; NUM_PARAMS];
     let initial_weights = initial_weights();
@@ -72,9 +79,8 @@ impl Trainer {
         for i in range {
             let (record, coeff) = dataset.entry(i);
             let r = record.get_result();
-            let s = sigmoid(k * Self::energy(record, coeff, weights));
+            let s = squash(k * Self::energy(record, coeff, weights));
             result += r * s.ln() + (1.0 - r) * (1.0 - s).ln()
-
         }
 
         -result / (len as f64)
@@ -118,6 +124,41 @@ impl Trainer {
     fn apply_optimizer(&mut self, gradients: Weights) {
         todo!()
     }
+
+    fn gradient(&self) -> Weights {
+        let mut gradient: Weights = [[0.0; 2]; NUM_PARAMS];
+        let len = (self.train_range().end - self.train_range().start) as f64;
+
+        for i in self.train_range() {
+            let (record, coeffs) = self.dataset.entry(i);
+            let mg_weight = record.phase as f64 / 24.0;
+            let eg_weight = 1.0 - mg_weight;
+
+            let mut mg: f64 = 0.0;
+            let mut eg: f64 = 0.0;
+
+            for packed in coeffs {
+                let (index, value) = unpack(*packed);
+
+                mg += self.weights[index][0] * value as f64;
+                eg += self.weights[index][1] * value as f64;
+            }
+
+            let e = mg * mg_weight + eg * eg_weight + record.frozen as f64;
+            let s = squash(self.k() * e);
+            let r = record.get_result();
+
+            let g = self.k() * (s - r);
+
+            for packed in coeffs {
+                let (index, val) = unpack(*packed);
+                gradient[index][0] += g * mg_weight * (val as f64) / len;
+                gradient[index][1] += g * eg_weight * (val as f64) / len;
+            }
+        }
+
+        gradient
+    }
 }
 
 pub struct Adam {
@@ -130,11 +171,11 @@ pub struct Adam {
 fn loss_over(energies: &[f64], results: &[f64], k: f64) -> f64 {
     let mut result = 0f64;
     for i in 0..energies.len() {
-        let diff = sigmoid(k * energies[i]) - results[i];
-        result += diff * diff
+        let s = squash(k * energies[i]);
+        result += results[i] * s.ln() + (1.0 - results[i]) * (1.0 - s).ln()
     }
 
-    result / (energies.len() as f64)
+    -result / (energies.len() as f64)
 }
 
 pub fn fit_k(dir: &str) {
@@ -152,11 +193,14 @@ pub fn fit_k(dir: &str) {
     let k = trainer.k();
     let loss = loss_over(&energies, &results, k);
 
-    let baseline = results.iter().map(|r| (0.5 - r) * (0.5 - r)).sum::<f64>() / results.len() as f64;
+    // sigmoid(0) is exactly 0.5, so K = 0 evaluates the same loss at a flat
+    // prediction — the baseline is the objective itself, not a second formula
+    // that has to be kept in sync with it. Equals ln 2 for cross-entropy.
+    let baseline = loss_over(&energies, &results, 0.0);
 
     println!();
     println!("K        = {k:.6}");
-    println!("loss     = {loss:.6}");
+    println!("loss     = {loss:.6} (cross-entropy)");
     println!("baseline = {baseline:.6} (flat 0.5)");
 
     assert!(loss < loss_over(&energies, &results, 0.001)
