@@ -171,6 +171,51 @@ pub struct Adam {
     lr: f64
 }
 
+
+impl Adam {
+    const BETA1: f64 = 0.9;
+    const BETA2: f64 = 0.999;
+    const EPS: f64 = 1e-8;
+
+    fn new(lr: f64) -> Self {
+        Self {
+            m: [[0.0; 2]; NUM_PARAMS],
+            v: [[0.0; 2]; NUM_PARAMS],
+            t: 0,
+            lr
+        }
+    }
+
+    fn step(&mut self, weights: &mut Weights, grads: &Weights) {
+        self.t += 1;
+
+        let bc1 = 1.0 - Self::BETA1.powi(self.t as i32);
+        let bc2 = 1.0 - Self::BETA2.powi(self.t as i32);
+
+        let len = weights.len();
+        for i in 0..len {
+            let g = grads[i];
+
+
+            self.m[i][0] = Self::BETA1 * self.m[i][0] + (1.0 - Self::BETA1) * g[0];
+            self.m[i][1] = Self::BETA1 * self.m[i][1] + (1.0 - Self::BETA1) * g[1];
+            self.v[i][0] = Self::BETA2 * self.v[i][0] + (1.0 - Self::BETA2) * g[0] * g[0];
+            self.v[i][1] = Self::BETA2 * self.v[i][1] + (1.0 - Self::BETA2) * g[1] * g[1];
+
+            let m_hat_0 = self.m[i][0] / bc1;
+            let m_hat_1 = self.m[i][1] / bc1;
+            let v_hat_0 = self.v[i][0] / bc2;
+            let v_hat_1 = self.v[i][1] / bc2;
+
+            weights[i][0] -= self.lr * m_hat_0 / (v_hat_0.sqrt() + Self::EPS);
+            weights[i][1] -= self.lr * m_hat_1 / (v_hat_1.sqrt() + Self::EPS);
+        }
+
+    }
+
+}
+
+
 fn loss_over(energies: &[f64], results: &[f64], k: f64) -> f64 {
     let mut result = 0f64;
     for i in 0..energies.len() {
