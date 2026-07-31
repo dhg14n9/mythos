@@ -3,7 +3,7 @@ use crate::board::lookup::{bishop_attack, knight_attack, queen_attack, rook_atta
 use crate::eval::{s_color, spread, S};
 use crate::types::{Bitboard, Color, Direction, Piece, PieceType, Square};
 
-fn pawn_attack(pawn_bb: Bitboard, color: Color) -> Bitboard {
+pub(crate) fn pawn_attack(pawn_bb: Bitboard, color: Color) -> Bitboard {
     let result = pawn_bb.shifted(match color {
         Color::White => {Direction::Up}
         Color::Black => {Direction::Down}
@@ -11,7 +11,7 @@ fn pawn_attack(pawn_bb: Bitboard, color: Color) -> Bitboard {
     spread(result)
 }
 
-fn rook_mobility(square: Square, board: &Board, them_pawn_attack: Bitboard) -> Bitboard {
+pub(crate) fn rook_mobility(square: Square, board: &Board, them_pawn_attack: Bitboard) -> Bitboard {
     debug_assert!(board.piece_at(square).piece_type() == PieceType::Rook);
 
     let us = board.piece_at(square).color();
@@ -22,7 +22,7 @@ fn rook_mobility(square: Square, board: &Board, them_pawn_attack: Bitboard) -> B
     rook_attack(occ, square) & (!them_pawn_attack) & (!board.color_bb(us))
 }
 
-fn bishop_mobility(square: Square, board: &Board, them_pawn_attack: Bitboard) -> Bitboard {
+pub(crate) fn bishop_mobility(square: Square, board: &Board, them_pawn_attack: Bitboard) -> Bitboard {
     debug_assert!(board.piece_at(square).piece_type() == PieceType::Bishop);
 
     let us = board.piece_at(square).color();
@@ -33,7 +33,7 @@ fn bishop_mobility(square: Square, board: &Board, them_pawn_attack: Bitboard) ->
     bishop_attack(occ, square) & (!them_pawn_attack) & (!board.color_bb(us))
 }
 
-fn queen_mobility(square: Square, board: &Board, them_pawn_attack: Bitboard) -> Bitboard {
+pub(crate) fn queen_mobility(square: Square, board: &Board, them_pawn_attack: Bitboard) -> Bitboard {
     debug_assert!(board.piece_at(square).piece_type() == PieceType::Queen);
 
     let us = board.piece_at(square).color();
@@ -45,7 +45,7 @@ fn queen_mobility(square: Square, board: &Board, them_pawn_attack: Bitboard) -> 
     queen_attack(occ, square) & (!them_pawn_attack) & (!board.color_bb(us))
 }
 
-fn knight_mobility(square: Square, board: &Board, them_pawn_attack: Bitboard) -> Bitboard {
+pub(crate) fn knight_mobility(square: Square, board: &Board, them_pawn_attack: Bitboard) -> Bitboard {
     debug_assert!(board.piece_at(square).piece_type() == PieceType::Knight);
 
     knight_attack(square) & (!them_pawn_attack) & (!board.color_bb(board.piece_at(square).color()))
@@ -54,20 +54,20 @@ fn knight_mobility(square: Square, board: &Board, them_pawn_attack: Bitboard) ->
 // Placeholder mobility values: small, self-scaled, monotonic, centered near each
 // piece's typical mobility so a balanced position nets ~0. Tune with SPRT.
 #[rustfmt::skip]
-static BISHOP_SEED: [S; 14] = [
+pub static BISHOP_SEED: [S; 14] = [
     S(-30, -35), S(-22, -26), S(-15, -18), S( -9, -11), S( -4,  -5), S(  0,   0), S(  4,   5),
     S(  8,  10), S( 12,  15), S( 15,  19), S( 18,  23), S( 21,  27), S( 24,  31), S( 27,  35),
 ];
 
 #[rustfmt::skip]
-static ROOK_SEED: [S; 15] = [
+pub static ROOK_SEED: [S; 15] = [
     S(-24, -30), S(-18, -22), S(-13, -15), S( -8,  -9), S( -4,  -4), S(  0,   0), S(  3,   5),
     S(  6,  10), S(  9,  15), S( 11,  20), S( 13,  25), S( 15,  30), S( 17,  36), S( 19,  42),
     S( 21,  48),
 ];
 
 #[rustfmt::skip]
-static QUEEN_SEED: [S; 28] = [
+pub static QUEEN_SEED: [S; 28] = [
     S(-20, -26), S(-17, -22), S(-14, -18), S(-11, -14), S( -8, -11), S( -6,  -8), S( -4,  -5),
     S( -2,  -2), S(  0,   0), S(  1,   2), S(  3,   5), S(  4,   8), S(  5,  11), S(  6,  14),
     S(  8,  17), S(  9,  20), S( 10,  23), S( 11,  26), S( 12,  29), S( 13,  32), S( 14,  35),
