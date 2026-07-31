@@ -14,9 +14,12 @@ use crate::train::Weights;
 // ±1cp per epoch. Everything above the tables answers "should I believe this
 // number", and makes two runs comparable without re-running either.
 pub struct Run {
-    pub epochs: usize,
+    pub epochs: usize,          // epochs actually run, which is <= cap
+    pub cap: usize,             // --epochs, now a safety cap rather than a length
+    pub stop: &'static str,
     pub k: f64,
-    pub lr: f64,
+    pub lr: (f64, f64),         // initial -> final, the lr schedule's whole story
+    pub threads: usize,
 
     pub records: usize,
     pub coeffs: usize,
@@ -42,6 +45,7 @@ pub struct Epoch {
     pub epoch: usize,
     pub train: f64,
     pub val: f64,
+    pub lr: f64,
     pub churn: usize
 }
 
@@ -125,9 +129,16 @@ fn render(weights: &Weights, run: &Run) -> String {
 
 fn run_section(out: &mut String, run: &Run) {
     writeln!(out, "\n## Run").unwrap();
-    writeln!(out, "  epochs        {}", run.epochs).unwrap();
+    writeln!(out, "  epochs        {} of {} (cap)", run.epochs, run.cap).unwrap();
+    writeln!(out, "  stopped       {}", run.stop).unwrap();
     writeln!(out, "  K             {:.6}   fitted once at the seed weights, then frozen", run.k).unwrap();
-    writeln!(out, "  optimizer     Adam  lr {:.4}  beta1 0.9  beta2 0.999  eps 1e-8", run.lr).unwrap();
+    writeln!(out, "  optimizer     Adam  lr {:.4} -> {:.4}  beta1 0.9  beta2 0.999  eps 1e-8",
+        run.lr.0, run.lr.1).unwrap();
+    // Without the decay, Adam's step near a minimum is lr·sign(g) and never shrinks,
+    // so the run's emitted integers depend on where it stopped. The schedule is what
+    // makes two runs at different epoch caps comparable.
+    writeln!(out, "  lr schedule   x0.9 after 10 epochs with no validation gain over 1e-6, \
+        stop below 0.01").unwrap();
     writeln!(out, "  objective     cross-entropy on sigmoid(K · E), E white-relative centipawns").unwrap();
 }
 
@@ -169,10 +180,11 @@ fn loss_section(out: &mut String, run: &Run) {
     writeln!(out, "\n  epoch 1 train loss is measured before the first step, so it equals the loss").unwrap();
     writeln!(out, "  `tuner fit-k` reports — the two loss paths agree. churn = rounded i32 weights").unwrap();
     writeln!(out, "  that moved since the row above, counted against the seed weights for epoch 1.").unwrap();
-    writeln!(out, "\n  {:>6} {:>12} {:>12} {:>8}", "epoch", "train", "val", "churn").unwrap();
+    writeln!(out, "\n  {:>6} {:>12} {:>12} {:>8} {:>8}",
+        "epoch", "train", "val", "lr", "churn").unwrap();
     for row in &run.trace {
-        writeln!(out, "  {:>6} {:>12.6} {:>12.6} {:>8}",
-            row.epoch, row.train, row.val, row.churn).unwrap();
+        writeln!(out, "  {:>6} {:>12.6} {:>12.6} {:>8.4} {:>8}",
+            row.epoch, row.train, row.val, row.lr, row.churn).unwrap();
     }
 }
 
@@ -189,7 +201,7 @@ fn performance_section(out: &mut String, run: &Run) {
         secs(run.t_open), run.records).unwrap();
     writeln!(out, "  fit K             {:>8.3} s   80 loss passes over precomputed energies",
         secs(run.t_fit_k)).unwrap();
-    writeln!(out, "  training          {:>8.3} s   {} epochs, {:.1} ms/epoch (includes the every-10th val pass)",
+    writeln!(out, "  training          {:>8.3} s   {} epochs, {:.1} ms/epoch (includes the per-epoch val pass)",
         secs(run.t_train), run.epochs, per_epoch * 1000.0).unwrap();
     writeln!(out, "  diagnostics       {:>8.3} s   baseline, final gradient, coefficient census",
         secs(run.t_diag)).unwrap();
@@ -199,6 +211,10 @@ fn performance_section(out: &mut String, run: &Run) {
         writeln!(out, "  throughput        {:>8.2} M positions/s   over the {} training records",
             run.train_len as f64 / per_epoch / 1e6, run.train_len).unwrap();
     }
+    // Every figure above is a wall clock, so it is only comparable against a run with
+    // the same width. Rayon reads RAYON_NUM_THREADS, so this is not a constant.
+    writeln!(out, "  threads           {:>8}     rayon work-stealing over the record chunks",
+        run.threads).unwrap();
 }
 
 fn diagnostics_section(out: &mut String, weights: &Weights, run: &Run) {
@@ -222,7 +238,11 @@ fn diagnostics_section(out: &mut String, weights: &Weights, run: &Run) {
         writeln!(out, "  churn at the end  {} of {} rounded weights still moving at epoch {}",
             row.churn, NUM_PARAMS * 2, row.epoch).unwrap();
         if row.churn > 0 {
-            writeln!(out, "                    -> not reproducible: decay lr until this reaches 0").unwrap();
+            writeln!(out, "                    -> not reproducible: the run stopped while weights \
+                were still moving.").unwrap();
+            writeln!(out, "                       lr reached {:.4}, floor is 0.01 — raise --epochs \
+                (now {}) so the", run.lr.1, run.cap).unwrap();
+            writeln!(out, "                       schedule can finish decaying.").unwrap();
         }
     }
 
@@ -302,7 +322,7 @@ fn movers(out: &mut String, weights: &Weights, run: &Run) {
 }
 
 // PSQT indices are the position inside the printed 8×8 block below, row-major.
-fn param_name(index: usize) -> String {
+pub fn param_name(index: usize) -> String {
     let names = ["Pawn", "Knight", "Bishop", "Rook", "Queen", "King"];
 
     match index {
@@ -322,7 +342,7 @@ fn param_name(index: usize) -> String {
 
 // No chrono for one line of output. Howard Hinnant's civil_from_days, which is exact
 // for any date after 1970 — the run's date is what tells two result.txt apart.
-fn timestamp() -> String {
+pub fn timestamp() -> String {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
     let (days, rem) = (secs.div_euclid(86400), secs.rem_euclid(86400));
 
@@ -343,7 +363,7 @@ fn timestamp() -> String {
 // Coefficient is always zero for these, so no position ever produces a gradient for
 // them and Adam leaves them at whatever they were seeded with. Report zero rather
 // than a stale seed that reads as a tuned value.
-fn is_dead(index: usize) -> bool {
+pub fn is_dead(index: usize) -> bool {
     let pawn_square = index.wrapping_sub(PSQT);
 
     (pawn_square < 8 || (56..64).contains(&pawn_square))

@@ -7,3 +7,6 @@ edition = "2024"
 mythos = { path = ".." }
 bytemuck = { version = "1", features = ["derive"] }
 memmap2 = "0.9.11"
+# Tuner only. The engine keeps its single `log` dependency — the same way xtask
+# owning `inquire` does not touch it.
+rayon = "1"

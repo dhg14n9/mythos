@@ -1,21 +1,25 @@
 use std::ops::Range;
 use std::time::Instant;
+use rayon::prelude::*;
 use mythos::eval::trace::{initial_weights, NUM_PARAMS, TEMPO};
 use crate::dataset::Dataset;
 use crate::format::{unpack, Record};
-use crate::report;
+use crate::{emit, report};
 
 pub type Weights = [[f64; 2]; NUM_PARAMS];
 
-fn sigmoid(x: f64) -> f64 {
-    1f64 / (1f64 + (-x).exp())
-}
+const ZERO: Weights = [[0f64; 2]; NUM_PARAMS];
 
-// divergent guard
-const EPS: f64 = 1e-15;
+const CHUNK: usize = 16_384;
 
-fn squash(x: f64) -> f64 {
-    sigmoid(x).clamp(EPS, 1.0 - EPS)
+fn sigmoid_and_log(z: f64) -> (f64, f64) {
+    if z >= 0.0 {
+        let e = (-z).exp();     // (0, 1]
+        (1.0 / (1.0 + e), -e.ln_1p())
+    } else {
+        let e = z.exp();        // (0, 1)
+        (e / (1.0 + e), z - e.ln_1p())
+    }
 }
 
 fn from_initial() -> Weights {
@@ -29,19 +33,77 @@ fn from_initial() -> Weights {
     result
 }
 
+fn accumulate(records: &[Record], arena: &[u16], weights: &Weights, k: f64) -> (Weights, f64) {
+    let taper: [[f64; 2]; 25] = std::array::from_fn(|phase| {
+        let mg = phase as f64 / 24.0;
+        [mg, 1.0 - mg]
+    });
+
+    let mut gradient = ZERO;
+    let mut ll = 0f64;
+
+    for record in records {
+        let start = record.start as usize;
+        let coeffs = &arena[start..start + record.len as usize];
+
+        let [mg_weight, eg_weight] = taper[record.phase as usize];
+
+        let mut mg = 0f64;
+        let mut eg = 0f64;
+        for packed in coeffs {
+            let (index, value) = unpack(*packed);
+            mg += weights[index][0] * value as f64;
+            eg += weights[index][1] * value as f64;
+        }
+
+        let z = k * (mg * mg_weight + eg * eg_weight + record.frozen as f64);
+        let (s, log_s) = sigmoid_and_log(z);
+        let r = record.get_result();
+
+        ll += log_s - (1.0 - r) * z;
+
+        let g = k * (s - r);
+
+        for packed in coeffs {
+            let (index, value) = unpack(*packed);
+            gradient[index][0] += g * mg_weight * value as f64;
+            gradient[index][1] += g * eg_weight * value as f64;
+        }
+    }
+
+    (gradient, ll)
+}
+
+fn pass(records: &[Record], arena: &[u16], weights: &Weights, k: f64) -> (Weights, f64) {
+    records.par_chunks(CHUNK)
+        .map(|chunk| accumulate(chunk, arena, weights, k))
+        .reduce(|| (ZERO, 0f64), |mut a, b| {
+            for i in 0..NUM_PARAMS {
+                a.0[i][0] += b.0[i][0];
+                a.0[i][1] += b.0[i][1];
+            }
+            a.1 += b.1;
+
+            a
+        })
+}
+
 pub struct Trainer {
     dataset: Dataset,
     weights: Weights,
     k: f64,
     split: usize,
-    adam: Adam
+    adam: Adam,
+    schedule: Schedule
 }
 
 impl Trainer {
     pub fn new(dataset: Dataset) -> Self {
         let split = dataset.len() * 9 / 10;
+        let weights = from_initial();
         let mut trainer = Self {
-            dataset, weights: from_initial(), k: 0.0, split, adam: Adam::new(1.0)
+            dataset, schedule: Schedule::new(&weights), weights, k: 0.0, split,
+            adam: Adam::new(1.0)
         };
         trainer.k = trainer.fit_k();
 
@@ -64,11 +126,8 @@ impl Trainer {
         &self.dataset
     }
 
-    // sigmoid(0) is exactly 0.5, so K = 0 evaluates the same loss at a flat
-    // prediction — the report's baseline is the objective itself, not a second
-    // formula that has to be kept in sync with it. Equals ln 2 for cross-entropy.
     pub fn baseline(&self) -> f64 {
-        Self::loss(&self.dataset, &self.weights, 0.0, self.train_range())
+        Self::loss(self.train_records(), self.dataset.arena(), &self.weights, 0.0)
     }
 
     pub fn train_range(&self) -> Range<usize> {
@@ -77,6 +136,14 @@ impl Trainer {
 
     pub fn val_range(&self) -> Range<usize> {
         self.split..self.dataset.len()
+    }
+
+    fn train_records(&self) -> &[Record] {
+        &self.dataset.records()[self.train_range()]
+    }
+
+    fn val_records(&self) -> &[Record] {
+        &self.dataset.records()[self.val_range()]
     }
 
     fn energy(record: &Record, coeffs: &[u16], weights: &Weights) -> f64 {
@@ -94,29 +161,26 @@ impl Trainer {
         mg * mg_weight + eg * eg_weight + record.frozen as f64
     }
 
-    fn loss(dataset: &Dataset, weights: &Weights, k: f64, range: Range<usize>) -> f64 {
-        // trust that energies is correct
-        let len = range.end - range.start;
-        let mut result = 0f64;
-        for i in range {
-            let (record, coeff) = dataset.entry(i);
-            let r = record.get_result();
-            let s = squash(k * Self::energy(record, coeff, weights));
-            result += r * s.ln() + (1.0 - r) * (1.0 - s).ln()
-        }
+    fn loss(records: &[Record], arena: &[u16], weights: &Weights, k: f64) -> f64 {
+        let (_, ll) = pass(records, arena, weights, k);
 
-        -result / (len as f64)
+        -ll / records.len() as f64
     }
 
     pub fn frozen_energies(&self, range: Range<usize>) -> (Vec<f64>, Vec<f64>) {
-        let energies = range.clone()
-            .map(|i| {
-                let (record, coeff) = self.dataset.entry(i);
-                Self::energy(record, coeff, &self.weights)
+        let arena = self.dataset.arena();
+        let records = &self.dataset.records()[range];
+
+        let energies = records.par_iter()
+            .map(|record| {
+                let start = record.start as usize;
+                let coeffs = &arena[start..start + record.len as usize];
+
+                Self::energy(record, coeffs, &self.weights)
             })
             .collect();
 
-        let results = self.dataset.records()[range].iter().map(Record::get_result).collect();
+        let results = records.iter().map(Record::get_result).collect();
 
         (energies, results)
     }
@@ -146,47 +210,63 @@ impl Trainer {
         loss
     }
 
-    // validation set loss for double check 
     pub fn val_loss(&self) -> f64 {
-        Self::loss(&self.dataset, &self.weights, self.k, self.val_range())
+        Self::loss(self.val_records(), self.dataset.arena(), &self.weights, self.k)
+    }
+
+    pub fn observe(&mut self, val: f64) -> bool {
+        if val < self.schedule.best - Schedule::IMPROVE {
+            self.schedule.best = val;
+            self.schedule.stale = 0;
+        } else {
+            self.schedule.stale += 1;
+
+            if self.schedule.stale >= Schedule::PATIENCE {
+                self.adam.lr *= Schedule::DECAY;
+                self.schedule.stale = 0;
+            }
+        }
+
+        let now = report::rounded(&self.weights);
+        if report::churn(&self.schedule.rounded, &now) == 0 {
+            self.schedule.stable += 1;
+        } else {
+            self.schedule.stable = 0;
+        }
+        self.schedule.rounded = now;
+
+        self.adam.lr < Schedule::MIN_LR && self.schedule.stable >= Schedule::PATIENCE
     }
 
     fn gradient(&self) -> (Weights, f64) {
-        let mut gradient: Weights = [[0.0; 2]; NUM_PARAMS];
-        let len = (self.train_range().end - self.train_range().start) as f64;
-        let mut loss: f64 = 0.0;
+        let records = self.train_records();
+        let len = records.len() as f64;
 
-        for i in self.train_range() {
-            let (record, coeffs) = self.dataset.entry(i);
-            let mg_weight = record.phase as f64 / 24.0;
-            let eg_weight = 1.0 - mg_weight;
-
-            let mut mg: f64 = 0.0;
-            let mut eg: f64 = 0.0;
-
-            for packed in coeffs {
-                let (index, value) = unpack(*packed);
-
-                mg += self.weights[index][0] * value as f64;
-                eg += self.weights[index][1] * value as f64;
-            }
-
-            let e = mg * mg_weight + eg * eg_weight + record.frozen as f64;
-            let s = squash(self.k() * e);
-            let r = record.get_result();
-
-            let g = self.k() * (s - r) / len;
-
-            for packed in coeffs {
-                let (index, val) = unpack(*packed);
-                gradient[index][0] += g * mg_weight * (val as f64);
-                gradient[index][1] += g * eg_weight * (val as f64);
-            }
-
-            loss += r * s.ln() + (1.0 - r) * (1.0 - s).ln();
+        let (mut gradient, ll) = pass(records, self.dataset.arena(), &self.weights, self.k);
+        for g in gradient.iter_mut() {
+            g[0] /= len;
+            g[1] /= len;
         }
 
-        (gradient, -loss / len)
+        (gradient, -ll / len)
+    }
+}
+
+struct Schedule {
+    best: f64,
+    stale: usize,
+    rounded: Vec<i32>,
+    stable: usize
+}
+
+impl Schedule {
+    const IMPROVE: f64 = 1e-6;
+    const PATIENCE: usize = 10;
+    const DECAY: f64 = 0.9;
+    const MIN_LR: f64 = 0.01;
+
+    fn new(weights: &Weights) -> Self {
+        Self { best: f64::INFINITY, stale: 0, rounded: report::rounded(weights), stable: 0 }
     }
 }
 
@@ -243,13 +323,22 @@ impl Adam {
 
 
 fn loss_over(energies: &[f64], results: &[f64], k: f64) -> f64 {
-    let mut result = 0f64;
-    for i in 0..energies.len() {
-        let s = squash(k * energies[i]);
-        result += results[i] * s.ln() + (1.0 - results[i]) * (1.0 - s).ln()
-    }
+    let partial: Vec<f64> = energies.par_chunks(CHUNK)
+        .zip(results.par_chunks(CHUNK))
+        .map(|(energies, results)| {
+            let mut sum = 0f64;
+            for i in 0..energies.len() {
+                // ln(s) − (1−r)·z, the same rewrite as `accumulate`. This is where
+                // the whole startup cost lives: 80 passes for the ternary search.
+                let z = k * energies[i];
+                sum += sigmoid_and_log(z).1 - (1.0 - results[i]) * z;
+            }
 
-    -result / (energies.len() as f64)
+            sum
+        })
+        .collect();
+
+    -partial.iter().sum::<f64>() / (energies.len() as f64)
 }
 
 pub fn fit_k(dir: &str) {
@@ -291,6 +380,11 @@ pub fn fit_k(dir: &str) {
 // a stray factor, a missing 1/N, even a dropped s(1-s) all still point roughly
 // downhill, so the loss falls and the run looks healthy while fitting the wrong
 // function. This is the §4 counterpart to the trace equivalence test.
+//
+// Since 1a the loss it probes *is* the gradient's own arithmetic, so this no longer
+// catches a disagreement between two copies of the formula — there is only one. What
+// it still catches is the calculus: the analytic scatter against the slope the
+// objective actually has.
 pub fn check_gradient(dir: &str) {
     let mut trainer = Trainer::new(Dataset::open(dir));
     let (analytic, _) = trainer.gradient();
@@ -324,10 +418,10 @@ pub fn check_gradient(dir: &str) {
         let original = trainer.weights[i][j];
 
         trainer.weights[i][j] = original + h;
-        let up = Trainer::loss(&trainer.dataset, &trainer.weights, k, range.clone());
+        let up = Trainer::loss(trainer.train_records(), trainer.dataset.arena(), &trainer.weights, k);
 
         trainer.weights[i][j] = original - h;
-        let down = Trainer::loss(&trainer.dataset, &trainer.weights, k, range.clone());
+        let down = Trainer::loss(trainer.train_records(), trainer.dataset.arena(), &trainer.weights, k);
 
         // Restore before the next probe, or the perturbations compound and every
         // measurement after the first is taken at the wrong point.
@@ -366,11 +460,15 @@ pub fn train(dir: &str, epochs: usize) {
     let mut trainer = Trainer::new(dataset);
     let t_fit_k = mark.elapsed();
 
+    let initial_lr = trainer.lr();
+
     println!("K = {:.6} (frozen for the whole run)", trainer.k());
     println!("{} training / {} validation positions",
         trainer.train_range().len(), trainer.val_range().len());
+    println!("{} rayon threads, {CHUNK} records per chunk", rayon::current_num_threads());
+    println!("--epochs {epochs} is a safety cap; the run ends when the emitted weights settle");
     println!();
-    println!("{:>6} {:>12} {:>12} {:>8}", "epoch", "train", "val", "churn");
+    println!("{:>6} {:>12} {:>12} {:>8} {:>8}", "epoch", "train", "val", "lr", "churn");
 
     let initial_val = trainer.val_loss();
     let mut rounded = report::rounded(trainer.weights());
@@ -378,23 +476,36 @@ pub fn train(dir: &str, epochs: usize) {
     let mut trace: Vec<report::Epoch> = Vec::new();
     let mut train = f64::NAN;
     let mut val = initial_val;
+    let mut ran = 0usize;
+    let mut stop = "hit the --epochs cap — raise it or lower PATIENCE";
 
     let mark = Instant::now();
     for epoch in 1..=epochs {
         train = trainer.epoch();
+        val = trainer.val_loss();
+        ran = epoch;
 
-        if epoch == 1 || epoch % 10 == 0 || epoch == epochs {
-            val = trainer.val_loss();
+        let settled = trainer.observe(val);
+        if settled {
+            stop = "converged — lr below the floor and no emitted weight moved for 10 epochs";
+        }
 
+        // Print every tenth, but never miss the row the reproducibility gate reads.
+        if epoch == 1 || epoch % 10 == 0 || settled || epoch == epochs {
             let now = report::rounded(trainer.weights());
             let churn = report::churn(&rounded, &now);
             rounded = now;
 
-            println!("{epoch:>6} {train:>12.6} {val:>12.6} {churn:>8}");
-            trace.push(report::Epoch { epoch, train, val, churn });
+            let lr = trainer.lr();
+            println!("{epoch:>6} {train:>12.6} {val:>12.6} {lr:>8.4} {churn:>8}");
+            trace.push(report::Epoch { epoch, train, val, lr, churn });
         }
+
+        if settled { break }
     }
     let t_train = mark.elapsed();
+
+    println!("\nstopped after {ran} epochs: {stop}");
 
     let mark = Instant::now();
     let baseline = trainer.baseline();
@@ -403,9 +514,12 @@ pub fn train(dir: &str, epochs: usize) {
     let t_diag = mark.elapsed();
 
     let run = report::Run {
-        epochs,
+        epochs: ran,
+        cap: epochs,
+        stop,
         k: trainer.k(),
-        lr: trainer.lr(),
+        lr: (initial_lr, trainer.lr()),
+        threads: rayon::current_num_threads(),
 
         records: trainer.dataset().len(),
         coeffs: trainer.dataset().arena().len(),
@@ -426,4 +540,5 @@ pub fn train(dir: &str, epochs: usize) {
 
     println!();
     report::write(dir, trainer.weights(), &run);
+    emit::save(dir, trainer.weights(), &run);
 }
