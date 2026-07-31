@@ -1,10 +1,9 @@
-use std::fmt::Write as _;
 use std::ops::Range;
-use std::path::Path;
-use mythos::eval::trace::{initial_weights, BISHOP_MOB, BISHOP_PAIR, DOUBLED_PAWN, ISOLATED_PAWN,
-    KNIGHT_MOB, NUM_PARAMS, PASSED_PAWN, PSQT, QUEEN_MOB, ROOK_MOB, TEMPO};
+use std::time::Instant;
+use mythos::eval::trace::{initial_weights, NUM_PARAMS, TEMPO};
 use crate::dataset::Dataset;
 use crate::format::{unpack, Record};
+use crate::report;
 
 pub type Weights = [[f64; 2]; NUM_PARAMS];
 
@@ -53,8 +52,23 @@ impl Trainer {
         self.k
     }
 
+    pub fn lr(&self) -> f64 {
+        self.adam.lr
+    }
+
     pub fn weights(&self) -> &Weights {
         &self.weights
+    }
+
+    pub fn dataset(&self) -> &Dataset {
+        &self.dataset
+    }
+
+    // sigmoid(0) is exactly 0.5, so K = 0 evaluates the same loss at a flat
+    // prediction — the report's baseline is the objective itself, not a second
+    // formula that has to be kept in sync with it. Equals ln 2 for cross-entropy.
+    pub fn baseline(&self) -> f64 {
+        Self::loss(&self.dataset, &self.weights, 0.0, self.train_range())
     }
 
     pub fn train_range(&self) -> Range<usize> {
@@ -344,121 +358,72 @@ pub fn check_gradient(dir: &str) {
 }
 
 pub fn train(dir: &str, epochs: usize) {
-    let mut trainer = Trainer::new(Dataset::open(dir));
+    let mark = Instant::now();
+    let dataset = Dataset::open(dir);
+    let t_open = mark.elapsed();
+
+    let mark = Instant::now();
+    let mut trainer = Trainer::new(dataset);
+    let t_fit_k = mark.elapsed();
 
     println!("K = {:.6} (frozen for the whole run)", trainer.k());
     println!("{} training / {} validation positions",
         trainer.train_range().len(), trainer.val_range().len());
     println!();
-    println!("{:>6} {:>12} {:>12}", "epoch", "train", "val");
+    println!("{:>6} {:>12} {:>12} {:>8}", "epoch", "train", "val", "churn");
 
+    let initial_val = trainer.val_loss();
+    let mut rounded = report::rounded(trainer.weights());
+
+    let mut trace: Vec<report::Epoch> = Vec::new();
     let mut train = f64::NAN;
+    let mut val = initial_val;
+
+    let mark = Instant::now();
     for epoch in 1..=epochs {
         train = trainer.epoch();
 
-        if epoch == 1 || epoch % 10 == 0 {
-            println!("{epoch:>6} {train:>12.6} {:>12.6}", trainer.val_loss());
+        if epoch == 1 || epoch % 10 == 0 || epoch == epochs {
+            val = trainer.val_loss();
+
+            let now = report::rounded(trainer.weights());
+            let churn = report::churn(&rounded, &now);
+            rounded = now;
+
+            println!("{epoch:>6} {train:>12.6} {val:>12.6} {churn:>8}");
+            trace.push(report::Epoch { epoch, train, val, churn });
         }
     }
+    let t_train = mark.elapsed();
 
-    let path = Path::new(dir).join("weights.txt");
-    let header = format!(
-        "K = {:.6}, {epochs} epochs, train loss {train:.6}, validation loss {:.6}",
-        trainer.k(), trainer.val_loss());
+    let mark = Instant::now();
+    let baseline = trainer.baseline();
+    let (gradient, _) = trainer.gradient();
+    let fired = report::fire_counts(trainer.dataset().arena());
+    let t_diag = mark.elapsed();
 
-    std::fs::write(&path, dump_weights(trainer.weights(), &header))
-        .unwrap_or_else(|e| panic!("cannot write {}: {e}", path.display()));
+    let run = report::Run {
+        epochs,
+        k: trainer.k(),
+        lr: trainer.lr(),
+
+        records: trainer.dataset().len(),
+        coeffs: trainer.dataset().arena().len(),
+        labels: trainer.dataset().label_counts(),
+        train_len: trainer.train_range().len(),
+        val_len: trainer.val_range().len(),
+
+        baseline,
+        initial: (trace.first().map_or(f64::NAN, |row| row.train), initial_val),
+        last: (train, val),
+        trace,
+
+        t_open, t_fit_k, t_train, t_diag,
+
+        gradient: report::GradStats::of(&gradient),
+        fired
+    };
 
     println!();
-    println!("wrote {}", path.display());
-}
-
-// Coefficient is always zero for these, so no position ever produces a gradient for
-// them and Adam leaves them at whatever they were seeded with. Report zero rather
-// than a stale seed that reads as a tuned value.
-fn is_dead(index: usize) -> bool {
-    let pawn_square = index.wrapping_sub(PSQT);
-
-    (pawn_square < 8 || (56..64).contains(&pawn_square))
-        || index == PASSED_PAWN
-        || index == PASSED_PAWN + 7
-}
-
-fn dump_weights(weights: &Weights, header: &str) -> String {
-    let initial = initial_weights();
-
-    let now = |i: usize, half: usize| -> i32 {
-        if is_dead(i) { 0 } else { weights[i][half].round() as i32 }
-    };
-    let was = |i: usize, half: usize| -> i32 {
-        if is_dead(i) { return 0 }
-        if half == 0 { initial[i].0 } else { initial[i].1 }
-    };
-
-    let mut out = String::new();
-    writeln!(out, "# Mythos tuned eval weights").unwrap();
-    writeln!(out, "# {header}").unwrap();
-    writeln!(out, "#").unwrap();
-    writeln!(out, "# Rounded to i32. \"was\" is the seed value before tuning.").unwrap();
-    writeln!(out, "# King safety is not here — it is nonlinear, so the tuner holds it frozen.").unwrap();
-
-    let names = ["Pawn", "Knight", "Bishop", "Rook", "Queen", "King"];
-
-    writeln!(out, "\n## Implied piece values (mean of each PSQT block)").unwrap();
-    for (pt, name) in names.iter().enumerate() {
-        let squares: Vec<usize> = if pt == 0 { (8..56).collect() } else { (0..64).collect() };
-        let mean = |half: usize| -> f64 {
-            squares.iter().map(|&sq| now(PSQT + pt * 64 + sq, half) as f64).sum::<f64>()
-                / squares.len() as f64
-        };
-        let mean_was = |half: usize| -> f64 {
-            squares.iter().map(|&sq| was(PSQT + pt * 64 + sq, half) as f64).sum::<f64>()
-                / squares.len() as f64
-        };
-
-        writeln!(out, "  {name:<7} mg {:>7.1} (was {:>6.1})   eg {:>7.1} (was {:>6.1})",
-            mean(0), mean_was(0), mean(1), mean_was(1)).unwrap();
-    }
-
-    writeln!(out, "\n## PSQT").unwrap();
-    for (pt, name) in names.iter().enumerate() {
-        for (half, tag) in ["mg", "eg"].iter().enumerate() {
-            writeln!(out, "\n### {name} {tag}").unwrap();
-            for rank in 0..8 {
-                for file in 0..8 {
-                    write!(out, "{:5},", now(PSQT + pt * 64 + rank * 8 + file, half)).unwrap();
-                }
-                out.push('\n');
-            }
-        }
-    }
-
-    writeln!(out, "\n## Scalars").unwrap();
-    for (label, index) in [
-        ("TEMPO", TEMPO),
-        ("BISHOP_PAIR", BISHOP_PAIR),
-        ("ISOLATED_PAWN", ISOLATED_PAWN),
-        ("DOUBLED_PAWN", DOUBLED_PAWN),
-    ] {
-        writeln!(out, "  {label:<16} mg {:>6} (was {:>5})   eg {:>6} (was {:>5})",
-            now(index, 0), was(index, 0), now(index, 1), was(index, 1)).unwrap();
-    }
-
-
-    writeln!(out, "\n## Tables").unwrap();
-    for (label, base, len) in [
-        ("PASSED_PAWN",    PASSED_PAWN, 8),
-        ("KNIGHT_MOBILITY", KNIGHT_MOB, 9),
-        ("BISHOP_MOBILITY", BISHOP_MOB, 14),
-        ("ROOK_MOBILITY",     ROOK_MOB, 15),
-        ("QUEEN_MOBILITY",   QUEEN_MOB, 28),
-    ] {
-        writeln!(out, "\n### {label}").unwrap();
-        for n in 0..len {
-            writeln!(out, "  [{n:>2}]  mg {:>6} (was {:>5})   eg {:>6} (was {:>5})",
-                now(base + n, 0), was(base + n, 0), now(base + n, 1), was(base + n, 1)).unwrap();
-        }
-    }
-
-    out
+    report::write(dir, trainer.weights(), &run);
 }

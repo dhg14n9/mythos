@@ -3,6 +3,7 @@ pub mod format;
 pub mod prepare;
 pub mod dataset;
 pub mod train;
+pub mod report;
 
 const EPD: &str = "tuner/data/quiet-labeled.epd";
 const DIR: &str = "tuner/data";

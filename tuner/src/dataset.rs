@@ -74,11 +74,20 @@ impl Dataset {
             "entries.arena has {} trailing u16 after {} records", arena - offset, self.len());
     }
 
-    pub fn summary(&self) {
+    // 0 / 1 / 2 = black win / draw / white win. The split is a regression check on
+    // the label parse — it broke three times — so the report wants the counts, not
+    // a line of stdout.
+    pub fn label_counts(&self) -> [u64; 3] {
         let mut labels = [0u64; 3];
         for record in self.records() {
             labels[record.result as usize] += 1;
         }
+
+        labels
+    }
+
+    pub fn summary(&self) {
+        let labels = self.label_counts();
 
         let n = self.len() as f64;
         let pct = |c: u64| 100.0 * c as f64 / n;
