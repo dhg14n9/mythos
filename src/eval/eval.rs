@@ -12,8 +12,8 @@ fn taper(score: S, phase: i32) -> i32 {
     (score.0 * mg_phase + score.1 * eg_phase) / Board::GAME_PHASE_MAX
 }
 
-pub const TEMPO_BONUS: S = S(20, 10);
-pub const BISHOP_PAIR_BONUS: S = S(25, 45);
+pub const TEMPO_BONUS: S = S(22, 19);
+pub const BISHOP_PAIR_BONUS: S = S(34, 54);
 
 // White eval score
 pub fn eval_score(board: &Board) -> S {
