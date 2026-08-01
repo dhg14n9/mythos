@@ -3,11 +3,11 @@ use crate::eval::{s_color, spread, S};
 use crate::types::{Bitboard, Color, Piece};
 
 pub const PASS_PAWN_BONUS: [S; 8] = [
-    S(0,0), S(0,5), S(0,10), S(5,25), S(20,50), S(40,90), S(65,140), S(0,0)
+    S(  0,   0), S(  8,   6), S(  1,  12), S( -7,  34), S(  2,  62), S(  8, 124), S( 31,  98), S(  0,   0),
 ];
 
-pub const ISO_PAWN_MALUS: S = S(5, 15);
-pub const DOUBLE_PAWN_MALUS: S = S(10, 20);
+pub const ISO_PAWN_MALUS: S = S(18, 10);
+pub const DOUBLE_PAWN_MALUS: S = S(1, 10);
 
 pub fn pawns(board: &Board) -> S {
     pawn_structure(board.piece_bb(Piece::WhitePawn), board.piece_bb(Piece::BlackPawn))
