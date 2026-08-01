@@ -45,6 +45,53 @@ position startpos moves e2e4 e7e5
 go movetime 1000
 ```
 
+## Features
+
+### Board & move generation
+- [x] Bitboard board representation
+- [x] Magic bitboards for sliders, with a PEXT path on BMI2 CPUs
+- [x] Fully legal move generation
+- [x] Incremental Zobrist hashing with a state-history stack for unmake
+- [x] Fifty-move and repetition draw detection
+
+### Search
+- [x] Fail-soft negamax with alpha-beta
+- [x] Iterative deepening
+- [x] Aspiration windows with progressive widening
+- [x] Principal variation search (zero-window + re-search)
+- [x] Transposition table
+- [x] Quiescence search
+- [x] Null-move pruning
+- [x] Reverse futility pruning
+- [x] Late move reductions
+- [x] Mate scoring, distance-to-mate adjustment
+
+### Move ordering
+- [x] TT move first
+- [x] Static exchange evaluation, threshold-based
+- [x] Good/bad noisy split by SEE
+- [x] Killer moves (two per ply)
+- [x] Butterfly history with bonus/malus and gravity scaling
+
+### Evaluation
+- [x] Tapered evaluation by game phase
+- [x] Material and PeSTO piece-square tables
+- [x] Piece mobility (knight, bishop, rook, queen)
+- [x] King safety via attacker count and weight
+- [x] Pawn structure — passed, isolated, doubled
+- [x] Bishop pair and tempo bonuses
+- [x] Gradient-descent (Texel) tuner with Adam, memory-mapped datasets,
+  K fitting, train/validation split and early stopping
+- [ ] NNUE evaluation with incremental accumulator updates
+
+### Tooling & testing
+- [x] `cargo xtask` as a single entry point 
+- [x] Perft suites
+- [x] TT-accelerated perft and `divide` for bisecting move-generation bugs
+- [x] Fixed-depth search benchmark as a functional fingerprint of the search
+- [x] Automated SPRT against any git ref
+- [ ] Self-play data generation for NNUE training
+
 
 ## Development
 
