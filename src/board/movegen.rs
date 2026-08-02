@@ -91,7 +91,7 @@ impl Board {
         let them = !us;
         let threats = self.threats(us);
         let pinner = self.pinners(us);
-        let checker = self.checkers(us);
+        let checker = self.checkers;
 
         // in check, qsearch needs every evasion to tell stand-pat from mate
         let noisy_only = noisy_only && checker.is_empty();

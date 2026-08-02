@@ -135,13 +135,13 @@ impl Search {
             }
         }
 
-        let static_eval = eval(board);
-
         if depth == 0 {
             return self.qsearch(board, alpha, beta, ply);
         };
 
-        if allow_null && self.should_nmp(beta, depth, board) {
+        let static_eval = eval(board);
+
+        if allow_null && self.should_nmp(beta, depth, board, static_eval) {
             board.make_null_move();
             let score = -self.negamax(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth)), -beta, -beta + 1, ply + 1, false);
             board.unmake_null_move();
@@ -376,11 +376,11 @@ impl Search {
     }
 
     // allow null move pruning
-    fn should_nmp(&self, beta: i32, depth: usize, board: &Board) -> bool {
+    fn should_nmp(&self, beta: i32, depth: usize, board: &Board, static_eval: i32) -> bool {
         if depth < 3 { return false }
         if board.is_check() { return false }
         if Score::is_mate(beta) { return false }
-        if eval(board) < beta { return false }
+        if static_eval < beta { return false }
         if !has_non_pawn_piece(board, board.stm()) { return false }
         if Score::is_mate(beta) { return false }
         true

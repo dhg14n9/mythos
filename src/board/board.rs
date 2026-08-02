@@ -14,6 +14,7 @@ pub struct StateInfo {
     pub castling_right: Castling,
     pub en_passant: Square,
     pub captured_piece: Piece,
+    pub checkers: Bitboard
 }
 
 #[derive(Clone)]
@@ -31,6 +32,7 @@ pub struct Board {
     pub(super) piece_count: [u8; Piece::NUM],
 
     pub(super) state_history: UninitArray<StateInfo, MAX_STATE_ARRAY_LENGTH>,
+    pub(super) checkers: Bitboard,
 }
 
 impl Board {
@@ -51,6 +53,7 @@ impl Board {
             game_ply: 0,
             piece_count: [0; Piece::NUM],
             state_history: UninitArray::new(),
+            checkers: Bitboard::EMPTY,
         };
 
         let mut parts = fen.split_whitespace();
@@ -121,6 +124,9 @@ impl Board {
             } else {
                 0
             };
+
+        let checkers = board.checkers(board.side_to_move);
+        board.checkers = checkers;
 
         Ok(board)
     }
@@ -213,6 +219,7 @@ impl Board {
             castling_right: self.castling_right,
             en_passant: self.en_passant,
             captured_piece,
+            checkers: self.checkers
         })
     }
 
@@ -224,6 +231,7 @@ impl Board {
         self.half_move = prev_state.half_move;
         self.castling_right = prev_state.castling_right;
         self.en_passant = prev_state.en_passant;
+        self.checkers = prev_state.checkers;
 
         prev_state.captured_piece
     }
@@ -292,6 +300,9 @@ impl Board {
         self.game_ply += 1;
         self.side_to_move = !us;
         self.zobrist ^= ZobristHelper::color();
+
+        let checkers = self.checkers(!us);
+        self.checkers = checkers;
     }
 
     pub fn unmake_move(&mut self, mv: Move) {
@@ -339,7 +350,7 @@ impl Board {
     }
 
     pub fn is_check(&self) -> bool {
-        !self.checkers(self.side_to_move).is_empty()
+        !self.checkers.is_empty()
     }
 
     // SEE helper
@@ -365,6 +376,7 @@ impl Board {
         self.game_ply += 1;
         self.side_to_move = !self.side_to_move;
         self.zobrist ^= ZobristHelper::color();
+        self.checkers = Bitboard::EMPTY;
     }
 
     pub fn unmake_null_move(&mut self) {
