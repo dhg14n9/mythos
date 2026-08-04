@@ -81,7 +81,7 @@ impl TransTable {
 }
 
 // killer heuristics
-const MAX_PLY: usize = 256;
+pub const MAX_PLY: usize = 256;
 
 pub struct Killer {
     array: Box<[[Move; 2]; MAX_PLY]>

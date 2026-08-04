@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::eval::eval::eval;
 use crate::movepicker::MovePicker;
-use crate::tables::{BoundType, ThreadData, TransTable};
+use crate::tables::{BoundType, MAX_PLY, ThreadData, TransTable};
 use crate::types::{Color, Move, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
@@ -33,12 +33,14 @@ pub struct Search {
     pub stopped: bool,
     pub silent: bool,
     pub trans_table: TransTable,
-    pub thread_data: ThreadData
+    pub thread_data: ThreadData,
+    // depth of the current iterative-deepening iteration; bounds extensions
+    pub root_depth: usize
 }
 
 impl Search {
     pub fn new(time_control: TimeControl, trans_table: TransTable, thread_data: ThreadData) -> Self {
-        Self { time_control, nodes: 0, stopped: false, silent: false, trans_table, thread_data }
+        Self { time_control, nodes: 0, stopped: false, silent: false, trans_table, thread_data, root_depth: 0 }
     }
 
     fn should_stop(&mut self) -> bool {
@@ -63,6 +65,10 @@ impl Search {
         self.nodes += 1;
         if self.should_stop() {
             return 0; // search cancelled
+        }
+
+        if ply >= MAX_PLY - 1 {
+            return eval(board);
         }
 
         let stm = board.stm();
@@ -123,6 +129,10 @@ impl Search {
             return Score::ZERO;
         }
 
+        if ply >= MAX_PLY - 1 {
+            return eval(board);
+        }
+
         let mut tt_move = Move::NULL;
         if let Some((score, best, entry_depth, bound)) = self.trans_table.probe(board.hash()) {
             tt_move = best;
@@ -175,7 +185,13 @@ impl Search {
         while let Some(mv) = move_picker.next(board) {
             let escaping_check = board.is_check();
             board.make_move(mv);
-            let new_depth = depth - 1;
+
+            let mut extension = 0;
+            // temporarily scrap this check extension
+            // if board.is_check() && ply < self.root_depth / 2 {
+            //     extension += 1;
+            // }
+            let new_depth = depth - 1 + extension;
 
             let mut score;
 
@@ -304,6 +320,7 @@ impl Search {
             if self.time_control.start.elapsed() > self.time_control.soft_lim {
                 break;
             }
+            self.root_depth = depth;
             let mut alpha_tries: usize = 0;
             let mut beta_tries: usize = 0;
 
@@ -392,7 +409,7 @@ impl Search {
     }
 
     fn lmr_reduction(depth: usize, i: usize) -> usize {
-        ((0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25) as usize)
+        (0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25) as usize
     }
 
     fn nmp_reduction(depth: usize) -> usize {
