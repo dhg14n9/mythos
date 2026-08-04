@@ -55,17 +55,10 @@ impl MovePicker {
 
     // partitioning the noisy
     pub fn score_noisy(&mut self, board: &Board) {
-        let mut good = 0;
-        for i in 0..self.list.noisy_end() {
-            if see(board, self.list.get(i), 0) {
-                self.list.swap(good, i);
-                good += 1;
-            }
-        }
-        self.good_end = good;
+
     }
 
-    pub fn next(&mut self) -> Option<Move> {
+    pub fn next(&mut self, board: &Board) -> Option<Move> {
         loop {
             match self.stage {
                 Stage::TtMove => {
@@ -75,8 +68,19 @@ impl MovePicker {
                         return Some(self.tt_move);
                     }
                 }
-                Stage::GoodNoisy => match self.pick(self.good_end) {
-                    Some(mv) => if mv != self.tt_move { return Some(mv) },
+                Stage::GoodNoisy => match self.select_best(self.good_end) {
+                    Some(mv_index) => {
+                        // see partitioning
+                        let mv = self.list.get(mv_index);
+                        self.list.swap(mv_index, self.cur);
+                        if see(board, mv, 0) {
+                            self.cur += 1;
+                            if mv != self.tt_move { return Some(mv) }
+                        } else {
+                            self.good_end -= 1; 
+                            self.list.swap(self.cur, self.good_end); 
+                        }
+                    },
                     None => {
                         self.stage = Stage::Quiet;
                         self.cur = self.list.quiet_start();
@@ -100,6 +104,17 @@ impl MovePicker {
 
     // Selection sort step: move the best scoring entry in [cur, end) to `cur` and consume it.
     fn pick(&mut self, end: usize) -> Option<Move> {
+        if let Some(best) = self.select_best(end) {
+            self.list.swap(best, self.cur);
+            let mv = self.list.get(self.cur);
+            self.cur += 1;
+            Some(mv)
+        } else {
+            None
+        }
+    }
+
+    fn select_best(&self, end: usize) -> Option<usize> {
         if self.cur >= end {
             return None;
         }
@@ -115,10 +130,7 @@ impl MovePicker {
             }
         }
 
-        self.list.swap(best, self.cur);
-        let mv = self.list.get(self.cur);
-        self.cur += 1;
-        Some(mv)
+        Some(best)
     }
 
     fn generated(&self, mv: Move) -> bool {
@@ -216,10 +228,9 @@ mod tests {
         let mut picker = MovePicker::new(tt_move);
         picker.gen_move(board, noisy_only);
         picker.score_quiet(&td, board.stm(), 0);
-        picker.score_noisy(board);
 
         let mut moves = Vec::new();
-        while let Some(mv) = picker.next() {
+        while let Some(mv) = picker.next(board) {
             moves.push(mv.raw());
         }
         moves
