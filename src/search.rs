@@ -348,6 +348,10 @@ impl Search {
             }
         }
 
+        if Score::is_mate(best.1) {
+            best.1 = best.1 - best.1.signum()
+        }
+
         Some(best)
     }
 
