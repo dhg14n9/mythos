@@ -66,12 +66,12 @@ pub struct Search {
     pub trans_table: TransTable,
     pub thread_data: ThreadData,
     pub root_depth: usize,
-
+    pub pv_table: PvTable
 }
 
 impl Search {
     pub fn new(time_control: TimeControl, trans_table: TransTable, thread_data: ThreadData) -> Self {
-        Self { time_control, nodes: 0, stopped: false, silent: false, trans_table, thread_data, root_depth: 0 }
+        Self { time_control, nodes: 0, stopped: false, silent: false, trans_table, thread_data, root_depth: 0, pv_table: PvTable::new() }
     }
 
     fn should_stop(&mut self) -> bool {
@@ -94,6 +94,8 @@ impl Search {
         ply: usize
     ) -> i32 {
         self.nodes += 1;
+        self.pv_table.clear(ply);
+
         if self.should_stop() {
             return 0; // search cancelled
         }
@@ -128,7 +130,11 @@ impl Search {
             let score = -self.qsearch(board, -beta, -alpha, ply + 1);
             board.unmake_move(mv);
             best = best.max(score);
-            alpha = alpha.max(best);
+
+            if best > alpha {
+                alpha = best;
+                self.pv_table.update(ply, mv);
+            }
 
             if alpha >= beta {
                 break;
@@ -152,6 +158,8 @@ impl Search {
         allow_null: bool
     ) -> i32 {
         self.nodes += 1;
+        self.pv_table.clear(ply);
+
         if self.should_stop() {
             return 0; // search cancelled
         }
@@ -253,7 +261,11 @@ impl Search {
                 best = score;
                 best_move = mv;
             }
-            alpha = alpha.max(best);
+
+            if best > alpha {
+                alpha = best;
+                self.pv_table.update(ply, best_move);
+            }
 
             if alpha >= beta {
                 if mv.is_quiet() {
@@ -300,6 +312,7 @@ impl Search {
     // return bestmove + score
     pub fn start_negamax(&mut self, board: &mut Board, depth: usize, alpha: i32, beta: i32) -> Option<(Move, i32)> {
         self.nodes += 1;
+        self.pv_table.clear(0);
 
         if depth == 0 { return None };
 
@@ -325,7 +338,10 @@ impl Search {
             if score > best.1 {
                 best = (mv, score)
             }
-            alpha = alpha.max(score);
+            if score > alpha {
+                alpha = score;
+                self.pv_table.update(0, best.0)
+            }
 
             if alpha >= beta {
                 break;
@@ -346,6 +362,7 @@ impl Search {
 
         let mut alpha = -Score::INF;
         let mut beta = Score::INF;
+        let mut best_pv: Vec<Move> = Vec::new();
 
         for depth in 1..=max_depth {
             if self.time_control.start.elapsed() > self.time_control.soft_lim {
@@ -392,6 +409,7 @@ impl Search {
             alpha = result.1 - 30;
             beta = result.1 + 30;
             best = result;
+            best_pv = Vec::from(self.pv_table.get_line(0));
 
             // info
             if !self.silent {
@@ -399,7 +417,13 @@ impl Search {
                 let nps = (self.nodes as f64 / ellapsed.as_secs_f64().max(f64::EPSILON)) as u64;
                 println!(
                     "info depth {depth} score cp {} nodes {} nps {nps} time {} pv {}",
-                    best.1, self.nodes, ellapsed.as_millis(), best.0
+                    best.1,
+                    self.nodes,
+                    ellapsed.as_millis(),
+                    best_pv.iter()
+                           .map(|x| x.to_string())
+                           .collect::<Vec<_>>()
+                           .join(" ")
                 );
             }
         }
