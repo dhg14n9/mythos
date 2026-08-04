@@ -21,7 +21,6 @@ pub struct MovePicker {
     stage: Stage,
     // next slot to fill in the range the current stage is draining
     cur: usize,
-    // one past the last winning capture; set by score_noisy
     good_end: usize
 }
 
@@ -38,7 +37,6 @@ impl MovePicker {
 
     pub fn gen_move(&mut self, board: &Board, noisy_only: bool) {
         board.gen_move(&mut self.list, noisy_only);
-        // until score_noisy runs there is no good/bad split, so treat every capture as winning
         self.good_end = self.list.noisy_end();
     }
 
@@ -52,10 +50,18 @@ impl MovePicker {
             self.list.score(i, score)
         }
     }
-
-    // partitioning the noisy
+    
     pub fn score_noisy(&mut self, board: &Board) {
+        for i in 0..self.list.noisy_end() {
+            let mv = self.list.get(i);
 
+            let bonus = if mv.is_promotion() && mv.promo_piece() == PieceType::Queen {
+                PieceType::Queen.value()
+            } else {
+                0
+            };
+            self.list.score(i, mvv_lva(mv, board) + bonus)
+        }
     }
 
     pub fn next(&mut self, board: &Board) -> Option<Move> {
@@ -197,6 +203,11 @@ fn inner_see(board: &Board, square: Square, stm: Color, occ: &mut Bitboard, occu
 
     occ.clear(from);
     (occupier - inner_see(board, square, !stm, occ, piece_type.value())).max(0)
+}
+
+
+fn mvv_lva(mv: Move, board: &Board) -> i32 {
+    board.piece_at(mv.capture_square()).value() - board.piece_at(mv.from()).value()
 }
 
 #[cfg(test)]
