@@ -86,7 +86,7 @@ impl Search {
             return -Score::MAX;
         }
 
-        while let Some(mv) = move_picker.next() {
+        while let Some(mv) = move_picker.next(board) {
             board.make_move(mv);
             let score = -self.qsearch(board, -beta, -alpha, ply + 1);
             board.unmake_move(mv);
@@ -172,7 +172,7 @@ impl Search {
 
         let alpha_orig = alpha;
         let mut i = 0; // move num in move ordering
-        while let Some(mv) = move_picker.next() {
+        while let Some(mv) = move_picker.next(board) {
             let escaping_check = board.is_check();
             board.make_move(mv);
             let mut score: i32;
@@ -272,7 +272,7 @@ impl Search {
         let mut best = (Move::NULL, -Score::INF);
         let mut alpha = alpha;
 
-        while let Some(mv) = move_picker.next() {
+        while let Some(mv) = move_picker.next(board) {
             board.make_move(mv);
             let score = -self.negamax(board, depth - 1, -beta, -alpha, 1, true);
             board.unmake_move(mv);

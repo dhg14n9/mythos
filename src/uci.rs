@@ -138,16 +138,13 @@ fn position(board: &mut Board, args: &[&str]) {
 }
 
 fn find_move(board: &Board, uci: &str) -> Option<Move> {
-    let mut quiet = MoveList::new();
-    let mut noisy = MoveList::new();
-    board.gen_move(&mut quiet, &mut noisy, false);
+    let mut list = MoveList::new();
+    board.gen_move(&mut list, false);
 
-    for list in [&quiet, &noisy] {
-        for i in 0..list.len() {
-            let mv = list.get(i);
-            if mv.to_string() == uci {
-                return Some(mv);
-            }
+    for i in 0..list.len() {
+        let mv = list.get_nth(i);
+        if mv.to_string() == uci {
+            return Some(mv);
         }
     }
     None
@@ -212,24 +209,21 @@ fn join_thread(
 fn perft_divide(board: &mut Board, depth: usize) {
     let start = Instant::now();
 
-    let mut quiet = MoveList::new();
-    let mut noisy = MoveList::new();
-    board.gen_move(&mut quiet, &mut noisy, false);
+    let mut list = MoveList::new();
+    board.gen_move(&mut list, false);
 
     let mut total = 0u64;
-    for list in [&quiet, &noisy] {
-        for i in 0..list.len() {
-            let mv = list.get(i);
-            board.make_move(mv);
-            let count = if depth <= 1 {
-                1
-            } else {
-                board.perft(depth - 1)
-            };
-            board.unmake_move(mv);
-            println!("{mv}: {count}");
-            total += count;
-        }
+    for i in 0..list.len() {
+        let mv = list.get_nth(i);
+        board.make_move(mv);
+        let count = if depth <= 1 {
+            1
+        } else {
+            board.perft(depth - 1)
+        };
+        board.unmake_move(mv);
+        println!("{mv}: {count}");
+        total += count;
     }
 
     let elapsed = start.elapsed();

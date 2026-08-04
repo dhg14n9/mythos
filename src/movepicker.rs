@@ -1,92 +1,154 @@
 use crate::board::board::Board;
 use crate::tables::ThreadData;
-use crate::types::{Bitboard, Color, Move, MoveList, Piece, PieceType, Square};
+use crate::types::{Bitboard, Color, MAX_LIST_LENGTH, Move, MoveList, Piece, PieceType, Square};
 
 const KILLER1_SCORE: i32 = 1_000_000;
 const KILLER2_SCORE: i32 = 900_000;
 
+// yield order
+#[derive(Copy, Clone, PartialEq)]
+enum Stage {
+    TtMove,
+    GoodNoisy,
+    Quiet,
+    BadNoisy,
+    Done,
+}
+
 pub struct MovePicker {
-    quiet: MoveList,
-    noisy: MoveList,
-    bad_noisy: MoveList,
+    list: MoveList,
     tt_move: Move,
-    tt_yielded: bool
+    stage: Stage,
+    // next slot to fill in the range the current stage is draining
+    cur: usize,
+    good_end: usize
 }
 
 impl MovePicker {
     pub fn new(tt_move: Move) -> MovePicker {
         MovePicker {
-            quiet: MoveList::new(),
-            noisy: MoveList::new(),
-            bad_noisy: MoveList::new(),
+            list: MoveList::new(),
             tt_move,
-            tt_yielded: false
+            stage: Stage::TtMove,
+            cur: 0,
+            good_end: 0
         }
     }
 
     pub fn gen_move(&mut self, board: &Board, noisy_only: bool) {
-        board.gen_move(&mut self.quiet, &mut self.noisy, noisy_only)
+        board.gen_move(&mut self.list, noisy_only);
+        self.good_end = self.list.noisy_end();
     }
 
     pub fn score_quiet(&mut self, thread_data: &ThreadData, stm: Color, ply: usize) {
         let (killer1, killer2) = thread_data.killer.probe(ply);
-        for i in 0..self.quiet.len() {
-            let mv = self.quiet.get(i);
+        for i in self.list.quiet_start()..MAX_LIST_LENGTH {
+            let mv = self.list.get(i);
             let score = if mv == killer1      { KILLER1_SCORE }
                              else if mv == killer2 { KILLER2_SCORE }
                              else { thread_data.history.probe(stm, mv.from(), mv.to()) };
-            self.quiet.score(i, score)
+            self.list.score(i, score)
         }
     }
+    
     pub fn score_noisy(&mut self, board: &Board) {
-        let mut i = 0;
-        while i < self.noisy.len() {
-            if !see(board, self.noisy.get(i), 0) {
-                self.bad_noisy.push(self.noisy.remove(i));
+        for i in 0..self.list.noisy_end() {
+            let mv = self.list.get(i);
+
+            let bonus = if mv.is_promotion() && mv.promo_piece() == PieceType::Queen {
+                PieceType::Queen.value()
             } else {
-                i += 1;
+                0
+            };
+            self.list.score(i, mvv_lva(mv, board) + bonus)
+        }
+    }
+
+    pub fn next(&mut self, board: &Board) -> Option<Move> {
+        loop {
+            match self.stage {
+                Stage::TtMove => {
+                    self.stage = Stage::GoodNoisy;
+                    self.cur = 0;
+                    if !self.tt_move.is_null() && self.generated(self.tt_move) {
+                        return Some(self.tt_move);
+                    }
+                }
+                Stage::GoodNoisy => match self.select_best(self.good_end) {
+                    Some(mv_index) => {
+                        // see partitioning
+                        let mv = self.list.get(mv_index);
+                        self.list.swap(mv_index, self.cur);
+                        if see(board, mv, 0) {
+                            self.cur += 1;
+                            if mv != self.tt_move { return Some(mv) }
+                        } else {
+                            self.good_end -= 1; 
+                            self.list.swap(self.cur, self.good_end); 
+                        }
+                    },
+                    None => {
+                        self.stage = Stage::Quiet;
+                        self.cur = self.list.quiet_start();
+                    }
+                },
+                Stage::Quiet => match self.pick(MAX_LIST_LENGTH) {
+                    Some(mv) => if mv != self.tt_move { return Some(mv) },
+                    None => {
+                        self.stage = Stage::BadNoisy;
+                        self.cur = self.good_end;
+                    }
+                },
+                Stage::BadNoisy => match self.pick(self.list.noisy_end()) {
+                    Some(mv) => if mv != self.tt_move { return Some(mv) },
+                    None => self.stage = Stage::Done,
+                },
+                Stage::Done => return None,
+            }
+        }
+    }
+
+    // Selection sort step: move the best scoring entry in [cur, end) to `cur` and consume it.
+    fn pick(&mut self, end: usize) -> Option<Move> {
+        if let Some(best) = self.select_best(end) {
+            self.list.swap(best, self.cur);
+            let mv = self.list.get(self.cur);
+            self.cur += 1;
+            Some(mv)
+        } else {
+            None
+        }
+    }
+
+    fn select_best(&self, end: usize) -> Option<usize> {
+        if self.cur >= end {
+            return None;
+        }
+
+        let mut best = self.cur;
+        let mut best_score = self.list.get_score(best);
+
+        for i in (self.cur + 1)..end {
+            let score = self.list.get_score(i);
+            if score > best_score {
+                best = i;
+                best_score = score;
             }
         }
 
-    }
-    pub fn next(&mut self) -> Option<Move> {
-        // tt move first
-        if !self.tt_yielded {
-            self.tt_yielded = true;
-            if !self.tt_move.is_null() && self.generated(self.tt_move) {
-                return Some(self.tt_move);
-            }
-        }
-        
-        while let Some(mv) = self.noisy.next() {
-            if mv != self.tt_move {
-                return Some(mv);
-            }
-        }
-        while let Some(mv) = self.quiet.next() {
-            if mv != self.tt_move {
-                return Some(mv);
-            }
-        }
-        while let Some(mv) = self.bad_noisy.next() {
-            if mv != self.tt_move {
-                return Some(mv);
-            }
-        }
-        None
+        Some(best)
     }
 
     fn generated(&self, mv: Move) -> bool {
-        let contains = |list: &MoveList| (0..list.len()).any(|i| list.get(i) == mv);
-        contains(&self.noisy) || contains(&self.quiet) || contains(&self.bad_noisy)
+        (0..self.list.len()).any(|i| self.list.get_nth(i) == mv)
     }
 
     pub fn terminal(&self) -> bool {
-        (self.noisy.len() == 0) && (self.quiet.len() == 0) && (self.bad_noisy.len() == 0)
+        self.list.len() == 0
     }
 
     pub fn random(&mut self, hash: u64) -> Move {
-        let total = self.quiet.len() + self.noisy.len() + self.bad_noisy.len();
+        let total = self.list.len();
         if total == 0 {
             return Move::default();
         }
@@ -97,14 +159,7 @@ impl MovePicker {
         z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
         z ^= z >> 31;
 
-        let r = (z % total as u64) as usize;
-        if r < self.noisy.len() {
-            self.noisy.get(r)
-        } else if r < self.noisy.len() + self.bad_noisy.len() {
-            self.bad_noisy.get(r - self.noisy.len())
-        } else {
-            self.quiet.get(r - self.noisy.len() - self.bad_noisy.len())
-        }
+        self.list.get_nth((z % total as u64) as usize)
     }
 }
 
@@ -150,3 +205,106 @@ fn inner_see(board: &Board, square: Square, stm: Color, occ: &mut Bitboard, occu
     (occupier - inner_see(board, square, !stm, occ, piece_type.value())).max(0)
 }
 
+
+fn mvv_lva(mv: Move, board: &Board) -> i32 {
+    board.piece_at(mv.capture_square()).value() - board.piece_at(mv.from()).value()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::MAX_LIST_LENGTH;
+
+    const FENS: &[&str] = &[
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+        "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+        "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
+        "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
+        "n1n5/PPPk4/8/8/8/8/4Kppp/5N1N b - - 0 1",
+        // in check: qsearch generates full evasions even when asked for noisy only
+        "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3",
+    ];
+
+    fn generated_moves(board: &Board, noisy_only: bool) -> Vec<u16> {
+        let mut list = MoveList::new();
+        board.gen_move(&mut list, noisy_only);
+        let mut moves: Vec<u16> = (0..list.len()).map(|i| list.get_nth(i).raw()).collect();
+        moves.sort();
+        moves
+    }
+
+    fn drained_moves(board: &Board, noisy_only: bool, tt_move: Move) -> Vec<u16> {
+        let td = ThreadData::new();
+        let mut picker = MovePicker::new(tt_move);
+        picker.gen_move(board, noisy_only);
+        picker.score_quiet(&td, board.stm(), 0);
+
+        let mut moves = Vec::new();
+        while let Some(mv) = picker.next(board) {
+            moves.push(mv.raw());
+        }
+        moves
+    }
+
+    // The whole risk of the double ended layout is a move getting lost in the SEE partition,
+    // yielded twice, or the tt move being yielded again from its slot. Node counts cannot see
+    // any of those; comparing the drained multiset against raw movegen can.
+    #[test]
+    fn picker_yields_every_generated_move_exactly_once() {
+        for &fen in FENS {
+            for noisy_only in [false, true] {
+                let board = Board::from_fen(fen).expect(fen);
+                let expected = generated_moves(&board, noisy_only);
+
+                // no tt move
+                let mut got = drained_moves(&board, noisy_only, Move::NULL);
+                assert_eq!(got.len(), expected.len(), "count, no tt move, {fen}");
+                got.sort();
+                assert_eq!(got, expected, "moves, no tt move, {fen}");
+
+                // every generated move in turn as the tt move: it must come out first, and
+                // exactly once.
+                for &raw in &expected {
+                    let tt_move = Move::from_raw(raw);
+                    let got_tt = drained_moves(&board, noisy_only, tt_move);
+                    assert_eq!(got_tt[0], raw, "tt move not yielded first, {fen}");
+
+                    let mut sorted = got_tt.clone();
+                    sorted.sort();
+                    assert_eq!(sorted, expected, "moves with tt move {tt_move}, {fen}");
+                }
+
+                // a move that was never generated must not be yielded
+                let bogus = Move::new(Square::A1, Square::H8, crate::types::MoveKind::Normal);
+                if !expected.contains(&bogus.raw()) {
+                    let mut got_bogus = drained_moves(&board, noisy_only, bogus);
+                    got_bogus.sort();
+                    assert_eq!(got_bogus, expected, "bogus tt move leaked, {fen}");
+                }
+            }
+        }
+    }
+
+    // The two regions must stay disjoint, and quiets must read back in the order they were
+    // pushed (an increment-then-write bug in push_back drops the first quiet silently).
+    #[test]
+    fn list_regions_are_disjoint_and_complete() {
+        for &fen in FENS {
+            let board = Board::from_fen(fen).expect(fen);
+            let mut list = MoveList::new();
+            board.gen_move(&mut list, false);
+
+            assert!(list.noisy_end() <= list.quiet_start(), "regions overlap, {fen}");
+            assert_eq!(list.len(), list.noisy_len() + list.quiet_len(), "{fen}");
+            assert_eq!(list.quiet_len(), MAX_LIST_LENGTH - list.quiet_start(), "{fen}");
+
+            for i in 0..list.noisy_len() {
+                assert!(list.get_nth(i).is_noisy(), "quiet move in noisy region, {fen}");
+            }
+            for i in list.noisy_len()..list.len() {
+                assert!(!list.get_nth(i).is_noisy(), "noisy move in quiet region, {fen}");
+            }
+        }
+    }
+}

@@ -1,8 +1,10 @@
 use std::mem::MaybeUninit;
 
+
 pub struct UninitArray<T: Copy, const N: usize> {
     array: [MaybeUninit<T>; N],
     length: usize,
+    back: usize
 }
 
 impl<T: Copy, const N: usize> UninitArray<T, N> {
@@ -10,14 +12,27 @@ impl<T: Copy, const N: usize> UninitArray<T, N> {
         Self {
             array: [MaybeUninit::uninit(); N],
             length: 0,
+            back: N
         }
     }
 
+    // is `index` inside one of the two written regions?
+    fn written(&self, index: usize) -> bool {
+        index < self.length || index >= self.back
+    }
+
     pub fn push(&mut self, value: T) {
-        debug_assert!(self.length < N);
+        debug_assert!(self.length < self.back);
 
         self.array[self.length].write(value);
         self.length += 1;
+    }
+
+    pub fn push_back(&mut self, value: T) {
+        debug_assert!(self.back > self.length);
+
+        self.back -= 1;
+        self.array[self.back].write(value);
     }
 
     pub fn pop(&mut self) -> T {
@@ -28,38 +43,41 @@ impl<T: Copy, const N: usize> UninitArray<T, N> {
     }
 
     pub fn read(&self, index: usize) -> T {
-        debug_assert!(index < self.length);
+        debug_assert!(self.written(index));
 
         unsafe { self.array[index].assume_init() }
     }
 
     pub fn read_mut(&mut self, index: usize) -> &mut T {
-        debug_assert!(index < self.length);
+        debug_assert!(self.written(index));
 
         unsafe { self.array[index].assume_init_mut() }
     }
 
-    pub fn remove(&mut self, index: usize) -> T {
-        debug_assert!(index < self.length);
-
-        let value = unsafe { self.array[index].assume_init() };
-        self.length -= 1;
-        self.array[index] = self.array[self.length];
-        value
-    }
-
     pub fn swap(&mut self, i: usize, j: usize) {
-        debug_assert!(i < self.length && j < self.length);
+        debug_assert!(self.written(i) && self.written(j));
 
         self.array.swap(i, j);
     }
 
+    // number of values at the front
     pub fn len(&self) -> usize {
         self.length
     }
 
+    // index of the first value at the back; N when the back region is empty
+    pub fn back(&self) -> usize {
+        self.back
+    }
+
+    // number of values at the back
+    pub fn back_len(&self) -> usize {
+        N - self.back
+    }
+
     pub fn clear(&mut self) {
         self.length = 0;
+        self.back = N;
     }
 }
 
@@ -68,6 +86,7 @@ impl<T: Copy, const N: usize> Clone for UninitArray<T, N> {
         Self {
             array: self.array,
             length: self.length,
+            back: self.back,
         }
     }
 }
