@@ -9,6 +9,37 @@ use crate::types::{Color, Move, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
 
+pub struct PvTable {
+    table: Box<[[Move; MAX_PLY + 1]]>,
+    len: [usize; MAX_PLY + 1]
+}
+
+impl PvTable {
+    pub fn new() -> Self {
+        Self {
+            table: vec![[Move::NULL; MAX_PLY + 1]; MAX_PLY + 1].into_boxed_slice(),
+            len: [0; MAX_PLY + 1]
+        }
+    }
+
+    pub fn clear(&mut self, ply: usize) {
+        self.len[ply] = 0
+    }
+
+    pub fn update(&mut self, ply: usize, mv: Move) {
+        self.table[ply][0] = mv;
+        self.len[ply] = self.len[ply + 1] + 1;
+        for i in 0..self.len[ply + 1] {
+            self.table[ply][i + 1] = self.table[ply + 1][i]
+        }
+    }
+
+    pub fn get_line(&self, ply: usize) -> &[Move] {
+        &self.table[ply][..self.len[ply]]
+    }
+}
+
+
 pub struct TimeControl {
     pub stop: Arc<AtomicBool>,
     pub start: Instant,
@@ -34,8 +65,8 @@ pub struct Search {
     pub silent: bool,
     pub trans_table: TransTable,
     pub thread_data: ThreadData,
-    // depth of the current iterative-deepening iteration; bounds extensions
-    pub root_depth: usize
+    pub root_depth: usize,
+
 }
 
 impl Search {
