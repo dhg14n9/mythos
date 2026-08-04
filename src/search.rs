@@ -175,29 +175,27 @@ impl Search {
         while let Some(mv) = move_picker.next(board) {
             let escaping_check = board.is_check();
             board.make_move(mv);
-            let mut score: i32;
+            let new_depth = depth - 1;
+
+            let mut score;
 
             if i == 0 {
-                score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1, true);
+                score = -self.negamax(board, new_depth, -beta, -alpha, ply + 1, true);
             } else {
-                if self.should_lmr(i, depth, ply, mv, board, escaping_check) {
-                    let reduction = Self::lmr_reduction(depth, i);
-                    score = -self.negamax(board, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, true);
+                let r = if self.should_lmr(i, depth, ply, mv, board, escaping_check) { Self::lmr_reduction(depth, i) } else { 0 };
+                let r = r.min(new_depth.saturating_sub(1));
+                let reduced_depth = new_depth - r;
 
-                    // unexpectedly good move
-                    if score > alpha {
-                        score = -self.negamax(board, depth - 1, -alpha - 1, -alpha, ply + 1, true); // full depth search
+                score = -self.negamax(board, reduced_depth, -alpha - 1, -alpha, ply + 1, true);
 
-                        if score > alpha && score < beta {
-                            score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1, true); // full winndow search 
-                        }
-                    }
-                } else {
-                    score = -self.negamax(board, depth - 1, -alpha - 1, -alpha, ply + 1, true);
+                // wrong reduction
+                if score > alpha && reduced_depth < new_depth {
+                    score = -self.negamax(board, new_depth, -alpha - 1, -alpha, ply + 1, true);
+                }
 
-                    if score > alpha && score < beta {
-                        score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1, true);
-                    }
+                // new PV
+                if score > alpha && score < beta {
+                    score = -self.negamax(board, new_depth, -beta, -alpha, ply + 1, true);
                 }
             }
 
@@ -394,7 +392,7 @@ impl Search {
     }
 
     fn lmr_reduction(depth: usize, i: usize) -> usize {
-        ((0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25) as usize).min(depth - 2)
+        ((0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25) as usize)
     }
 
     fn nmp_reduction(depth: usize) -> usize {
