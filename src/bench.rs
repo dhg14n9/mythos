@@ -168,22 +168,19 @@ pub fn perft_tt(board: &mut Board, depth: usize, tt: &mut PerftTable) -> u64 {
         }
     }
 
-    let mut quiet = MoveList::new();
-    let mut noisy = MoveList::new();
-    board.gen_move(&mut quiet, &mut noisy, false);
+    let mut list = MoveList::new();
+    board.gen_move(&mut list, false);
 
     if depth == 1 {
-        return (quiet.len() + noisy.len()) as u64;
+        return list.len() as u64;
     }
 
     let mut count = 0;
-    for list in [&quiet, &noisy] {
-        for i in 0..list.len() {
-            let mv = list.get(i);
-            board.make_move(mv);
-            count += perft_tt(board, depth - 1, tt);
-            board.unmake_move(mv);
-        }
+    for i in 0..list.len() {
+        let mv = list.get_nth(i);
+        board.make_move(mv);
+        count += perft_tt(board, depth - 1, tt);
+        board.unmake_move(mv);
     }
     tt.store(key, depth, count);
     count

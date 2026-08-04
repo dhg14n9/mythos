@@ -84,9 +84,8 @@ impl Board {
         threats
     }
 
-    pub fn gen_move(&self, quiet_list: &mut MoveList, noisy_list: &mut MoveList, noisy_only: bool) {
-        quiet_list.clear();
-        noisy_list.clear();
+    pub fn gen_move(&self, list: &mut MoveList, noisy_only: bool) {
+        list.clear();
         let us = self.side_to_move;
         let them = !us;
         let threats = self.threats(us);
@@ -105,11 +104,11 @@ impl Board {
         let king_target = king_attack(king_square) & !us_bb & !threats;
         let king_capture_target = king_target & them_bb;
         for to in king_capture_target {
-            noisy_list.push(Move::new(king_square, to, MoveKind::Capture));
+            list.push_noisy(Move::new(king_square, to, MoveKind::Capture));
         }
         if !noisy_only {
             for to in king_target & !king_capture_target {
-                quiet_list.push(Move::new(king_square, to, MoveKind::Normal))
+                list.push_quiet(Move::new(king_square, to, MoveKind::Normal))
             }
         }
 
@@ -138,7 +137,7 @@ impl Board {
                 } else {
                     MoveKind::QueenCastle
                 };
-                quiet_list.push(Move::new(king_square, king_to, move_kind));
+                list.push_quiet(Move::new(king_square, king_to, move_kind));
             }
         }
 
@@ -169,11 +168,11 @@ impl Board {
 
             let capture_target = target & them_bb;
             for to in capture_target {
-                noisy_list.push(Move::new(from, to, MoveKind::Capture));
+                list.push_noisy(Move::new(from, to, MoveKind::Capture));
             }
             if !noisy_only {
                 for to in target & !capture_target {
-                    quiet_list.push(Move::new(from, to, MoveKind::Normal));
+                    list.push_quiet(Move::new(from, to, MoveKind::Normal));
                 }
             }
         }
@@ -188,11 +187,11 @@ impl Board {
 
             let capture_target = target & them_bb;
             for to in capture_target {
-                noisy_list.push(Move::new(from, to, MoveKind::Capture));
+                list.push_noisy(Move::new(from, to, MoveKind::Capture));
             }
             if !noisy_only {
                 for to in target & !capture_target {
-                    quiet_list.push(Move::new(from, to, MoveKind::Normal));
+                    list.push_quiet(Move::new(from, to, MoveKind::Normal));
                 }
             }
         }
@@ -207,11 +206,11 @@ impl Board {
 
             let capture_target = target & them_bb;
             for to in capture_target {
-                noisy_list.push(Move::new(from, to, MoveKind::Capture));
+                list.push_noisy(Move::new(from, to, MoveKind::Capture));
             }
             if !noisy_only {
                 for to in target & !capture_target {
-                    quiet_list.push(Move::new(from, to, MoveKind::Normal));
+                    list.push_quiet(Move::new(from, to, MoveKind::Normal));
                 }
             }
         }
@@ -226,11 +225,11 @@ impl Board {
 
             let capture_target = target & them_bb;
             for to in capture_target {
-                noisy_list.push(Move::new(from, to, MoveKind::Capture));
+                list.push_noisy(Move::new(from, to, MoveKind::Capture));
             }
             if !noisy_only {
                 for to in target & !capture_target {
-                    quiet_list.push(Move::new(from, to, MoveKind::Normal));
+                    list.push_quiet(Move::new(from, to, MoveKind::Normal));
                 }
             }
         }
@@ -250,12 +249,12 @@ impl Board {
             let target = pawn_attack(us, from) & them_bb & restriction;
             for to in target {
                 if from.rank() == promo_rank {
-                    noisy_list.push(Move::new(from, to, MoveKind::CapPromoBishop));
-                    noisy_list.push(Move::new(from, to, MoveKind::CapPromoRook));
-                    noisy_list.push(Move::new(from, to, MoveKind::CapPromoKnight));
-                    noisy_list.push(Move::new(from, to, MoveKind::CapPromoQueen));
+                    list.push_noisy(Move::new(from, to, MoveKind::CapPromoBishop));
+                    list.push_noisy(Move::new(from, to, MoveKind::CapPromoRook));
+                    list.push_noisy(Move::new(from, to, MoveKind::CapPromoKnight));
+                    list.push_noisy(Move::new(from, to, MoveKind::CapPromoQueen));
                 } else {
-                    noisy_list.push(Move::new(from, to, MoveKind::Capture))
+                    list.push_noisy(Move::new(from, to, MoveKind::Capture))
                 }
             }
 
@@ -278,7 +277,7 @@ impl Board {
                                 | self.piece_bb(Piece::new(them, PieceType::Rook))))
                         .is_empty()
                         {
-                            noisy_list.push(Move::new(from, ep, MoveKind::EnPassant));
+                            list.push_noisy(Move::new(from, ep, MoveKind::EnPassant));
                         }
                     }
                 }
@@ -290,20 +289,20 @@ impl Board {
                 if restriction.contains(to) {
                     if from.rank() == promo_rank {
                         if !noisy_only {
-                            quiet_list.push(Move::new(from, to, MoveKind::PromoBishop));
-                            quiet_list.push(Move::new(from, to, MoveKind::PromoRook));
-                            quiet_list.push(Move::new(from, to, MoveKind::PromoKnight));
+                            list.push_quiet(Move::new(from, to, MoveKind::PromoBishop));
+                            list.push_quiet(Move::new(from, to, MoveKind::PromoRook));
+                            list.push_quiet(Move::new(from, to, MoveKind::PromoKnight));
                         }
-                        noisy_list.push(Move::new(from, to, MoveKind::PromoQueen));
+                        list.push_noisy(Move::new(from, to, MoveKind::PromoQueen));
                     } else if !noisy_only {
-                        quiet_list.push(Move::new(from, to, MoveKind::Normal));
+                        list.push_quiet(Move::new(from, to, MoveKind::Normal));
                     }
                 }
 
                 if !noisy_only && from.rank() == start_rank {
                     let to2 = to.offset(forward);
                     if !occ.contains(to2) & restriction.contains(to2) {
-                        quiet_list.push(Move::new(from, to2, MoveKind::DoublePush))
+                        list.push_quiet(Move::new(from, to2, MoveKind::DoublePush))
                     }
                 }
             }
@@ -315,22 +314,19 @@ impl Board {
             return 1;
         }
 
-        let mut quiet = MoveList::new();
-        let mut noisy = MoveList::new();
-        self.gen_move(&mut quiet, &mut noisy, false);
+        let mut list = MoveList::new();
+        self.gen_move(&mut list, false);
 
         if depth == 1 {
-            return (quiet.len() + noisy.len()) as u64;
+            return list.len() as u64;
         }
 
         let mut count = 0;
-        for list in [&quiet, &noisy] {
-            for i in 0..list.len() {
-                let mv = list.get(i);
-                self.make_move(mv);
-                count += self.perft(depth - 1);
-                self.unmake_move(mv);
-            }
+        for i in 0..list.len() {
+            let mv = list.get_nth(i);
+            self.make_move(mv);
+            count += self.perft(depth - 1);
+            self.unmake_move(mv);
         }
         count
     }
