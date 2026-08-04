@@ -72,6 +72,7 @@ go movetime 1000
 - [x] Good/bad noisy split by SEE
 - [x] Killer moves (two per ply)
 - [x] Butterfly history with bonus/malus and gravity scaling
+- [x] MVV-LVA
 
 ### Evaluation
 - [x] Tapered evaluation by game phase
