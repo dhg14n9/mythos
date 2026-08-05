@@ -86,7 +86,7 @@ impl Search {
         self.stopped
     }
 
-    pub fn qsearch(
+    pub fn qsearch<const PV: bool>(
         &mut self,
         board: &mut Board,
         mut alpha: i32,
@@ -127,13 +127,16 @@ impl Search {
 
         while let Some(mv) = move_picker.next(board) {
             board.make_move(mv);
-            let score = -self.qsearch(board, -beta, -alpha, ply + 1);
+            let score = -self.qsearch::<PV>(board, -beta, -alpha, ply + 1);
             board.unmake_move(mv);
             best = best.max(score);
 
             if best > alpha {
                 alpha = best;
-                self.pv_table.update(ply, mv);
+
+                if PV {
+                    self.pv_table.update(ply, mv);
+                }
             }
 
             if alpha >= beta {
@@ -148,7 +151,7 @@ impl Search {
         }
     }
 
-    pub fn negamax(
+    pub fn negamax<const PV: bool>(
         &mut self,
         board: &mut Board,
         depth: usize,
@@ -175,7 +178,7 @@ impl Search {
         let mut tt_move = Move::NULL;
         if let Some((score, best, entry_depth, bound)) = self.trans_table.probe(board.hash()) {
             tt_move = best;
-            if entry_depth >= depth {
+            if entry_depth >= depth && !PV {
                 match bound {
                     BoundType::Exact => {return score}
                     BoundType::Lower => {if score >= beta {return score}}
@@ -185,14 +188,14 @@ impl Search {
         }
 
         if depth == 0 {
-            return self.qsearch(board, alpha, beta, ply);
+            return self.qsearch::<PV>(board, alpha, beta, ply);
         };
 
         let static_eval = eval(board);
 
         if allow_null && self.should_nmp(beta, depth, board, static_eval) {
             board.make_null_move();
-            let score = -self.negamax(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth)), -beta, -beta + 1, ply + 1, false);
+            let score = -self.negamax::<false>(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth)), -beta, -beta + 1, ply + 1, false);
             board.unmake_null_move();
 
             if score >= beta { return score }
@@ -235,22 +238,22 @@ impl Search {
             let mut score;
 
             if i == 0 {
-                score = -self.negamax(board, new_depth, -beta, -alpha, ply + 1, true);
+                score = -self.negamax::<PV>(board, new_depth, -beta, -alpha, ply + 1, true);
             } else {
                 let r = if self.should_lmr(i, depth, ply, mv, board, escaping_check) { Self::lmr_reduction(depth, i) } else { 0 };
                 let r = r.min(new_depth.saturating_sub(1));
                 let reduced_depth = new_depth - r;
 
-                score = -self.negamax(board, reduced_depth, -alpha - 1, -alpha, ply + 1, true);
+                score = -self.negamax::<false>(board, reduced_depth, -alpha - 1, -alpha, ply + 1, true);
 
                 // wrong reduction
                 if score > alpha && reduced_depth < new_depth {
-                    score = -self.negamax(board, new_depth, -alpha - 1, -alpha, ply + 1, true);
+                    score = -self.negamax::<false>(board, new_depth, -alpha - 1, -alpha, ply + 1, true);
                 }
 
                 // new PV
                 if score > alpha && score < beta {
-                    score = -self.negamax(board, new_depth, -beta, -alpha, ply + 1, true);
+                    score = -self.negamax::<PV>(board, new_depth, -beta, -alpha, ply + 1, true);
                 }
             }
 
@@ -264,7 +267,10 @@ impl Search {
 
             if best > alpha {
                 alpha = best;
-                self.pv_table.update(ply, best_move);
+
+                if PV {
+                    self.pv_table.update(ply, best_move);
+                }
             }
 
             if alpha >= beta {
@@ -332,7 +338,7 @@ impl Search {
 
         while let Some(mv) = move_picker.next(board) {
             board.make_move(mv);
-            let score = -self.negamax(board, depth - 1, -beta, -alpha, 1, true);
+            let score = -self.negamax::<true>(board, depth - 1, -beta, -alpha, 1, true);
             board.unmake_move(mv);
 
             if score > best.1 {
@@ -417,11 +423,16 @@ impl Search {
 
             // info
             if !self.silent {
+                let score = if Score::is_mate(best.1) {
+                    format!("mate {}", Score::mate_distance(best.1))
+                } else {
+                    format!("cp {}", best.1)
+                };
                 let ellapsed = self.time_control.start.elapsed();
                 let nps = (self.nodes as f64 / ellapsed.as_secs_f64().max(f64::EPSILON)) as u64;
                 println!(
-                    "info depth {depth} score cp {} nodes {} nps {nps} time {} pv {}",
-                    best.1,
+                    "info depth {depth} score {} nodes {} nps {nps} time {} pv {}",
+                    score, // is mate print "mate N", not mate print cp score
                     self.nodes,
                     ellapsed.as_millis(),
                     best_pv.iter()

@@ -19,6 +19,13 @@ impl Score {
     pub fn mate_in(ply: usize, color: Color) -> i32 {
         Self::score_color(Self::MAX - ply as i32, color)
     }
+    
+    // Distance to mate in UCI's unit: whole moves, signed. Positive when the side
+    // to move delivers the mate, negative when it is the one being mated.
+    pub fn mate_distance(score: i32) -> i32 {
+        let plies = Self::MAX - score.abs();
+        ((plies + 1) / 2) * score.signum()
+    }
 
     pub fn is_mate(score: i32) -> bool {
         score.abs() > 40000
