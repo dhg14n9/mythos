@@ -228,7 +228,9 @@ impl Search {
         while let Some(mv) = move_picker.next(board) {
 
             if !PV && !in_check && best > -Score::MAX && mv.is_quiet() {
-                if Self::should_lmp(depth, i) {
+                if  Self::should_lmp(depth, i) ||
+                    Self::should_futility(depth, static_eval, alpha)
+                {
                     move_picker.skip_quiets();
                     continue;
                 }
@@ -489,6 +491,10 @@ impl Search {
 
     fn should_lmp(depth: usize, i: usize) -> bool {
         (depth <= 8) && (i >= ((3 + depth * depth) * 3 / 2))
+    }
+
+    fn should_futility(depth: usize, static_eval: i32, alpha: i32) -> bool {
+        (depth <= 6) && ((static_eval + 100 * depth as i32) <= alpha) && !Score::is_mate(alpha)
     }
 
     fn lmr_reduction(depth: usize, i: usize) -> usize {
