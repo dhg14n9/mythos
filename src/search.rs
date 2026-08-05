@@ -209,6 +209,7 @@ impl Search {
         let mut best_move = Move::NULL;
 
         let stm = board.stm();
+        let in_check = board.is_check();
         // store quiets that doesn't get cut off to give malus
         let mut failure: [Move; 32] = [Move::NULL; 32];
         let mut n_failed: usize = 0;
@@ -219,14 +220,22 @@ impl Search {
         move_picker.score_noisy(board);
 
         if move_picker.terminal() {
-            return if board.is_check() { -Score::MAX } else { Score::ZERO };
+            return if in_check { -Score::MAX } else { Score::ZERO };
         }
 
         let alpha_orig = alpha;
         let mut i = 0; // move num in move ordering
         while let Some(mv) = move_picker.next(board) {
-            let escaping_check = board.is_check();
+
+            if !PV && !in_check && best > -Score::MAX && mv.is_quiet() {
+                if Self::should_lmp(depth, i) {
+                    move_picker.skip_quiets();
+                    continue;
+                }
+            }
+
             board.make_move(mv);
+            let give_check = board.is_check();
 
             let mut extension = 0;
             // temporarily scrap this check extension
@@ -240,7 +249,7 @@ impl Search {
             if i == 0 {
                 score = -self.negamax::<PV>(board, new_depth, -beta, -alpha, ply + 1, true);
             } else {
-                let r = if self.should_lmr(i, depth, ply, mv, board, escaping_check) { Self::lmr_reduction(depth, i) } else { 0 };
+                let r = if self.should_lmr(i, depth, ply, mv, give_check, in_check) { Self::lmr_reduction(depth, i) } else { 0 };
                 let r = r.min(new_depth.saturating_sub(1));
                 let reduced_depth = new_depth - r;
 
@@ -446,7 +455,7 @@ impl Search {
     }
 
     // check if move is reducable, i is move number in move ordering
-    fn should_lmr(&self, i: usize, depth: usize, ply: usize, mv: Move, board: &Board, escaping_check: bool) -> bool {
+    fn should_lmr(&self, i: usize, depth: usize, ply: usize, mv: Move, is_check: bool, escaping_check: bool) -> bool {
         if i < 4 { return false }
         if depth < 3 { return false }
         if mv.is_capture() { return false }
@@ -455,7 +464,7 @@ impl Search {
         if k1 == mv || k2 == mv {
             return false
         }
-        if board.is_check() { return false }
+        if is_check { return false }
         if escaping_check { return false }
         true
     }
@@ -476,6 +485,10 @@ impl Search {
         if Score::is_mate(beta) { return false }
         if depth > 5 { return false }
         true
+    }
+
+    fn should_lmp(depth: usize, i: usize) -> bool {
+        (depth <= 8) && (i >= ((3 + depth * depth) * 3 / 2))
     }
 
     fn lmr_reduction(depth: usize, i: usize) -> usize {

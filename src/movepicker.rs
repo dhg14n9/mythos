@@ -22,7 +22,7 @@ pub struct MovePicker {
     // next slot to fill in the range the current stage is draining
     cur: usize,
     good_end: usize,
-    skip_quiets: bool
+    // skip_quiets: bool
 }
 
 impl MovePicker {
@@ -33,7 +33,7 @@ impl MovePicker {
             stage: Stage::TtMove,
             cur: 0,
             good_end: 0,
-            skip_quiets: false
+            // skip_quiets: false
         }
     }
 
@@ -167,7 +167,7 @@ impl MovePicker {
     pub fn skip_quiets(&mut self) {
         debug_assert!(self.stage == Stage::Quiet);
 
-        self.skip_quiets = true;
+        // self.skip_quiets = true;
         self.stage = Stage::BadNoisy;
         self.cur = self.good_end;
     }
