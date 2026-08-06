@@ -9,6 +9,46 @@ use crate::types::{Color, Move, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
 
+// track stable best move
+struct StableTracker {
+    mv: Move,
+    stable_iteration: usize
+
+}
+
+impl StableTracker {
+    pub fn new() -> Self {
+        Self {
+            mv: Move::NULL,
+            stable_iteration: 0
+        }
+    }
+
+    fn extension(&self) -> f32 {
+        match self.stable_iteration {
+            0 => 2.5,
+            1 => 1.8,
+            2 => 1.4,
+            3 => 1.2,
+            4 => 1.0,
+            _ => 0.9
+        }
+    }
+
+    pub fn update(&mut self, mv: Move, depth: usize, tc: &mut TimeControl) {
+        if mv == self.mv {
+            self.stable_iteration += 1;
+        } else {
+            self.mv = mv;
+            self.stable_iteration = 0;
+        }
+
+        if tc.soft_base != Duration::MAX  && depth > 8 {
+            tc.soft_lim = tc.soft_base.mul_f32(self.extension()).min(tc.hard_lim);
+        }
+    }
+}
+
 pub struct PvTable {
     table: Box<[[Move; MAX_PLY + 1]]>,
     len: [usize; MAX_PLY + 1]
@@ -45,6 +85,7 @@ pub struct TimeControl {
     pub start: Instant,
     pub soft_lim: Duration,
     pub hard_lim: Duration,
+    pub soft_base: Duration
 }
 
 impl TimeControl {
@@ -54,6 +95,7 @@ impl TimeControl {
             start: Instant::now(),
             soft_lim: Duration::MAX,
             hard_lim: Duration::MAX,
+            soft_base: Duration::MAX
         }
     }
 }
@@ -393,6 +435,7 @@ impl Search {
         let mut alpha = -Score::INF;
         let mut beta = Score::INF;
         let mut best_pv: Vec<Move> = Vec::new();
+        let mut stable_tracker = StableTracker::new();
 
         for depth in 1..=max_depth {
             if self.time_control.start.elapsed() > self.time_control.soft_lim {
@@ -435,6 +478,8 @@ impl Search {
             if self.stopped {
                 break;
             }
+
+            stable_tracker.update(result.0, depth, &mut self.time_control);
 
             alpha = result.1 - 30;
             beta = result.1 + 30;

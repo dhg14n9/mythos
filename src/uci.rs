@@ -184,7 +184,8 @@ fn go(
             stop,
             start,
             soft_lim,
-            hard_lim
+            hard_lim,
+            soft_base: soft_lim
         };
         let mut search = Search::new(time_control, tt, td);
         let best = search.iterative(&mut board, max_depth);
@@ -262,10 +263,10 @@ fn parse_time(args: &[&str], stm: Color) -> (Duration, Duration) {
 
     let time = time.saturating_sub(OVERHEAD_MS).max(1);
     let inc = value(inc_key).unwrap_or(0);
-    let mtg = value("movestogo").unwrap_or(25).max(1);
+    let mtg = value("movestogo").unwrap_or(40).max(1);
 
-    let hard = (time / 2).max(1);
-    let soft = (time / mtg + inc * 3 / 4).clamp(1, hard);
+    let hard = (time / 4).max(1);
+    let soft = (time / mtg + inc * 1 / 4).clamp(1, hard);
 
     (Duration::from_millis(hard), Duration::from_millis(soft))
 }
