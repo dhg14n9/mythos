@@ -127,7 +127,8 @@ impl Search {
 
         while let Some(mv) = move_picker.next(board) {
 
-            if !in_check && !mv.is_promotion() && !see(board, mv, 0) {
+            // see pruning
+            if !in_check && !mv.is_promotion() && move_picker.is_bad() {
                 continue;
             }
 

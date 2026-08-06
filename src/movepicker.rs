@@ -171,6 +171,10 @@ impl MovePicker {
         self.stage = Stage::BadNoisy;
         self.cur = self.good_end;
     }
+    
+    pub fn is_bad(&self) -> bool { 
+        self.stage == Stage::BadNoisy
+    }
 }
 
 // SEE move ordering
