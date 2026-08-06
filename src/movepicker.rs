@@ -174,7 +174,7 @@ impl MovePicker {
 }
 
 // SEE move ordering
-fn see(board: &Board, mv: Move, threshold: i32) -> bool {
+pub(crate) fn see(board: &Board, mv: Move, threshold: i32) -> bool {
     let balance = board.piece_at(mv.capture_square()).value() - threshold;
     if balance < 0 {
         return false;

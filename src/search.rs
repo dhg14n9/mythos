@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::eval::eval::eval;
-use crate::movepicker::MovePicker;
+use crate::movepicker::{see, MovePicker};
 use crate::tables::{BoundType, MAX_PLY, ThreadData, TransTable};
 use crate::types::{Color, Move, PieceType, Score};
 
@@ -126,6 +126,11 @@ impl Search {
         }
 
         while let Some(mv) = move_picker.next(board) {
+
+            if !in_check && !mv.is_promotion() && !see(board, mv, 0) {
+                continue;
+            }
+
             board.make_move(mv);
             let score = -self.qsearch::<PV>(board, -beta, -alpha, ply + 1);
             board.unmake_move(mv);
@@ -227,9 +232,12 @@ impl Search {
         let mut i = 0; // move num in move ordering
         while let Some(mv) = move_picker.next(board) {
 
-            if !PV && !in_check && best > -Score::MAX && mv.is_quiet() {
-                if  Self::should_lmp(depth, i) ||
-                    Self::should_futility(depth, static_eval, alpha)
+            if !PV && !in_check && best > -Score::MAX {
+                if Self::should_see_prune(board, depth, mv) {
+                    continue;
+                }
+
+                if mv.is_quiet() && (Self::should_lmp(depth, i) || Self::should_futility(depth, static_eval, alpha))
                 {
                     move_picker.skip_quiets();
                     continue;
@@ -497,6 +505,10 @@ impl Search {
         (depth <= 6) && ((static_eval + 100 * depth as i32) <= alpha) && !Score::is_mate(alpha)
     }
 
+    fn should_see_prune(board: &Board, depth: usize, mv: Move) -> bool {
+        (depth < 5) && !see(board, mv, Self::see_threshold(depth, mv))
+    }
+
     fn lmr_reduction(depth: usize, i: usize) -> usize {
         (0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25) as usize
     }
@@ -507,6 +519,10 @@ impl Search {
 
     fn rfp_margin(depth: usize) -> i32 {
         150 * depth as i32
+    }
+
+    fn see_threshold(depth: usize, mv: Move) -> i32 {
+        (depth as i32) * if mv.is_quiet() { -50 } else { -100 }
     }
 
 }
