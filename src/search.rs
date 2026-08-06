@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::eval::eval::eval;
-use crate::movepicker::MovePicker;
+use crate::movepicker::{see, MovePicker};
 use crate::tables::{BoundType, MAX_PLY, ThreadData, TransTable};
 use crate::types::{Color, Move, PieceType, Score};
 
@@ -126,6 +126,11 @@ impl Search {
         }
 
         while let Some(mv) = move_picker.next(board) {
+
+            if !in_check && !mv.is_promotion() && !see(board, mv, 0) {
+                continue;
+            }
+
             board.make_move(mv);
             let score = -self.qsearch::<PV>(board, -beta, -alpha, ply + 1);
             board.unmake_move(mv);
@@ -209,6 +214,7 @@ impl Search {
         let mut best_move = Move::NULL;
 
         let stm = board.stm();
+        let in_check = board.is_check();
         // store quiets that doesn't get cut off to give malus
         let mut failure: [Move; 32] = [Move::NULL; 32];
         let mut n_failed: usize = 0;
@@ -219,14 +225,27 @@ impl Search {
         move_picker.score_noisy(board);
 
         if move_picker.terminal() {
-            return if board.is_check() { -Score::MAX } else { Score::ZERO };
+            return if in_check { -Score::MAX } else { Score::ZERO };
         }
 
         let alpha_orig = alpha;
         let mut i = 0; // move num in move ordering
         while let Some(mv) = move_picker.next(board) {
-            let escaping_check = board.is_check();
+
+            if !PV && !in_check && best > -Score::MAX {
+                if Self::should_see_prune(board, depth, mv) {
+                    continue;
+                }
+
+                if mv.is_quiet() && (Self::should_lmp(depth, i) || Self::should_futility(depth, static_eval, alpha))
+                {
+                    move_picker.skip_quiets();
+                    continue;
+                }
+            }
+
             board.make_move(mv);
+            let give_check = board.is_check();
 
             let mut extension = 0;
             // temporarily scrap this check extension
@@ -240,7 +259,7 @@ impl Search {
             if i == 0 {
                 score = -self.negamax::<PV>(board, new_depth, -beta, -alpha, ply + 1, true);
             } else {
-                let r = if self.should_lmr(i, depth, ply, mv, board, escaping_check) { Self::lmr_reduction(depth, i) } else { 0 };
+                let r = if self.should_lmr(i, depth, ply, mv, give_check, in_check) { Self::lmr_reduction(depth, i) } else { 0 };
                 let r = r.min(new_depth.saturating_sub(1));
                 let reduced_depth = new_depth - r;
 
@@ -446,7 +465,7 @@ impl Search {
     }
 
     // check if move is reducable, i is move number in move ordering
-    fn should_lmr(&self, i: usize, depth: usize, ply: usize, mv: Move, board: &Board, escaping_check: bool) -> bool {
+    fn should_lmr(&self, i: usize, depth: usize, ply: usize, mv: Move, is_check: bool, escaping_check: bool) -> bool {
         if i < 4 { return false }
         if depth < 3 { return false }
         if mv.is_capture() { return false }
@@ -455,7 +474,7 @@ impl Search {
         if k1 == mv || k2 == mv {
             return false
         }
-        if board.is_check() { return false }
+        if is_check { return false }
         if escaping_check { return false }
         true
     }
@@ -478,6 +497,18 @@ impl Search {
         true
     }
 
+    fn should_lmp(depth: usize, i: usize) -> bool {
+        (depth <= 8) && (i >= ((3 + depth * depth) * 3 / 2))
+    }
+
+    fn should_futility(depth: usize, static_eval: i32, alpha: i32) -> bool {
+        (depth <= 6) && ((static_eval + 100 * depth as i32) <= alpha) && !Score::is_mate(alpha)
+    }
+
+    fn should_see_prune(board: &Board, depth: usize, mv: Move) -> bool {
+        (depth < 5) && !see(board, mv, Self::see_threshold(depth, mv))
+    }
+
     fn lmr_reduction(depth: usize, i: usize) -> usize {
         (0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25) as usize
     }
@@ -488,6 +519,10 @@ impl Search {
 
     fn rfp_margin(depth: usize) -> i32 {
         150 * depth as i32
+    }
+
+    fn see_threshold(depth: usize, mv: Move) -> i32 {
+        (depth as i32) * if mv.is_quiet() { -50 } else { -100 }
     }
 
 }

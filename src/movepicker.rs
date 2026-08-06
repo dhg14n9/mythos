@@ -21,7 +21,8 @@ pub struct MovePicker {
     stage: Stage,
     // next slot to fill in the range the current stage is draining
     cur: usize,
-    good_end: usize
+    good_end: usize,
+    // skip_quiets: bool
 }
 
 impl MovePicker {
@@ -31,7 +32,8 @@ impl MovePicker {
             tt_move,
             stage: Stage::TtMove,
             cur: 0,
-            good_end: 0
+            good_end: 0,
+            // skip_quiets: false
         }
     }
 
@@ -161,10 +163,18 @@ impl MovePicker {
 
         self.list.get_nth((z % total as u64) as usize)
     }
+
+    pub fn skip_quiets(&mut self) {
+        debug_assert!(self.stage == Stage::Quiet);
+
+        // self.skip_quiets = true;
+        self.stage = Stage::BadNoisy;
+        self.cur = self.good_end;
+    }
 }
 
 // SEE move ordering
-fn see(board: &Board, mv: Move, threshold: i32) -> bool {
+pub(crate) fn see(board: &Board, mv: Move, threshold: i32) -> bool {
     let balance = board.piece_at(mv.capture_square()).value() - threshold;
     if balance < 0 {
         return false;

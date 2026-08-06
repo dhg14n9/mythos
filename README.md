@@ -65,6 +65,7 @@ go movetime 1000
 - [x] Reverse futility pruning
 - [x] Late move reductions
 - [x] Mate scoring, distance-to-mate adjustment
+- [x] Late move, futility, SEE pruning 
 
 ### Move ordering
 - [x] TT move first
