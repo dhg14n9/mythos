@@ -1,5 +1,5 @@
 use crate::board::board::Board;
-use crate::tables::ThreadData;
+use crate::tables::{ContKey, ThreadData};
 use crate::types::{Bitboard, Color, MAX_LIST_LENGTH, Move, MoveList, Piece, PieceType, Square};
 
 const KILLER1_SCORE: i32 = 1_000_000;
@@ -42,13 +42,19 @@ impl MovePicker {
         self.good_end = self.list.noisy_end();
     }
 
-    pub fn score_quiet(&mut self, thread_data: &ThreadData, stm: Color, ply: usize) {
+    pub fn score_quiet(&mut self, board: &Board, thread_data: &ThreadData, ply: usize, prev: Option<ContKey>) {
         let (killer1, killer2) = thread_data.killer.probe(ply);
         for i in self.list.quiet_start()..MAX_LIST_LENGTH {
             let mv = self.list.get(i);
             let score = if mv == killer1      { KILLER1_SCORE }
                              else if mv == killer2 { KILLER2_SCORE }
-                             else { thread_data.history.probe(stm, mv.from(), mv.to()) };
+                             else {
+                                 let mut temp = thread_data.history.probe(board.stm(), mv.from(), mv.to()) * 2;
+                                 if let Some(prev) = prev {
+                                     temp += thread_data.continuation.probe(prev.piece, prev.square, board.piece_at(mv.from()), mv.to());
+                                 }
+                                 temp
+                             };
             self.list.score(i, score)
         }
     }
@@ -252,7 +258,7 @@ mod tests {
         let td = ThreadData::new();
         let mut picker = MovePicker::new(tt_move);
         picker.gen_move(board, noisy_only);
-        picker.score_quiet(&td, board.stm(), 0);
+        picker.score_quiet(board, &td, 0, None);
 
         let mut moves = Vec::new();
         while let Some(mv) = picker.next(board) {

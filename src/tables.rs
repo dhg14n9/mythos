@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use crate::types::{Color, Move, Square};
+use crate::types::{Color, Move, Piece, Square};
 
 // trans table
 #[derive(Default, Copy, Clone)]
@@ -109,7 +109,13 @@ impl Killer {
 }
 
 // History heuristic
-const MAX: i32 = 8192;
+const MAX_HISTORY: i32 = 8192;
+const MAX_HISTORY_CHANGE: usize = 1200;
+
+fn apply<const MAX: i32>(entry: &mut i32, bonus: i32) {
+    *entry += bonus - *entry * bonus.abs() / MAX
+}
+
 pub struct History {
     array: Box<[[[i32; 64]; 64]; 2]>
 }
@@ -125,31 +131,75 @@ impl History {
     }
 
     fn apply_bonus(&mut self, color: Color, from: Square, to: Square, bonus: i32) {
-        self.array[color][from][to] += bonus - self.array[color][from][to] * bonus.abs() / MAX
+        apply::<MAX_HISTORY>(&mut self.array[color][from][to], bonus)
     }
 
     pub fn bonus(&mut self, color: Color, from: Square, to: Square, depth: usize) {
-        let bonus = (depth * depth).min(1200) as i32;
+        let bonus = (depth * depth).min(MAX_HISTORY_CHANGE) as i32;
         self.apply_bonus(color, from, to, bonus)
     }
 
     pub fn malus(&mut self, color: Color, from: Square, to: Square, depth: usize) {
-        let malus = -((depth * depth).min(1200) as i32);
+        let malus = -((depth * depth).min(MAX_HISTORY_CHANGE) as i32);
         self.apply_bonus(color, from, to, malus)
     }
 
 }
 
+const MAX_CONTINUATION_CHANGE: usize = 800;
+const MAX_CONTINUATION: i32 = 15000;
+pub struct Continuation {
+    array: Box<[[[[i16; Square::NUM]; Piece::NUM]; Square::NUM]; Piece::NUM]>
+}
+
+impl Continuation {
+    pub fn new() -> Self {
+        Self {
+            array: Box::try_from(vec![[[[0; Square::NUM]; Piece::NUM]; Square::NUM]; Piece::NUM].into_boxed_slice()).unwrap()
+        }
+    }
+
+    pub fn probe(&self, prev_piece: Piece, prev_to: Square, piece: Piece, to: Square) -> i32 {
+        self.array[prev_piece][prev_to][piece][to] as i32
+    }
+
+    fn apply_bonus(&mut self, prev_piece: Piece, prev_to: Square, piece: Piece, to: Square, bonus: i32) {
+        let entry = &mut self.array[prev_piece][prev_to][piece][to];
+        let mut value = *entry as i32;
+        apply::<MAX_CONTINUATION>(&mut value, bonus);
+        *entry = value as i16
+    }
+
+    pub fn bonus(&mut self, prev_piece: Piece, prev_to: Square, piece: Piece, to: Square, depth: usize) {
+        let bonus = (depth * depth).min(MAX_CONTINUATION_CHANGE) as i32;
+        self.apply_bonus(prev_piece, prev_to, piece, to, bonus);
+    }
+
+    pub fn malus(&mut self, prev_piece: Piece, prev_to: Square, piece: Piece, to: Square, depth: usize) {
+        let malus = -((depth * depth).min(MAX_CONTINUATION_CHANGE) as i32);
+        self.apply_bonus(prev_piece, prev_to, piece, to, malus);
+    }
+
+}
+
+#[derive(Copy, Clone)]
+pub struct ContKey {
+    pub(crate) piece: Piece,
+    pub(crate) square: Square
+}
+
 pub struct ThreadData {
     pub history: History,
     pub killer: Killer,
+    pub continuation: Continuation
 }
 
 impl ThreadData {
     pub fn new() -> Self {
         Self {
             history: History::new(),
-            killer: Killer::new()
+            killer: Killer::new(),
+            continuation: Continuation::new(),
         }
     }
 
