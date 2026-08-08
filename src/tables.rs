@@ -110,7 +110,6 @@ impl Killer {
 
 // History heuristic
 const MAX_HISTORY: i32 = 8192;
-const MAX_HISTORY_CHANGE: usize = 1200;
 
 fn apply<const MAX: i32>(entry: &mut i32, bonus: i32) {
     *entry += bonus - *entry * bonus.abs() / MAX
@@ -130,23 +129,14 @@ impl History {
         self.array[color][from][to]
     }
 
-    fn apply_bonus(&mut self, color: Color, from: Square, to: Square, bonus: i32) {
+    // bonus is positive, malus negative. the magnitude is the caller's business: it varies
+    // per move within a single cutoff, so it cannot be recovered from depth alone
+    pub fn update(&mut self, color: Color, from: Square, to: Square, bonus: i32) {
         apply::<MAX_HISTORY>(&mut self.array[color][from][to], bonus)
-    }
-
-    pub fn bonus(&mut self, color: Color, from: Square, to: Square, depth: usize) {
-        let bonus = (depth * depth).min(MAX_HISTORY_CHANGE) as i32;
-        self.apply_bonus(color, from, to, bonus)
-    }
-
-    pub fn malus(&mut self, color: Color, from: Square, to: Square, depth: usize) {
-        let malus = -((depth * depth).min(MAX_HISTORY_CHANGE) as i32);
-        self.apply_bonus(color, from, to, malus)
     }
 
 }
 
-const MAX_CONTINUATION_CHANGE: usize = 800;
 const MAX_CONTINUATION: i32 = 15000;
 pub struct Continuation {
     array: Box<[[[[i16; Square::NUM]; Piece::NUM]; Square::NUM]; Piece::NUM]>
@@ -163,21 +153,14 @@ impl Continuation {
         self.array[prev_piece][prev_to][piece][to] as i32
     }
 
-    fn apply_bonus(&mut self, prev_piece: Piece, prev_to: Square, piece: Piece, to: Square, bonus: i32) {
+    // entries are i16 to keep the table small, but the gravity term overflows i16 part way
+    // through, so the update runs in i32 and narrows on store. apply has a fixed point at
+    // MAX_CONTINUATION, so |entry| stays bounded by it
+    pub fn update(&mut self, prev_piece: Piece, prev_to: Square, piece: Piece, to: Square, bonus: i32) {
         let entry = &mut self.array[prev_piece][prev_to][piece][to];
         let mut value = *entry as i32;
         apply::<MAX_CONTINUATION>(&mut value, bonus);
         *entry = value as i16
-    }
-
-    pub fn bonus(&mut self, prev_piece: Piece, prev_to: Square, piece: Piece, to: Square, depth: usize) {
-        let bonus = (depth * depth).min(MAX_CONTINUATION_CHANGE) as i32;
-        self.apply_bonus(prev_piece, prev_to, piece, to, bonus);
-    }
-
-    pub fn malus(&mut self, prev_piece: Piece, prev_to: Square, piece: Piece, to: Square, depth: usize) {
-        let malus = -((depth * depth).min(MAX_CONTINUATION_CHANGE) as i32);
-        self.apply_bonus(prev_piece, prev_to, piece, to, malus);
     }
 
 }

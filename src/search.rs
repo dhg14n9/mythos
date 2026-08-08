@@ -357,19 +357,26 @@ impl Search {
 
             if alpha >= beta {
                 if mv.is_quiet() {
+                    let quiet_bonus = (180 * depth as i32).min(1750) - 70;
+                    let quiet_malus = (170 * depth as i32).min(1100) - 40 - 30 * n_failed as i32;
+                    let cont_bonus  = (100 * depth as i32).min(1100) - 70;
+                    let cont_malus  = (400 * depth as i32).min(950) - 50 - 20 * n_failed as i32;
+
                     // add to killer + history
                     self.thread_data.killer.store(mv, ply);
-                    self.thread_data.history.bonus(stm, mv.from(), mv.to(), depth);
+                    self.thread_data.history.update(stm, mv.from(), mv.to(), quiet_bonus);
                     if let Some(prev) = prev {
-                        self.thread_data.continuation.bonus(prev.piece, prev.square, board.piece_at(mv.from()), mv.to(), depth);
+                        self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(mv.from()), mv.to(), cont_bonus);
                     }
 
-                    // malus other moves
-                    for i in 0..n_failed {
-                        let mv = failure[i];
-                        self.thread_data.history.malus(stm, mv.from(), mv.to(), depth);
+                    for j in 0..n_failed {
+                        let failed = failure[j];
+                        let denom = 1024 + 45 * j as i32;
+                        let scale = 1024 * 1024 / (denom * denom / 1024);
+
+                        self.thread_data.history.update(stm, failed.from(), failed.to(), -quiet_malus * scale / 1024);
                         if let Some(prev) = prev {
-                            self.thread_data.continuation.malus(prev.piece, prev.square, board.piece_at(mv.from()), mv.to(), depth);
+                            self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(failed.from()), failed.to(), -cont_malus * scale / 1024);
                         }
                     }
                 }
