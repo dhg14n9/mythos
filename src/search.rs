@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::eval::eval::eval;
 use crate::movepicker::{see, MovePicker};
-use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY};
+use crate::tables::{BoundType, ContKey, ContWrite, ThreadData, TransTable, MAX_PLY, CONT_READ, CONT_WRITE};
 use crate::types::{Color, Move, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
@@ -171,8 +171,8 @@ impl Search {
         let mut move_picker = MovePicker::new(Move::NULL);
         move_picker.gen_move(board, true);
 
-        let prev = if ply > 0 { self.cont_stack[ply - 1] } else { None };
-        move_picker.score_quiet(&board, &self.thread_data, ply, prev);
+        let cont_read = CONT_READ.map(|x| self.cont_key(ply, x));
+        move_picker.score_quiet(&board, &self.thread_data, ply, cont_read);
         move_picker.score_noisy(board);
 
         if in_check && move_picker.terminal() {
@@ -188,7 +188,7 @@ impl Search {
 
             self.cont_stack[ply] = Some(ContKey {
                 ptr: self.thread_data.continuation
-                    .pth_ptr(in_check, mv.is_capture(), board.piece_at(mv.from()), mv.to())
+                    .pth_ptr(board.piece_at(mv.from()), mv.to())
             });
 
             board.make_move(mv);
@@ -284,8 +284,8 @@ impl Search {
         let mut move_picker = MovePicker::new(tt_move);
         move_picker.gen_move(board, false);
 
-        let prev = if ply > 0 { self.cont_stack[ply - 1] } else { None };
-        move_picker.score_quiet(&board, &self.thread_data, ply, prev);
+        let cont_read = CONT_READ.map(|x| self.cont_key(ply, x));
+        move_picker.score_quiet(&board, &self.thread_data, ply, cont_read);
         move_picker.score_noisy(board);
 
         if move_picker.terminal() {
@@ -310,7 +310,7 @@ impl Search {
 
             self.cont_stack[ply] = Some(ContKey {
                 ptr: self.thread_data.continuation
-                    .pth_ptr(in_check, mv.is_capture(), board.piece_at(mv.from()), mv.to())
+                    .pth_ptr(board.piece_at(mv.from()), mv.to())
             });
 
             board.make_move(mv);
@@ -368,11 +368,14 @@ impl Search {
                     let cont_bonus  = (100 * depth as i32).min(1100) - 70;
                     let cont_malus  = (400 * depth as i32).min(950) - 50 - 20 * n_failed as i32;
 
+                    let cont_write: ContWrite = CONT_WRITE.map(|x| self.cont_key(ply, x));
+
                     // add to killer + history
                     self.thread_data.killer.store(mv, ply);
                     self.thread_data.history.update(stm, mv.from(), mv.to(), quiet_bonus);
-                    if let Some(prev) = prev {
-                        self.thread_data.continuation.update(prev.ptr, board.piece_at(mv.from()), mv.to(), cont_bonus);
+                    let pt = board.piece_at(mv.from()).piece_type();
+                    for key in cont_write.iter().flatten() {
+                        self.thread_data.continuation.update(key.ptr, pt, mv.to(), cont_bonus);
                     }
 
                     for j in 0..n_failed {
@@ -381,8 +384,9 @@ impl Search {
                         let scale = 1024 * 1024 / (denom * denom / 1024);
 
                         self.thread_data.history.update(stm, failed.from(), failed.to(), -quiet_malus * scale / 1024);
-                        if let Some(prev) = prev {
-                            self.thread_data.continuation.update(prev.ptr, board.piece_at(failed.from()), failed.to(), -cont_malus * scale / 1024);
+                        let pt = board.piece_at(failed.from()).piece_type();
+                        for key in cont_write.iter().flatten() {
+                            self.thread_data.continuation.update(key.ptr, pt, failed.to(), -cont_malus * scale / 1024);
                         }
                     }
                 }
@@ -427,7 +431,7 @@ impl Search {
 
         let mut move_picker = MovePicker::new(tt_move);
         move_picker.gen_move(board, false);
-        move_picker.score_quiet(&board, &self.thread_data, 0, None);
+        move_picker.score_quiet(&board, &self.thread_data, 0, CONT_READ.map(|o| self.cont_key(0, o)));
         move_picker.score_noisy(board);
 
         if move_picker.terminal() {
@@ -440,7 +444,7 @@ impl Search {
         while let Some(mv) = move_picker.next(board) {
             self.cont_stack[0] = Some(ContKey {
                 ptr: self.thread_data.continuation
-                    .pth_ptr(board.is_check(), mv.is_capture(), board.piece_at(mv.from()), mv.to())
+                    .pth_ptr(board.piece_at(mv.from()), mv.to())
             });
 
             board.make_move(mv);
@@ -615,6 +619,9 @@ impl Search {
         (depth as i32) * if mv.is_quiet() { -50 } else { -100 }
     }
 
+    fn cont_key(&self, ply: usize, offset: usize) -> Option<ContKey> {
+        if ply >= offset { self.cont_stack[ply - offset] } else {None}
+    }
 }
 
 fn has_non_pawn_piece(board: &Board, color: Color) -> bool {

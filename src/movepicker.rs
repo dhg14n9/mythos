@@ -1,5 +1,5 @@
 use crate::board::board::Board;
-use crate::tables::{ContKey, ThreadData};
+use crate::tables::{ThreadData, ContRead};
 use crate::types::{Bitboard, Color, MAX_LIST_LENGTH, Move, MoveList, Piece, PieceType, Square};
 
 const KILLER1_SCORE: i32 = 1_000_000;
@@ -42,17 +42,19 @@ impl MovePicker {
         self.good_end = self.list.noisy_end();
     }
 
-    pub fn score_quiet(&mut self, board: &Board, thread_data: &ThreadData, ply: usize, prev: Option<ContKey>) {
+    pub fn score_quiet(&mut self, board: &Board, thread_data: &ThreadData, ply: usize, prev: ContRead) {
         let (killer1, killer2) = thread_data.killer.probe(ply);
         for i in self.list.quiet_start()..MAX_LIST_LENGTH {
             let mv = self.list.get(i);
             let score = if mv == killer1      { KILLER1_SCORE }
                              else if mv == killer2 { KILLER2_SCORE }
                              else {
-                                 let mut temp = thread_data.history.probe(board.stm(), mv.from(), mv.to());
-                                 if let Some(prev) = prev {
-                                     temp += thread_data.continuation.probe(prev.ptr, board.piece_at(mv.from()), mv.to());
+                                 let mut temp = thread_data.history.probe(board.stm(), mv.from(), mv.to()) * 2;
+                                 let piece = board.piece_at(mv.from()).piece_type();
+                                 for key in prev.iter().flatten() {
+                                     temp += thread_data.continuation.probe(key.ptr, piece, mv.to());
                                  }
+
                                  temp
                              };
             self.list.score(i, score)
@@ -234,6 +236,7 @@ fn mvv_lva(mv: Move, board: &Board) -> i32 {
 mod tests {
     use super::*;
     use crate::types::MAX_LIST_LENGTH;
+    use crate::tables::CONT_READ;
 
     const FENS: &[&str] = &[
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
@@ -258,7 +261,7 @@ mod tests {
         let td = ThreadData::new();
         let mut picker = MovePicker::new(tt_move);
         picker.gen_move(board, noisy_only);
-        picker.score_quiet(board, &td, 0, None);
+        picker.score_quiet(board, &td, 0, [None; CONT_READ.len()]);
 
         let mut moves = Vec::new();
         while let Some(mv) = picker.next(board) {

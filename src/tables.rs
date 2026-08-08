@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use crate::types::{Color, Move, Piece, Square};
+use crate::types::{Color, Move, Piece, PieceType, Square};
 
 // trans table
 #[derive(Default, Copy, Clone)]
@@ -133,30 +133,37 @@ impl History {
 }
 
 
-type PieceToHistory<T> = [[T; 64]; 13];
-type ContinuationHistoryType = [[[[PieceToHistory<i16>; 64]; 13]; 2]; 2];
+type PieceToHistory<T> = [[T; Square::NUM]; PieceType::NUM];
+
+const NUM_SUBTABLE: usize = Piece::NUM * Square::NUM;
+
+pub const CONT_READ: [usize; 2] = [1, 2];
+pub const CONT_WRITE: [usize; 4] = [1, 2, 4, 6];
+
+pub type ContRead = [Option<ContKey>; CONT_READ.len()];
+pub type ContWrite = [Option<ContKey>; CONT_WRITE.len()];
 const MAX_CONTINUATION: i32 = 15000;
 pub struct Continuation {
-    array: Box<ContinuationHistoryType>
+    array: Box<[PieceToHistory<i16>; NUM_SUBTABLE]>
 }
 
 impl Continuation {
     pub fn new() -> Self {
         Self {
-            array: Box::try_from(vec![[[[[[0; 64]; 13]; 64]; 13]; 2]; 2].into_boxed_slice()).unwrap()
+            array: Box::try_from(vec![[[0; Square::NUM]; PieceType::NUM]; NUM_SUBTABLE].into_boxed_slice()).unwrap()
         }
     }
 
-    pub fn pth_ptr(&mut self, in_check: bool, capture: bool, prev_piece: Piece, prev_to: Square) -> *mut PieceToHistory<i16> {
-        &raw mut self.array[in_check as usize][capture as usize][prev_piece][prev_to]
+    pub fn pth_ptr(&mut self, prev_piece: Piece, prev_to: Square) -> *mut PieceToHistory<i16> {
+        &raw mut self.array[prev_piece as usize * Square::NUM + prev_to as usize]
     }
 
-    pub fn probe(&self, pth_ptr: *mut PieceToHistory<i16>, piece: Piece, to: Square) -> i32 {
-        (unsafe { &*pth_ptr }[piece][to]) as i32
+    pub fn probe(&self, pth_ptr: *mut PieceToHistory<i16>, pt: PieceType, to: Square) -> i32 {
+        (unsafe { &*pth_ptr }[pt][to]) as i32
     }
 
-    pub fn update(&mut self, pth_ptr: *mut PieceToHistory<i16>, piece: Piece, to: Square, bonus: i32) {
-        let entry = &mut unsafe { &mut *pth_ptr }[piece][to];
+    pub fn update(&mut self, pth_ptr: *mut PieceToHistory<i16>, pt: PieceType, to: Square, bonus: i32) {
+        let entry = &mut unsafe { &mut *pth_ptr }[pt][to];
         let mut value = *entry as i32;
         apply::<MAX_CONTINUATION>(&mut value, bonus);
         *entry = value as i16;
