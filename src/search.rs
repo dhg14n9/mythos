@@ -186,7 +186,10 @@ impl Search {
                 continue;
             }
 
-            self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() });
+            self.cont_stack[ply] = Some(ContKey {
+                ptr: self.thread_data.continuation
+                    .pth_ptr(in_check, mv.is_capture(), board.piece_at(mv.from()), mv.to())
+            });
 
             board.make_move(mv);
             let score = -self.qsearch::<PV>(board, -beta, -alpha, ply + 1);
@@ -305,7 +308,10 @@ impl Search {
                 }
             }
 
-            self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() });
+            self.cont_stack[ply] = Some(ContKey {
+                ptr: self.thread_data.continuation
+                    .pth_ptr(in_check, mv.is_capture(), board.piece_at(mv.from()), mv.to())
+            });
 
             board.make_move(mv);
             let give_check = board.is_check();
@@ -366,7 +372,7 @@ impl Search {
                     self.thread_data.killer.store(mv, ply);
                     self.thread_data.history.update(stm, mv.from(), mv.to(), quiet_bonus);
                     if let Some(prev) = prev {
-                        self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(mv.from()), mv.to(), cont_bonus);
+                        self.thread_data.continuation.update(prev.ptr, board.piece_at(mv.from()), mv.to(), cont_bonus);
                     }
 
                     for j in 0..n_failed {
@@ -376,7 +382,7 @@ impl Search {
 
                         self.thread_data.history.update(stm, failed.from(), failed.to(), -quiet_malus * scale / 1024);
                         if let Some(prev) = prev {
-                            self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(failed.from()), failed.to(), -cont_malus * scale / 1024);
+                            self.thread_data.continuation.update(prev.ptr, board.piece_at(failed.from()), failed.to(), -cont_malus * scale / 1024);
                         }
                     }
                 }
@@ -432,7 +438,10 @@ impl Search {
         let mut alpha = alpha;
 
         while let Some(mv) = move_picker.next(board) {
-            self.cont_stack[0] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() });
+            self.cont_stack[0] = Some(ContKey {
+                ptr: self.thread_data.continuation
+                    .pth_ptr(board.is_check(), mv.is_capture(), board.piece_at(mv.from()), mv.to())
+            });
 
             board.make_move(mv);
             let score = -self.negamax::<true>(board, depth - 1, -beta, -alpha, 1, true);

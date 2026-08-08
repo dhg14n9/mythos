@@ -49,9 +49,9 @@ impl MovePicker {
             let score = if mv == killer1      { KILLER1_SCORE }
                              else if mv == killer2 { KILLER2_SCORE }
                              else {
-                                 let mut temp = thread_data.history.probe(board.stm(), mv.from(), mv.to()) * 2;
+                                 let mut temp = thread_data.history.probe(board.stm(), mv.from(), mv.to());
                                  if let Some(prev) = prev {
-                                     temp += thread_data.continuation.probe(prev.piece, prev.square, board.piece_at(mv.from()), mv.to());
+                                     temp += thread_data.continuation.probe(prev.ptr, board.piece_at(mv.from()), mv.to());
                                  }
                                  temp
                              };

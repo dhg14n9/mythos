@@ -59,9 +59,6 @@ impl TransTable {
         }
     }
 
-    // pack score, move, depth, bound into a u64.
-    // score must be on top because when score as u64, every bit on the right will be corrupted into
-    // ones. score on top will throw these (ones) on top as redundant bits
     fn pack(score: i32, best: Move, depth: usize, bound_type: BoundType) -> u64 {
         ((score as u64) << 26) | ((best.raw() as u64) << 10) | ((depth as u64) << 2) | bound_type as u64
     }
@@ -129,46 +126,48 @@ impl History {
         self.array[color][from][to]
     }
 
-    // bonus is positive, malus negative. the magnitude is the caller's business: it varies
-    // per move within a single cutoff, so it cannot be recovered from depth alone
     pub fn update(&mut self, color: Color, from: Square, to: Square, bonus: i32) {
         apply::<MAX_HISTORY>(&mut self.array[color][from][to], bonus)
     }
 
 }
 
+
+type PieceToHistory<T> = [[T; 64]; 13];
+type ContinuationHistoryType = [[[[PieceToHistory<i16>; 64]; 13]; 2]; 2];
 const MAX_CONTINUATION: i32 = 15000;
 pub struct Continuation {
-    array: Box<[[[[i16; Square::NUM]; Piece::NUM]; Square::NUM]; Piece::NUM]>
+    array: Box<ContinuationHistoryType>
 }
 
 impl Continuation {
     pub fn new() -> Self {
         Self {
-            array: Box::try_from(vec![[[[0; Square::NUM]; Piece::NUM]; Square::NUM]; Piece::NUM].into_boxed_slice()).unwrap()
+            array: Box::try_from(vec![[[[[[0; 64]; 13]; 64]; 13]; 2]; 2].into_boxed_slice()).unwrap()
         }
     }
 
-    pub fn probe(&self, prev_piece: Piece, prev_to: Square, piece: Piece, to: Square) -> i32 {
-        self.array[prev_piece][prev_to][piece][to] as i32
+    pub fn pth_ptr(&mut self, in_check: bool, capture: bool, prev_piece: Piece, prev_to: Square) -> *mut PieceToHistory<i16> {
+        &raw mut self.array[in_check as usize][capture as usize][prev_piece][prev_to]
     }
 
-    // entries are i16 to keep the table small, but the gravity term overflows i16 part way
-    // through, so the update runs in i32 and narrows on store. apply has a fixed point at
-    // MAX_CONTINUATION, so |entry| stays bounded by it
-    pub fn update(&mut self, prev_piece: Piece, prev_to: Square, piece: Piece, to: Square, bonus: i32) {
-        let entry = &mut self.array[prev_piece][prev_to][piece][to];
+    pub fn probe(&self, pth_ptr: *mut PieceToHistory<i16>, piece: Piece, to: Square) -> i32 {
+        (unsafe { &*pth_ptr }[piece][to]) as i32
+    }
+
+    pub fn update(&mut self, pth_ptr: *mut PieceToHistory<i16>, piece: Piece, to: Square, bonus: i32) {
+        let entry = &mut unsafe { &mut *pth_ptr }[piece][to];
         let mut value = *entry as i32;
         apply::<MAX_CONTINUATION>(&mut value, bonus);
-        *entry = value as i16
+        *entry = value as i16;
+
     }
 
 }
 
 #[derive(Copy, Clone)]
 pub struct ContKey {
-    pub(crate) piece: Piece,
-    pub(crate) square: Square
+    pub(crate) ptr: *mut PieceToHistory<i16>
 }
 
 pub struct ThreadData {
