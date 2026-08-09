@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use crate::types::{Color, Move, Square};
+use crate::types::{Color, Move, Piece, Square};
 
 // trans table
 #[derive(Default, Copy, Clone)]
@@ -109,7 +109,12 @@ impl Killer {
 }
 
 // History heuristic
-const MAX: i32 = 8192;
+const MAX_HISTORY: i32 = 8192;
+
+fn apply<const MAX: i32>(entry: &mut i32, bonus: i32) {
+    *entry += bonus - *entry * bonus.abs() / MAX
+}
+
 pub struct History {
     array: Box<[[[i32; 64]; 64]; 2]>
 }
@@ -124,32 +129,60 @@ impl History {
         self.array[color][from][to]
     }
 
-    fn apply_bonus(&mut self, color: Color, from: Square, to: Square, bonus: i32) {
-        self.array[color][from][to] += bonus - self.array[color][from][to] * bonus.abs() / MAX
+    // bonus is positive, malus negative. the magnitude is the caller's business: it varies
+    // per move within a single cutoff, so it cannot be recovered from depth alone
+    pub fn update(&mut self, color: Color, from: Square, to: Square, bonus: i32) {
+        apply::<MAX_HISTORY>(&mut self.array[color][from][to], bonus)
     }
 
-    pub fn bonus(&mut self, color: Color, from: Square, to: Square, depth: usize) {
-        let bonus = (depth * depth).min(1200) as i32;
-        self.apply_bonus(color, from, to, bonus)
+}
+
+const MAX_CONTINUATION: i32 = 15000;
+pub struct Continuation {
+    array: Box<[[[[i16; Square::NUM]; Piece::NUM]; Square::NUM]; Piece::NUM]>
+}
+
+impl Continuation {
+    pub fn new() -> Self {
+        Self {
+            array: Box::try_from(vec![[[[0; Square::NUM]; Piece::NUM]; Square::NUM]; Piece::NUM].into_boxed_slice()).unwrap()
+        }
     }
 
-    pub fn malus(&mut self, color: Color, from: Square, to: Square, depth: usize) {
-        let malus = -((depth * depth).min(1200) as i32);
-        self.apply_bonus(color, from, to, malus)
+    pub fn probe(&self, prev_piece: Piece, prev_to: Square, piece: Piece, to: Square) -> i32 {
+        self.array[prev_piece][prev_to][piece][to] as i32
     }
 
+    // entries are i16 to keep the table small, but the gravity term overflows i16 part way
+    // through, so the update runs in i32 and narrows on store. apply has a fixed point at
+    // MAX_CONTINUATION, so |entry| stays bounded by it
+    pub fn update(&mut self, prev_piece: Piece, prev_to: Square, piece: Piece, to: Square, bonus: i32) {
+        let entry = &mut self.array[prev_piece][prev_to][piece][to];
+        let mut value = *entry as i32;
+        apply::<MAX_CONTINUATION>(&mut value, bonus);
+        *entry = value as i16
+    }
+
+}
+
+#[derive(Copy, Clone)]
+pub struct ContKey {
+    pub(crate) piece: Piece,
+    pub(crate) square: Square
 }
 
 pub struct ThreadData {
     pub history: History,
     pub killer: Killer,
+    pub continuation: Continuation
 }
 
 impl ThreadData {
     pub fn new() -> Self {
         Self {
             history: History::new(),
-            killer: Killer::new()
+            killer: Killer::new(),
+            continuation: Continuation::new(),
         }
     }
 

@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::eval::eval::eval;
 use crate::movepicker::{see, MovePicker};
-use crate::tables::{BoundType, MAX_PLY, ThreadData, TransTable};
+use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY};
 use crate::types::{Color, Move, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
@@ -108,12 +108,23 @@ pub struct Search {
     pub trans_table: TransTable,
     pub thread_data: ThreadData,
     pub root_depth: usize,
-    pub pv_table: PvTable
+    pub pv_table: PvTable,
+    pub cont_stack: Box<[Option<ContKey>; MAX_PLY]>
 }
 
 impl Search {
     pub fn new(time_control: TimeControl, trans_table: TransTable, thread_data: ThreadData) -> Self {
-        Self { time_control, nodes: 0, stopped: false, silent: false, trans_table, thread_data, root_depth: 0, pv_table: PvTable::new() }
+        Self {
+            time_control,
+            nodes: 0,
+            stopped: false,
+            silent: false,
+            trans_table,
+            thread_data,
+            root_depth: 0,
+            pv_table: PvTable::new(),
+            cont_stack: Box::from([None; MAX_PLY])
+        }
     }
 
     fn should_stop(&mut self) -> bool {
@@ -146,7 +157,6 @@ impl Search {
             return eval(board);
         }
 
-        let stm = board.stm();
         let in_check = board.is_check();
         let mut best = -Score::MAX;
 
@@ -160,7 +170,9 @@ impl Search {
 
         let mut move_picker = MovePicker::new(Move::NULL);
         move_picker.gen_move(board, true);
-        move_picker.score_quiet(&self.thread_data, stm, ply);
+
+        let prev = if ply > 0 { self.cont_stack[ply - 1] } else { None };
+        move_picker.score_quiet(&board, &self.thread_data, ply, prev);
         move_picker.score_noisy(board);
 
         if in_check && move_picker.terminal() {
@@ -173,6 +185,8 @@ impl Search {
             if !in_check && !mv.is_promotion() && move_picker.is_bad() {
                 continue;
             }
+
+            self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() });
 
             board.make_move(mv);
             let score = -self.qsearch::<PV>(board, -beta, -alpha, ply + 1);
@@ -242,6 +256,8 @@ impl Search {
         let static_eval = eval(board);
 
         if allow_null && self.should_nmp(beta, depth, board, static_eval) {
+            self.cont_stack[ply] = None;
+
             board.make_null_move();
             let score = -self.negamax::<false>(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth)), -beta, -beta + 1, ply + 1, false);
             board.unmake_null_move();
@@ -264,7 +280,9 @@ impl Search {
 
         let mut move_picker = MovePicker::new(tt_move);
         move_picker.gen_move(board, false);
-        move_picker.score_quiet(&self.thread_data, stm, ply);
+
+        let prev = if ply > 0 { self.cont_stack[ply - 1] } else { None };
+        move_picker.score_quiet(&board, &self.thread_data, ply, prev);
         move_picker.score_noisy(board);
 
         if move_picker.terminal() {
@@ -286,6 +304,8 @@ impl Search {
                     continue;
                 }
             }
+
+            self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() });
 
             board.make_move(mv);
             let give_check = board.is_check();
@@ -337,14 +357,27 @@ impl Search {
 
             if alpha >= beta {
                 if mv.is_quiet() {
+                    let quiet_bonus = (180 * depth as i32).min(1750) - 70;
+                    let quiet_malus = (170 * depth as i32).min(1100) - 40 - 30 * n_failed as i32;
+                    let cont_bonus  = (100 * depth as i32).min(1100) - 70;
+                    let cont_malus  = (400 * depth as i32).min(950) - 50 - 20 * n_failed as i32;
+
                     // add to killer + history
                     self.thread_data.killer.store(mv, ply);
-                    self.thread_data.history.bonus(stm, mv.from(), mv.to(), depth);
+                    self.thread_data.history.update(stm, mv.from(), mv.to(), quiet_bonus);
+                    if let Some(prev) = prev {
+                        self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(mv.from()), mv.to(), cont_bonus);
+                    }
 
-                    // malus other moves
-                    for i in 0..n_failed {
-                        let mv = failure[i];
-                        self.thread_data.history.malus(stm, mv.from(), mv.to(), depth);
+                    for j in 0..n_failed {
+                        let failed = failure[j];
+                        let denom = 1024 + 45 * j as i32;
+                        let scale = 1024 * 1024 / (denom * denom / 1024);
+
+                        self.thread_data.history.update(stm, failed.from(), failed.to(), -quiet_malus * scale / 1024);
+                        if let Some(prev) = prev {
+                            self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(failed.from()), failed.to(), -cont_malus * scale / 1024);
+                        }
                     }
                 }
                 break;
@@ -388,7 +421,7 @@ impl Search {
 
         let mut move_picker = MovePicker::new(tt_move);
         move_picker.gen_move(board, false);
-        move_picker.score_quiet(&self.thread_data, board.stm(), 0);
+        move_picker.score_quiet(&board, &self.thread_data, 0, None);
         move_picker.score_noisy(board);
 
         if move_picker.terminal() {
@@ -399,6 +432,8 @@ impl Search {
         let mut alpha = alpha;
 
         while let Some(mv) = move_picker.next(board) {
+            self.cont_stack[0] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() });
+
             board.make_move(mv);
             let score = -self.negamax::<true>(board, depth - 1, -beta, -alpha, 1, true);
             board.unmake_move(mv);
