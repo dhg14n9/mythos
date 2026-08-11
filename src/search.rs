@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::eval::eval::eval;
 use crate::movepicker::{see, MovePicker};
-use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY};
+use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY, CONT_LEN, CONT_OFFSET};
 use crate::types::{Color, Move, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
@@ -171,7 +171,7 @@ impl Search {
         let mut move_picker = MovePicker::new(Move::NULL);
         move_picker.gen_move(board, true);
 
-        let prev = if ply > 0 { self.cont_stack[ply - 1] } else { None };
+        let prev = self.cont_keys(ply);
         move_picker.score_quiet(&board, &self.thread_data, ply, prev);
         move_picker.score_noisy(board);
 
@@ -281,8 +281,8 @@ impl Search {
         let mut move_picker = MovePicker::new(tt_move);
         move_picker.gen_move(board, false);
 
-        let prev = if ply > 0 { self.cont_stack[ply - 1] } else { None };
-        move_picker.score_quiet(&board, &self.thread_data, ply, prev);
+        let prev_keys: [Option<ContKey>; CONT_LEN] = self.cont_keys(ply);
+        move_picker.score_quiet(&board, &self.thread_data, ply, prev_keys);
         move_picker.score_noisy(board);
 
         if move_picker.terminal() {
@@ -365,8 +365,10 @@ impl Search {
                     // add to killer + history
                     self.thread_data.killer.store(mv, ply);
                     self.thread_data.history.update(stm, mv.from(), mv.to(), quiet_bonus);
-                    if let Some(prev) = prev {
-                        self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(mv.from()), mv.to(), cont_bonus);
+                    for i in 0..CONT_LEN {
+                        if let Some(prev) = prev_keys[i] {
+                            self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(mv.from()), mv.to(), cont_bonus);
+                        }
                     }
 
                     for j in 0..n_failed {
@@ -375,8 +377,10 @@ impl Search {
                         let scale = 1024 * 1024 / (denom * denom / 1024);
 
                         self.thread_data.history.update(stm, failed.from(), failed.to(), -quiet_malus * scale / 1024);
-                        if let Some(prev) = prev {
-                            self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(failed.from()), failed.to(), -cont_malus * scale / 1024);
+                        for i in 0..CONT_LEN {
+                            if let Some(prev) = prev_keys[i] {
+                                self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(failed.from()), failed.to(), -cont_malus * scale / 1024);
+                            }
                         }
                     }
                 }
@@ -421,7 +425,7 @@ impl Search {
 
         let mut move_picker = MovePicker::new(tt_move);
         move_picker.gen_move(board, false);
-        move_picker.score_quiet(&board, &self.thread_data, 0, None);
+        move_picker.score_quiet(&board, &self.thread_data, 0, [None; CONT_LEN]);
         move_picker.score_noisy(board);
 
         if move_picker.terminal() {
@@ -606,6 +610,14 @@ impl Search {
         (depth as i32) * if mv.is_quiet() { -50 } else { -100 }
     }
 
+    // index i of the result is the move played CONT_OFFSET[i] plies back, or None when that
+    // reaches past the root (or lands on a null move, which stores None)
+    fn cont_keys(&self, ply: usize) -> [Option<ContKey>; CONT_LEN] {
+        std::array::from_fn(|i| {
+            let off = CONT_OFFSET[i];
+            if ply >= off { self.cont_stack[ply - off] } else { None }
+        })
+    }
 }
 
 fn has_non_pawn_piece(board: &Board, color: Color) -> bool {

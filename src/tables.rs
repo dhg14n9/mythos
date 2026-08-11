@@ -129,8 +129,6 @@ impl History {
         self.array[color][from][to]
     }
 
-    // bonus is positive, malus negative. the magnitude is the caller's business: it varies
-    // per move within a single cutoff, so it cannot be recovered from depth alone
     pub fn update(&mut self, color: Color, from: Square, to: Square, bonus: i32) {
         apply::<MAX_HISTORY>(&mut self.array[color][from][to], bonus)
     }
@@ -138,6 +136,11 @@ impl History {
 }
 
 const MAX_CONTINUATION: i32 = 15000;
+
+pub const CONT_OFFSET: [usize; 4] = [1, 2, 4, 6];
+pub const CONT_LEN: usize = CONT_OFFSET.len();
+pub const CONT_READ: usize = 2;
+
 pub struct Continuation {
     array: Box<[[[[i16; Square::NUM]; Piece::NUM]; Square::NUM]; Piece::NUM]>
 }
@@ -153,9 +156,6 @@ impl Continuation {
         self.array[prev_piece][prev_to][piece][to] as i32
     }
 
-    // entries are i16 to keep the table small, but the gravity term overflows i16 part way
-    // through, so the update runs in i32 and narrows on store. apply has a fixed point at
-    // MAX_CONTINUATION, so |entry| stays bounded by it
     pub fn update(&mut self, prev_piece: Piece, prev_to: Square, piece: Piece, to: Square, bonus: i32) {
         let entry = &mut self.array[prev_piece][prev_to][piece][to];
         let mut value = *entry as i32;
