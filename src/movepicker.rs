@@ -49,7 +49,7 @@ impl MovePicker {
             let score = if mv == killer1      { KILLER1_SCORE }
                              else if mv == killer2 { KILLER2_SCORE }
                              else {
-                                 let mut temp = thread_data.history.probe(board.stm(), mv.from(), mv.to()) * 2;
+                                 let mut temp = thread_data.butterfly.probe(board.stm(), mv.from(), mv.to()) * 2;
                                  for i in 0..CONT_READ {
                                      if let Some(key) = keys[i] {
                                          temp += thread_data.continuation.probe(key.piece, key.square, board.piece_at(mv.from()), mv.to());

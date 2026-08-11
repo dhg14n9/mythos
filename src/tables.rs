@@ -108,18 +108,18 @@ impl Killer {
 
 }
 
-// History heuristic
-const MAX_HISTORY: i32 = 8192;
+// Butterfly history heuristic
+const MAX_BUTTERFLY: i32 = 8192;
 
 fn apply<const MAX: i32>(entry: &mut i32, bonus: i32) {
     *entry += bonus - *entry * bonus.abs() / MAX
 }
 
-pub struct History {
+pub struct Butterfly {
     array: Box<[[[i32; 64]; 64]; 2]>
 }
 
-impl History {
+impl Butterfly {
     pub fn new() -> Self {
         Self {
             array: Box::from([[[0; 64]; 64]; 2])
@@ -130,7 +130,7 @@ impl History {
     }
 
     pub fn update(&mut self, color: Color, from: Square, to: Square, bonus: i32) {
-        apply::<MAX_HISTORY>(&mut self.array[color][from][to], bonus)
+        apply::<MAX_BUTTERFLY>(&mut self.array[color][from][to], bonus)
     }
 
 }
@@ -172,7 +172,7 @@ pub struct ContKey {
 }
 
 pub struct ThreadData {
-    pub history: History,
+    pub butterfly: Butterfly,
     pub killer: Killer,
     pub continuation: Continuation
 }
@@ -180,7 +180,7 @@ pub struct ThreadData {
 impl ThreadData {
     pub fn new() -> Self {
         Self {
-            history: History::new(),
+            butterfly: Butterfly::new(),
             killer: Killer::new(),
             continuation: Continuation::new(),
         }

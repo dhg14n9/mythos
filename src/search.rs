@@ -362,9 +362,9 @@ impl Search {
                     let cont_bonus  = (100 * depth as i32).min(1100) - 70;
                     let cont_malus  = (400 * depth as i32).min(950) - 50 - 20 * n_failed as i32;
 
-                    // add to killer + history
+                    // add to killer + butterfly
                     self.thread_data.killer.store(mv, ply);
-                    self.thread_data.history.update(stm, mv.from(), mv.to(), quiet_bonus);
+                    self.thread_data.butterfly.update(stm, mv.from(), mv.to(), quiet_bonus);
                     for i in 0..CONT_LEN {
                         if let Some(prev) = prev_keys[i] {
                             self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(mv.from()), mv.to(), cont_bonus);
@@ -376,7 +376,7 @@ impl Search {
                         let denom = 1024 + 45 * j as i32;
                         let scale = 1024 * 1024 / (denom * denom / 1024);
 
-                        self.thread_data.history.update(stm, failed.from(), failed.to(), -quiet_malus * scale / 1024);
+                        self.thread_data.butterfly.update(stm, failed.from(), failed.to(), -quiet_malus * scale / 1024);
                         for i in 0..CONT_LEN {
                             if let Some(prev) = prev_keys[i] {
                                 self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(failed.from()), failed.to(), -cont_malus * scale / 1024);
