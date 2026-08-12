@@ -186,6 +186,17 @@ impl ThreadData {
         }
     }
 
+
+    pub fn quiet_history(&self, color: Color, moved: Piece, mv: Move, keys: &[Option<ContKey>; CONT_LEN]) -> i32 {
+        let mut score = self.butterfly.probe(color, mv.from(), mv.to()) * 2;
+        for i in 0..CONT_READ {
+            if let Some(key) = keys[i] {
+                score += self.continuation.probe(key.piece, key.square, moved, mv.to());
+            }
+        }
+        score
+    }
+
     pub fn clear(&mut self) {
         *self = Self::new();
     }

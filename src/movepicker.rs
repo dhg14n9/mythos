@@ -1,5 +1,5 @@
 use crate::board::board::Board;
-use crate::tables::{ContKey, ThreadData, CONT_LEN, CONT_READ};
+use crate::tables::{ContKey, ThreadData, CONT_LEN};
 use crate::types::{Bitboard, Color, MAX_LIST_LENGTH, Move, MoveList, Piece, PieceType, Square};
 
 const KILLER1_SCORE: i32 = 1_000_000;
@@ -48,15 +48,7 @@ impl MovePicker {
             let mv = self.list.get(i);
             let score = if mv == killer1      { KILLER1_SCORE }
                              else if mv == killer2 { KILLER2_SCORE }
-                             else {
-                                 let mut temp = thread_data.butterfly.probe(board.stm(), mv.from(), mv.to()) * 2;
-                                 for i in 0..CONT_READ {
-                                     if let Some(key) = keys[i] {
-                                         temp += thread_data.continuation.probe(key.piece, key.square, board.piece_at(mv.from()), mv.to());
-                                     }
-                                 }
-                                 temp
-                             };
+                             else { thread_data.quiet_history(board.stm(), board.piece_at(mv.from()), mv, &keys) };
             self.list.score(i, score)
         }
     }

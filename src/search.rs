@@ -305,7 +305,15 @@ impl Search {
                 }
             }
 
-            self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() });
+            let moved = board.piece_at(mv.from());
+            self.cont_stack[ply] = Some(ContKey { piece: moved, square: mv.to() });
+
+
+            let hist = if i != 0 && mv.is_quiet() {
+                self.thread_data.quiet_history(stm, moved, mv, &prev_keys)
+            } else {
+                0
+            };
 
             board.make_move(mv);
             let give_check = board.is_check();
@@ -322,9 +330,11 @@ impl Search {
             if i == 0 {
                 score = -self.negamax::<PV>(board, new_depth, -beta, -alpha, ply + 1, true);
             } else {
-                let r = if self.should_lmr(i, depth, ply, mv, give_check, in_check) { Self::lmr_reduction(depth, i) } else { 0 };
-                let r = r.min(new_depth.saturating_sub(1));
-                let reduced_depth = new_depth - r;
+                let r = if self.should_lmr(i, depth, ply, mv, give_check, in_check) {
+                    Self::lmr_reduction(depth, i, hist)
+                } else { 0 };
+                let r = r.min(new_depth.saturating_sub(1) as i32).max(0);
+                let reduced_depth = new_depth - r as usize;
 
                 score = -self.negamax::<false>(board, reduced_depth, -alpha - 1, -alpha, ply + 1, true);
 
@@ -367,7 +377,7 @@ impl Search {
                     self.thread_data.butterfly.update(stm, mv.from(), mv.to(), quiet_bonus);
                     for i in 0..CONT_LEN {
                         if let Some(prev) = prev_keys[i] {
-                            self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(mv.from()), mv.to(), cont_bonus);
+                            self.thread_data.continuation.update(prev.piece, prev.square, moved, mv.to(), cont_bonus);
                         }
                     }
 
@@ -594,8 +604,10 @@ impl Search {
         (depth < 5) && !see(board, mv, Self::see_threshold(depth, mv))
     }
 
-    fn lmr_reduction(depth: usize, i: usize) -> usize {
-        (0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25) as usize
+    fn lmr_reduction(depth: usize, i: usize, hist: i32) -> i32 {
+        const HIST_DIVISOR: f64 = 11000f64; //
+        let base = 0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25;
+        (base - (hist as f64) / HIST_DIVISOR) as i32
     }
 
     fn nmp_reduction(depth: usize) -> usize {
