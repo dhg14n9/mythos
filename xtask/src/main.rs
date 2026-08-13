@@ -1,10 +1,12 @@
 mod menu;
+mod selfplay;
 mod sprt;
 mod sprt_report;
 mod tasks;
 mod util;
 mod vs_bench;
 
+use selfplay::SelfplayConfig;
 use sprt::SprtConfig;
 use util::Result;
 
@@ -43,6 +45,11 @@ fn dispatch(args: &[String]) -> Result<()> {
             let (gitref, depth) = parse_vs_args(rest)?;
             vs_bench::vs_search_bench(gitref, depth)
         }
+        "selfplay" => selfplay::selfplay(&parse_selfplay_flags(rest)?),
+        "selfplay-report" => match rest {
+            [dir] => selfplay::render_cmd(dir),
+            _ => Err("usage: cargo xtask selfplay-report <run-dir>".into()),
+        },
         "sprt" => sprt::sprt(&parse_sprt_flags(rest)?),
         "sprt-report" => match rest {
             [dir] => sprt_report::report_cmd(dir),
@@ -69,6 +76,30 @@ fn parse_vs_args(args: &[String]) -> Result<(&str, &str)> {
         }
     }
     Ok((gitref, depth))
+}
+
+fn parse_selfplay_flags(args: &[String]) -> Result<SelfplayConfig> {
+    let mut cfg = SelfplayConfig::default();
+    let mut it = args.iter();
+    while let Some(flag) = it.next() {
+        let mut value = |name: &str| -> Result<String> {
+            it.next()
+                .cloned()
+                .ok_or_else(|| format!("{name} needs a value"))
+        };
+        match flag.as_str() {
+            "--games" => cfg.games = value("--games")?,
+            "--tc" => cfg.tc = value("--tc")?,
+            "--hash" => cfg.hash = value("--hash")?,
+            "--seed" => cfg.seed = value("--seed")?,
+            "--top" => cfg.top = value("--top")?,
+            "--opening" => cfg.opening = value("--opening")?,
+            "--name" => cfg.name = Some(value("--name")?),
+            "--verbose" | "-v" => cfg.verbose = true,
+            other => return Err(format!("unknown selfplay flag: {other}")),
+        }
+    }
+    Ok(cfg)
 }
 
 fn parse_sprt_flags(args: &[String]) -> Result<SprtConfig> {
@@ -120,6 +151,19 @@ Run with no command for an interactive menu, or call a command directly:
   vs-search-bench [ref] [depth]
                      search-bench the working tree vs a git ref (default
                      HEAD) and diff per-position node counts and best moves
+
+  selfplay [--games N] [--tc TC] [--hash MB] [--seed S] [--top N]
+           [--opening N] [--name NAME] [--verbose]
+                     play N self-play games at a time control and write an
+                     interactive HTML report (history tables, per-move search
+                     stats, game replay) to target/selfplay/runs/<run>/;
+                     defaults: 4 games, tc 8+0.08, 16 MB hash, seed 1.
+                     --top caps how many continuation cells per engine the
+                     report carries (0 = all); --opening sets the random
+                     opening length in plies
+  selfplay-report RUN
+                     (re)render report.html for a past selfplay run — RUN is a
+                     target/selfplay/runs/<run> path, a run name, or a run.json
 
   sprt [--ref REF] [--elo0 E] [--elo1 E] [--tc TC]
        [--concurrency N] [--rounds N] [--book PATH] [--affinity CPUS]

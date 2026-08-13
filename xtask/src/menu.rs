@@ -1,5 +1,6 @@
 use inquire::{Confirm, InquireError, Select, Text};
 
+use crate::selfplay::{self, SelfplayConfig};
 use crate::sprt::{self, SprtConfig};
 use crate::sprt_report;
 use crate::tasks;
@@ -16,6 +17,8 @@ const ITEMS: &[&str] = &[
     "bench — make/unmake micro-benchmark",
     "search-bench — fixed-depth search node-count fingerprint",
     "vs-search-bench — diff search-bench of working tree vs a git ref",
+    "selfplay — self-play games + interactive HTML report",
+    "selfplay-report — re-render the report for a past selfplay run",
     "sprt — SPRT match vs a git ref",
     "sprt-report — regenerate the report for a past SPRT run",
     "quit",
@@ -45,6 +48,8 @@ pub fn menu() -> Result<()> {
             "bench" => tasks::bench(),
             "search-bench" => prompt_search_bench(),
             "vs-search-bench" => prompt_vs_search_bench(),
+            "selfplay" => prompt_selfplay(),
+            "selfplay-report" => prompt_selfplay_report(),
             "sprt" => prompt_sprt(),
             "sprt-report" => prompt_sprt_report(),
             _ => unreachable!(),
@@ -118,6 +123,50 @@ fn prompt_vs_search_bench() -> Result<()> {
     vs_bench::vs_search_bench(&gitref, &depth)
 }
 
+fn prompt_selfplay() -> Result<()> {
+    let defaults = SelfplayConfig::default();
+    let cfg = SelfplayConfig {
+        games: ask(Text::new("games").with_default(&defaults.games))?,
+        tc: ask(Text::new("time control (base+inc, seconds)").with_default(&defaults.tc))?,
+        hash: ask(Text::new("hash MB per engine").with_default(&defaults.hash))?,
+        seed: ask(Text::new("seed").with_default(&defaults.seed))?,
+        top: ask(Text::new("continuation cells kept per engine (0 = all)")
+            .with_default(&defaults.top))?,
+        opening: ask(Text::new("random opening plies").with_default(&defaults.opening))?,
+        name: None,
+        verbose: ask_confirm(Confirm::new("print every move?").with_default(false))?,
+    };
+    selfplay::selfplay(&cfg)
+}
+
+fn prompt_selfplay_report() -> Result<()> {
+    let pick = pick_run("target/selfplay/runs", "no selfplay runs found under target/selfplay/runs")?;
+    selfplay::render_cmd(&pick)
+}
+
+/// Pick one of the timestamped run folders under `rel`, newest first.
+fn pick_run(rel: &str, empty_msg: &str) -> Result<String> {
+    let mut names: Vec<String> = std::fs::read_dir(workspace_root().join(rel))
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    if names.is_empty() {
+        return Err(empty_msg.into());
+    }
+    names.sort_unstable_by(|a, b| b.cmp(a)); // timestamp prefix: newest first
+    match Select::new("run", names).prompt() {
+        Ok(pick) => Ok(pick),
+        Err(InquireError::OperationCanceled | InquireError::OperationInterrupted) => {
+            Err(CANCELED.into())
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 fn prompt_sprt() -> Result<()> {
     let defaults = SprtConfig::default();
     let cfg = SprtConfig {
@@ -139,25 +188,6 @@ fn prompt_sprt() -> Result<()> {
 }
 
 fn prompt_sprt_report() -> Result<()> {
-    let runs = workspace_root().join("target/sprt/runs");
-    let mut names: Vec<String> = std::fs::read_dir(&runs)
-        .ok()
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|e| e.path().is_dir())
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .collect();
-    if names.is_empty() {
-        return Err("no SPRT runs found under target/sprt/runs".into());
-    }
-    names.sort_unstable_by(|a, b| b.cmp(a)); // timestamp prefix: newest first
-    let pick = match Select::new("run", names).prompt() {
-        Ok(pick) => pick,
-        Err(InquireError::OperationCanceled | InquireError::OperationInterrupted) => {
-            return Err(CANCELED.into());
-        }
-        Err(e) => return Err(e.to_string()),
-    };
+    let pick = pick_run("target/sprt/runs", "no SPRT runs found under target/sprt/runs")?;
     sprt_report::report_cmd(&pick)
 }

@@ -6,6 +6,8 @@ use crate::eval::eval::eval;
 use crate::movepicker::{see, MovePicker};
 use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY, CONT_LEN, CONT_OFFSET};
 use crate::types::{Color, Move, PieceType, Score};
+use crate::stat;
+use crate::stats::Stats;
 
 const TC_NODE_CHECK: u64 = 2048;
 
@@ -109,7 +111,9 @@ pub struct Search {
     pub thread_data: ThreadData,
     pub root_depth: usize,
     pub pv_table: PvTable,
-    pub cont_stack: Box<[Option<ContKey>; MAX_PLY]>
+    pub cont_stack: Box<[Option<ContKey>; MAX_PLY]>,
+    /// Only written when the `stats` feature is on; see [`crate::stats`].
+    pub stats: Stats
 }
 
 impl Search {
@@ -123,7 +127,8 @@ impl Search {
             thread_data,
             root_depth: 0,
             pv_table: PvTable::new(),
-            cont_stack: Box::from([None; MAX_PLY])
+            cont_stack: Box::from([None; MAX_PLY]),
+            stats: Stats::default()
         }
     }
 
@@ -147,6 +152,7 @@ impl Search {
         ply: usize
     ) -> i32 {
         self.nodes += 1;
+        stat!(self.stats.qnodes += 1; self.stats.seldepth = self.stats.seldepth.max(ply););
         self.pv_table.clear(ply);
 
         if self.should_stop() {
@@ -223,6 +229,7 @@ impl Search {
         allow_null: bool
     ) -> i32 {
         self.nodes += 1;
+        stat!(self.stats.seldepth = self.stats.seldepth.max(ply););
         self.pv_table.clear(ply);
 
         if self.should_stop() {
@@ -238,13 +245,19 @@ impl Search {
         }
 
         let mut tt_move = Move::NULL;
+        stat!(self.stats.tt_probe += 1;);
         if let Some((score, best, entry_depth, bound)) = self.trans_table.probe(board.hash()) {
+            stat!(self.stats.tt_hit += 1;);
             tt_move = best;
             if entry_depth >= depth && !PV {
-                match bound {
-                    BoundType::Exact => {return score}
-                    BoundType::Lower => {if score >= beta {return score}}
-                    BoundType::Upper => {if score <= alpha {return score}}
+                let cut = match bound {
+                    BoundType::Exact => true,
+                    BoundType::Lower => score >= beta,
+                    BoundType::Upper => score <= alpha
+                };
+                if cut {
+                    stat!(self.stats.tt_cut += 1;);
+                    return score;
                 }
             }
         }
@@ -256,16 +269,21 @@ impl Search {
         let static_eval = eval(board);
 
         if allow_null && self.should_nmp(beta, depth, board, static_eval) {
+            stat!(self.stats.nmp_try += 1;);
             self.cont_stack[ply] = None;
 
             board.make_null_move();
             let score = -self.negamax::<false>(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth)), -beta, -beta + 1, ply + 1, false);
             board.unmake_null_move();
 
-            if score >= beta { return score }
+            if score >= beta {
+                stat!(self.stats.nmp_cut += 1;);
+                return score
+            }
         }
 
         if self.should_rfp(board, beta, depth) && static_eval > beta + Self::rfp_margin(depth) {
+            stat!(self.stats.rfp_cut += 1;);
             return static_eval
         }
 
@@ -295,11 +313,13 @@ impl Search {
 
             if !PV && !in_check && best > -Score::MAX {
                 if Self::should_see_prune(board, depth, mv) {
+                    stat!(self.stats.see_skip += 1;);
                     continue;
                 }
 
                 if mv.is_quiet() && (Self::should_lmp(depth, i) || Self::should_futility(depth, static_eval, alpha))
                 {
+                    stat!(if Self::should_lmp(depth, i) { self.stats.lmp_skip += 1 } else { self.stats.futility_skip += 1 };);
                     move_picker.skip_quiets();
                     continue;
                 }
@@ -335,16 +355,19 @@ impl Search {
                 } else { 0 };
                 let r = r.min(new_depth.saturating_sub(1) as i32).max(0);
                 let reduced_depth = new_depth - r as usize;
+                stat!(if r > 0 { self.stats.lmr_reduced += 1; self.stats.lmr_plies += r as u64 });
 
                 score = -self.negamax::<false>(board, reduced_depth, -alpha - 1, -alpha, ply + 1, true);
 
                 // wrong reduction
                 if score > alpha && reduced_depth < new_depth {
+                    stat!(self.stats.lmr_research += 1;);
                     score = -self.negamax::<false>(board, new_depth, -alpha - 1, -alpha, ply + 1, true);
                 }
 
                 // new PV
                 if score > alpha && score < beta {
+                    stat!(self.stats.pv_research += 1;);
                     score = -self.negamax::<PV>(board, new_depth, -beta, -alpha, ply + 1, true);
                 }
             }
@@ -366,6 +389,12 @@ impl Search {
             }
 
             if alpha >= beta {
+                stat!({
+                    // `i` was incremented above, so the cutoff move was number i - 1
+                    self.stats.cutoffs += 1;
+                    self.stats.cutoff_idx[(i - 1).min(7)] += 1;
+                    if mv.is_quiet() { self.stats.cutoff_quiet += 1 }
+                });
                 if mv.is_quiet() {
                     let quiet_bonus = (180 * depth as i32).min(1750) - 70;
                     let quiet_malus = (170 * depth as i32).min(1100) - 40 - 30 * n_failed as i32;
@@ -403,6 +432,8 @@ impl Search {
             }
 
         }
+
+        stat!(if alpha < beta { self.stats.all_nodes += 1 });
 
         if self.stopped {
             return 0;
@@ -534,6 +565,15 @@ impl Search {
             beta = result.1 + 30;
             best = result;
             best_pv = Vec::from(self.pv_table.get_line(0));
+
+            stat!(self.stats.iters.push(crate::stats::IterInfo {
+                depth,
+                score: best.1,
+                nodes: self.nodes,
+                ms: self.time_control.start.elapsed().as_millis() as u64,
+                researches: alpha_tries + beta_tries,
+                pv: best_pv.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(" ")
+            }););
 
             // info
             if !self.silent {

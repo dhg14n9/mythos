@@ -133,6 +133,11 @@ impl Butterfly {
         apply::<MAX_BUTTERFLY>(&mut self.array[color][from][to], bonus)
     }
 
+    // read-only view for instrumentation (examples/selfplay_hist.rs)
+    pub fn raw(&self) -> &[[[i32; 64]; 64]; 2] {
+        &self.array
+    }
+
 }
 
 const MAX_CONTINUATION: i32 = 15000;
@@ -161,6 +166,11 @@ impl Continuation {
         let mut value = *entry as i32;
         apply::<MAX_CONTINUATION>(&mut value, bonus);
         *entry = value as i16
+    }
+
+    // read-only view for instrumentation (examples/selfplay_hist.rs)
+    pub fn raw(&self) -> &[[[[i16; Square::NUM]; Piece::NUM]; Square::NUM]; Piece::NUM] {
+        &self.array
     }
 
 }

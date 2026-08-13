@@ -238,10 +238,23 @@ fn perft_divide(board: &mut Board, depth: usize) {
     println!("Nodes searched: {total}");
 }
 
-fn parse_time(args: &[&str], stm: Color) -> (Duration, Duration) {
-    // GUI latency
-    const OVERHEAD_MS: u64 = 50;
+// GUI latency
+const OVERHEAD_MS: u64 = 50;
 
+/// Turn a clock reading into the (hard, soft) limits for one search. Shared with
+/// the self-play harness so it drives the search through the same time manager a
+/// real match does.
+pub fn limits(time_ms: u64, inc_ms: u64, movestogo: u64) -> (Duration, Duration) {
+    let time = time_ms.saturating_sub(OVERHEAD_MS).max(1);
+    let mtg = movestogo.max(1);
+
+    let hard = (time / 4).max(1);
+    let soft = (time / mtg + inc_ms * 1 / 4).clamp(1, hard);
+
+    (Duration::from_millis(hard), Duration::from_millis(soft))
+}
+
+fn parse_time(args: &[&str], stm: Color) -> (Duration, Duration) {
     let value = |key: &str| -> Option<u64> {
         let idx = args.iter().position(|&a| a == key)?;
         args.get(idx + 1)?.parse().ok()
@@ -261,13 +274,6 @@ fn parse_time(args: &[&str], stm: Color) -> (Duration, Duration) {
         return (Duration::MAX, Duration::MAX);
     };
 
-    let time = time.saturating_sub(OVERHEAD_MS).max(1);
-    let inc = value(inc_key).unwrap_or(0);
-    let mtg = value("movestogo").unwrap_or(40).max(1);
-
-    let hard = (time / 4).max(1);
-    let soft = (time / mtg + inc * 1 / 4).clamp(1, hard);
-
-    (Duration::from_millis(hard), Duration::from_millis(soft))
+    limits(time, value(inc_key).unwrap_or(0), value("movestogo").unwrap_or(40))
 }
 
