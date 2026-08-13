@@ -605,7 +605,7 @@ impl Search {
     }
 
     fn lmr_reduction(depth: usize, i: usize, hist: i32) -> i32 {
-        const HIST_DIVISOR: f64 = 11000f64; //
+        const HIST_DIVISOR: f64 = 10000f64; //
         let base = 0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25;
         (base - (hist as f64) / HIST_DIVISOR) as i32
     }
