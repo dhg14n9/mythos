@@ -114,7 +114,7 @@ cargo xtask <command>    # run a command directly
 | `bench-suite [--tt]` | Andrew Wagner's verified suite (127 positions, ~4.7B nodes) |
 | `divide [fen] [depth]` | per-move node counts via UCI `go perft`, to bisect a perft mismatch |
 | `bench` | make/unmake micro-benchmark |
-| `search-bench [depth]` | fixed-depth search over 22 positions, reports the node count (a functional fingerprint of the search) |
+| `search-bench [depth]` | fixed-depth search over 22 positions, reports the node count (a functional fingerprint of the search); the engine exposes the same thing as `mythos bench` for OpenBench |
 | `sprt` | SPRT match of the working tree vs a git ref |
 | `sprt-report <run>` | regenerate the annotated report for a past SPRT run |
 

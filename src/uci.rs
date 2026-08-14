@@ -17,6 +17,8 @@ const HASH_DEFAULT: usize = 16;
 const HASH_MIN: usize = 1;
 const HASH_MAX: usize = 4096;
 
+const THREADS: usize = 1;
+
 pub fn run() {
     let mut board = Board::start_pos();
     let stop = Arc::new(AtomicBool::new(false));
@@ -38,6 +40,7 @@ pub fn run() {
                 println!("id name {NAME}");
                 println!("id author {AUTHOR}");
                 println!("option name Hash type spin default {HASH_DEFAULT} min {HASH_MIN} max {HASH_MAX}");
+                println!("option name Threads type spin default {THREADS} min {THREADS} max {THREADS}");
                 println!("uciok");
             }
             "isready" => println!("readyok"),
@@ -56,6 +59,13 @@ pub fn run() {
             "position" => position(&mut board, args),
             "go" => go(&mut board, args, &stop, &mut handle, &trans_table, &mut thread_data),
             "bench" => {
+                let depth = args
+                    .first()
+                    .and_then(|d| d.parse().ok())
+                    .unwrap_or(crate::bench::BENCH_DEPTH);
+                crate::bench::search_bench(depth);
+            }
+            "perftsuite" => {
                 let use_tt = args.iter().any(|a| matches!(*a, "tt" | "--tt"));
                 crate::bench::run(use_tt);
             }
@@ -94,6 +104,13 @@ fn set_option(args: &[&str], hash_mb: &mut usize) -> bool {
                     }
                 },
                 None => println!("info string invalid value for Hash"),
+            }
+        }
+        Some(n) if n.eq_ignore_ascii_case("threads") => {
+            match value.and_then(|v| v.parse::<usize>().ok()) {
+                Some(t) if t == THREADS => {},
+                Some(t) => println!("info string Threads {t} unsupported, staying at {THREADS}"),
+                None => println!("info string invalid value for Threads"),
             }
         }
         Some(n) => println!("info string unknown option: {n}"),
