@@ -65,7 +65,7 @@ pub fn search_bench(depth: Option<&str>) -> Result<()> {
 
 pub fn bench_suite(tt: bool) -> Result<()> {
     let mut cmd = cargo();
-    cmd.args(["run", "--release", "--quiet", "--", "bench"]);
+    cmd.args(["run", "--release", "--quiet", "--", "perftsuite"]);
     if tt {
         cmd.arg("tt");
     }

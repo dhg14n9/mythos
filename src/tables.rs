@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::types::{Color, Move, Piece, Square};
 
 // trans table
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum BoundType {
     #[default]

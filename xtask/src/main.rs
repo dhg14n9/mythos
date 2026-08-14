@@ -108,7 +108,7 @@ Run with no command for an interactive menu, or call a command directly:
                      time a perft and report nodes / elapsed / NPS
                      (start position at depth 6 by default)
   bench-suite [--tt] Andrew Wagner's verified suite (127 positions, ~4.7B
-                     nodes) via the engine's `bench` command
+                     nodes) via the engine's `perftsuite` command
   divide [fen] [depth]
                      per-move node counts via UCI `go perft`, to bisect a
                      perft mismatch (start position at depth 1 by default)
@@ -116,7 +116,7 @@ Run with no command for an interactive menu, or call a command directly:
   search-bench [depth]
                      run the search to a fixed depth over 22 suite positions
                      and report the node count — a functional fingerprint of
-                     the search (depth 7 by default)
+                     the search (depth 13 by default)
   vs-search-bench [ref] [depth]
                      search-bench the working tree vs a git ref (default
                      HEAD) and diff per-position node counts and best moves

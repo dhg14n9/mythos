@@ -23,6 +23,11 @@ sprt_*.txt
 # versioned, use git-lfs rather than committing them directly.
 *.nnue
 
+# --- OpenBench ---
+# Binaries dropped in the repo root by `make EXE=...`
+/Engine-*
+/mythos
+
 # --- OS junk ---
 .DS_Store
 

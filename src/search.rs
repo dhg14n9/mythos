@@ -1,3 +1,4 @@
+use std::cmp::PartialEq;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -237,9 +238,12 @@ impl Search {
             return eval(board);
         }
 
+        let tt_entry = self.trans_table.probe(board.hash());
         let mut tt_move = Move::NULL;
-        if let Some((score, best, entry_depth, bound)) = self.trans_table.probe(board.hash()) {
+        let mut tt_bound = BoundType::Upper;
+        if let Some((score, best, entry_depth, bound)) = tt_entry {
             tt_move = best;
+            tt_bound = bound;
             if entry_depth >= depth && !PV {
                 let cut = match bound {
                     BoundType::Exact => true,
@@ -257,6 +261,13 @@ impl Search {
         };
 
         let static_eval = eval(board);
+        let stm = board.stm();
+        let in_check = board.is_check();
+
+        // temporary, havent sprt-ed
+        // if Self::should_razor(PV, in_check, static_eval, alpha, depth, tt_move, tt_bound) {
+        //     return self.qsearch::<false>(board, alpha, beta, ply);
+        // }
 
         if allow_null && self.should_nmp(beta, depth, board, static_eval) {
             self.cont_stack[ply] = None;
@@ -277,8 +288,6 @@ impl Search {
         let mut best = -Score::MAX;
         let mut best_move = Move::NULL;
 
-        let stm = board.stm();
-        let in_check = board.is_check();
         // store quiets that doesn't get cut off to give malus
         let mut failure: [Move; 32] = [Move::NULL; 32];
         let mut n_failed: usize = 0;
@@ -621,6 +630,16 @@ impl Search {
     fn should_hist_prune(mv: Move, depth: usize, hist: i32, killers: (Move, Move), alpha: i32) -> bool {
         const HIST_PRUNE_MARGIN: i32 = 1000;
         (depth < 5) && (hist < -HIST_PRUNE_MARGIN * (depth as i32)) && (killers.0 != mv && killers.1 != mv) && !Score::is_mate(alpha)
+    }
+
+    fn should_razor(pv: bool, in_check: bool, static_eval: i32, alpha: i32, depth: usize, tt_move: Move, tt_bound: BoundType) -> bool {
+        !pv
+        && !in_check
+        && (static_eval < alpha - 500 * (depth * depth) as i32)
+        && alpha < 2000
+        && !tt_move.is_quiet()
+        && tt_bound != BoundType::Lower
+        && depth < 6
     }
 
     fn lmr_reduction(depth: usize, i: usize, hist: i32) -> i32 {

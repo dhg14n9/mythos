@@ -9,6 +9,8 @@ use crate::types::MoveList;
 // (http://www.rocechess.ch/perft.html)
 const EPD: &str = include_str!("tests/perft_bench.epd");
 
+pub const BENCH_DEPTH: usize = 13;
+
 pub fn cases() -> Vec<(&'static str, usize, u64)> {
     EPD.lines()
         .map(str::trim)
@@ -98,8 +100,7 @@ pub fn search_bench(depth: usize) {
         group_digits(nps as u64)
     );
     println!();
-    // Machine-friendly last line, same shape OpenBench-style tooling expects.
-    println!("Nodes searched: {total_nodes}");
+    println!("{total_nodes} nodes {} nps", nps as u64);
 }
 
 // Transposition Table
