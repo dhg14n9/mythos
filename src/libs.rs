@@ -5,10 +5,9 @@ pub mod board;
 pub mod movepicker;
 pub mod types;
 pub mod uci;
-pub mod tables;
+mod tables;
 
 pub mod eval;
-pub mod search;
-pub mod stats;
+mod search;
 #[cfg(test)]
 mod tests;

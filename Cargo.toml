@@ -12,11 +12,6 @@ path = "src/libs.rs"
 name = "mythos"
 path = "src/main.rs"
 
-[features]
-# Search instrumentation for `cargo xtask selfplay`. Off by default: every
-# counter lives inside the `stat!` macro, which expands to nothing without it.
-stats = []
-
 [dependencies]
 log = "0.4.33"
 

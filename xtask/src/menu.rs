@@ -1,6 +1,5 @@
 use inquire::{Confirm, InquireError, Select, Text};
 
-use crate::selfplay::{self, SelfplayConfig};
 use crate::sprt::{self, SprtConfig};
 use crate::sprt_report;
 use crate::tasks;
@@ -17,8 +16,6 @@ const ITEMS: &[&str] = &[
     "bench — make/unmake micro-benchmark",
     "search-bench — fixed-depth search node-count fingerprint",
     "vs-search-bench — diff search-bench of working tree vs a git ref",
-    "selfplay — self-play games + interactive HTML report",
-    "selfplay-report — re-render the report for a past selfplay run",
     "sprt — SPRT match vs a git ref",
     "sprt-report — regenerate the report for a past SPRT run",
     "quit",
@@ -48,8 +45,6 @@ pub fn menu() -> Result<()> {
             "bench" => tasks::bench(),
             "search-bench" => prompt_search_bench(),
             "vs-search-bench" => prompt_vs_search_bench(),
-            "selfplay" => prompt_selfplay(),
-            "selfplay-report" => prompt_selfplay_report(),
             "sprt" => prompt_sprt(),
             "sprt-report" => prompt_sprt_report(),
             _ => unreachable!(),
@@ -121,27 +116,6 @@ fn prompt_vs_search_bench() -> Result<()> {
     let gitref = ask(Text::new("base ref").with_default("HEAD"))?;
     let depth = ask(Text::new("depth").with_default("7"))?;
     vs_bench::vs_search_bench(&gitref, &depth)
-}
-
-fn prompt_selfplay() -> Result<()> {
-    let defaults = SelfplayConfig::default();
-    let cfg = SelfplayConfig {
-        games: ask(Text::new("games").with_default(&defaults.games))?,
-        tc: ask(Text::new("time control (base+inc, seconds)").with_default(&defaults.tc))?,
-        hash: ask(Text::new("hash MB per engine").with_default(&defaults.hash))?,
-        seed: ask(Text::new("seed").with_default(&defaults.seed))?,
-        top: ask(Text::new("continuation cells kept per engine (0 = all)")
-            .with_default(&defaults.top))?,
-        opening: ask(Text::new("random opening plies").with_default(&defaults.opening))?,
-        name: None,
-        verbose: ask_confirm(Confirm::new("print every move?").with_default(false))?,
-    };
-    selfplay::selfplay(&cfg)
-}
-
-fn prompt_selfplay_report() -> Result<()> {
-    let pick = pick_run("target/selfplay/runs", "no selfplay runs found under target/selfplay/runs")?;
-    selfplay::render_cmd(&pick)
 }
 
 /// Pick one of the timestamped run folders under `rel`, newest first.

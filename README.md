@@ -115,42 +115,11 @@ cargo xtask <command>    # run a command directly
 | `divide [fen] [depth]` | per-move node counts via UCI `go perft`, to bisect a perft mismatch |
 | `bench` | make/unmake micro-benchmark |
 | `search-bench [depth]` | fixed-depth search over 22 positions, reports the node count (a functional fingerprint of the search) |
-| `selfplay` | play self-play games at a time control and write an interactive HTML report |
-| `selfplay-report <run>` | re-render the report for a past self-play run |
 | `sprt` | SPRT match of the working tree vs a git ref |
 | `sprt-report <run>` | regenerate the annotated report for a past SPRT run |
 
 Plain `cargo build` / `cargo test` / `cargo run` are unchanged — xtask only wraps
 the workflows that need extra flags or orchestration.
-
-### Self-play report
-
-```bash
-cargo xtask selfplay [--games N] [--tc TC] [--hash MB] [--seed S]
-                     [--top N] [--opening N] [--name NAME] [--verbose]
-```
-
-Plays `N` games of the engine against itself at a real time control (default
-4 games at `8+0.08`), each from its own random balanced opening, and writes a
-single self-contained `report.html` into `target/selfplay/runs/<run>/` next to
-the raw `run.json`. Every side of every game is its own engine — its own
-`ThreadData`, transposition table and clock — so the report can show, per game:
-the replay with the evaluation and clock curves; a per-move search breakdown
-(depth, seldepth, nodes, TT hit rate, first-move cutoff rate) down to the
-individual iterative-deepening iterations and their PVs; explorers for the
-butterfly and continuation history tables both sides built; and how far the two
-sides' tables agree. A summary tab aggregates the whole match.
-
-The harness is `examples/selfplay.rs`, built with the `stats` feature so the
-search counters in `src/stats.rs` are live — those counters compile away
-entirely in normal builds. `--top` caps how many continuation cells per engine
-the report carries (default 20000, `0` keeps all 589,824); the per-square
-aggregates and the correlations are always computed over the full tables.
-Re-render a past run after editing `xtask/assets/selfplay.html` with
-`cargo xtask selfplay-report <run>`.
-
-Note that a clock-driven run is not reproducible: the seed fixes the openings,
-but search depth depends on machine speed, so the games differ run to run.
 
 ### Strength testing (SPRT)
 
