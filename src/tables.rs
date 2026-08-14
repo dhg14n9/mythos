@@ -108,18 +108,18 @@ impl Killer {
 
 }
 
-// History heuristic
-const MAX_HISTORY: i32 = 8192;
+// Butterfly history heuristic
+const MAX_BUTTERFLY: i32 = 8192;
 
 fn apply<const MAX: i32>(entry: &mut i32, bonus: i32) {
     *entry += bonus - *entry * bonus.abs() / MAX
 }
 
-pub struct History {
+pub struct Butterfly {
     array: Box<[[[i32; 64]; 64]; 2]>
 }
 
-impl History {
+impl Butterfly {
     pub fn new() -> Self {
         Self {
             array: Box::from([[[0; 64]; 64]; 2])
@@ -129,15 +129,18 @@ impl History {
         self.array[color][from][to]
     }
 
-    // bonus is positive, malus negative. the magnitude is the caller's business: it varies
-    // per move within a single cutoff, so it cannot be recovered from depth alone
     pub fn update(&mut self, color: Color, from: Square, to: Square, bonus: i32) {
-        apply::<MAX_HISTORY>(&mut self.array[color][from][to], bonus)
+        apply::<MAX_BUTTERFLY>(&mut self.array[color][from][to], bonus)
     }
 
 }
 
 const MAX_CONTINUATION: i32 = 15000;
+
+pub const CONT_OFFSET: [usize; 4] = [1, 2, 4, 6];
+pub const CONT_LEN: usize = CONT_OFFSET.len();
+pub const CONT_READ: usize = 2;
+
 pub struct Continuation {
     array: Box<[[[[i16; Square::NUM]; Piece::NUM]; Square::NUM]; Piece::NUM]>
 }
@@ -153,9 +156,6 @@ impl Continuation {
         self.array[prev_piece][prev_to][piece][to] as i32
     }
 
-    // entries are i16 to keep the table small, but the gravity term overflows i16 part way
-    // through, so the update runs in i32 and narrows on store. apply has a fixed point at
-    // MAX_CONTINUATION, so |entry| stays bounded by it
     pub fn update(&mut self, prev_piece: Piece, prev_to: Square, piece: Piece, to: Square, bonus: i32) {
         let entry = &mut self.array[prev_piece][prev_to][piece][to];
         let mut value = *entry as i32;
@@ -172,7 +172,7 @@ pub struct ContKey {
 }
 
 pub struct ThreadData {
-    pub history: History,
+    pub butterfly: Butterfly,
     pub killer: Killer,
     pub continuation: Continuation
 }
@@ -180,10 +180,21 @@ pub struct ThreadData {
 impl ThreadData {
     pub fn new() -> Self {
         Self {
-            history: History::new(),
+            butterfly: Butterfly::new(),
             killer: Killer::new(),
             continuation: Continuation::new(),
         }
+    }
+
+
+    pub fn quiet_history(&self, color: Color, moved: Piece, mv: Move, keys: &[Option<ContKey>; CONT_LEN]) -> i32 {
+        let mut score = self.butterfly.probe(color, mv.from(), mv.to()) * 2;
+        for i in 0..CONT_READ {
+            if let Some(key) = keys[i] {
+                score += self.continuation.probe(key.piece, key.square, moved, mv.to());
+            }
+        }
+        score
     }
 
     pub fn clear(&mut self) {

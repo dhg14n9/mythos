@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::eval::eval::eval;
 use crate::movepicker::{see, MovePicker};
-use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY};
+use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY, CONT_LEN, CONT_OFFSET};
 use crate::types::{Color, Move, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
@@ -171,7 +171,7 @@ impl Search {
         let mut move_picker = MovePicker::new(Move::NULL);
         move_picker.gen_move(board, true);
 
-        let prev = if ply > 0 { self.cont_stack[ply - 1] } else { None };
+        let prev = self.cont_keys(ply);
         move_picker.score_quiet(&board, &self.thread_data, ply, prev);
         move_picker.score_noisy(board);
 
@@ -241,10 +241,13 @@ impl Search {
         if let Some((score, best, entry_depth, bound)) = self.trans_table.probe(board.hash()) {
             tt_move = best;
             if entry_depth >= depth && !PV {
-                match bound {
-                    BoundType::Exact => {return score}
-                    BoundType::Lower => {if score >= beta {return score}}
-                    BoundType::Upper => {if score <= alpha {return score}}
+                let cut = match bound {
+                    BoundType::Exact => true,
+                    BoundType::Lower => score >= beta,
+                    BoundType::Upper => score <= alpha
+                };
+                if cut {
+                    return score;
                 }
             }
         }
@@ -262,7 +265,9 @@ impl Search {
             let score = -self.negamax::<false>(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth)), -beta, -beta + 1, ply + 1, false);
             board.unmake_null_move();
 
-            if score >= beta { return score }
+            if score >= beta {
+                return score
+            }
         }
 
         if self.should_rfp(board, beta, depth) && static_eval > beta + Self::rfp_margin(depth) {
@@ -281,8 +286,8 @@ impl Search {
         let mut move_picker = MovePicker::new(tt_move);
         move_picker.gen_move(board, false);
 
-        let prev = if ply > 0 { self.cont_stack[ply - 1] } else { None };
-        move_picker.score_quiet(&board, &self.thread_data, ply, prev);
+        let prev_keys: [Option<ContKey>; CONT_LEN] = self.cont_keys(ply);
+        move_picker.score_quiet(&board, &self.thread_data, ply, prev_keys);
         move_picker.score_noisy(board);
 
         if move_picker.terminal() {
@@ -293,7 +298,20 @@ impl Search {
         let mut i = 0; // move num in move ordering
         while let Some(mv) = move_picker.next(board) {
 
+            let moved = board.piece_at(mv.from());
+            let killers = self.thread_data.killer.probe(ply);
+            self.cont_stack[ply] = Some(ContKey { piece: moved, square: mv.to() });
+
+
+            let hist = if i != 0 && mv.is_quiet() {
+                self.thread_data.quiet_history(stm, moved, mv, &prev_keys)
+            } else {
+                0
+            };
+
             if !PV && !in_check && best > -Score::MAX {
+
+
                 if Self::should_see_prune(board, depth, mv) {
                     continue;
                 }
@@ -303,9 +321,12 @@ impl Search {
                     move_picker.skip_quiets();
                     continue;
                 }
+
+                if mv.is_quiet() && Self::should_hist_prune(mv, depth, hist, killers, alpha) {
+                    continue
+                }
             }
 
-            self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() });
 
             board.make_move(mv);
             let give_check = board.is_check();
@@ -322,9 +343,11 @@ impl Search {
             if i == 0 {
                 score = -self.negamax::<PV>(board, new_depth, -beta, -alpha, ply + 1, true);
             } else {
-                let r = if self.should_lmr(i, depth, ply, mv, give_check, in_check) { Self::lmr_reduction(depth, i) } else { 0 };
-                let r = r.min(new_depth.saturating_sub(1));
-                let reduced_depth = new_depth - r;
+                let r = if self.should_lmr(i, depth, mv, give_check, in_check, killers) {
+                    Self::lmr_reduction(depth, i, hist)
+                } else { 0 };
+                let r = r.min(new_depth.saturating_sub(1) as i32).max(0);
+                let reduced_depth = new_depth - r as usize;
 
                 score = -self.negamax::<false>(board, reduced_depth, -alpha - 1, -alpha, ply + 1, true);
 
@@ -362,11 +385,13 @@ impl Search {
                     let cont_bonus  = (100 * depth as i32).min(1100) - 70;
                     let cont_malus  = (400 * depth as i32).min(950) - 50 - 20 * n_failed as i32;
 
-                    // add to killer + history
+                    // add to killer + butterfly
                     self.thread_data.killer.store(mv, ply);
-                    self.thread_data.history.update(stm, mv.from(), mv.to(), quiet_bonus);
-                    if let Some(prev) = prev {
-                        self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(mv.from()), mv.to(), cont_bonus);
+                    self.thread_data.butterfly.update(stm, mv.from(), mv.to(), quiet_bonus);
+                    for i in 0..CONT_LEN {
+                        if let Some(prev) = prev_keys[i] {
+                            self.thread_data.continuation.update(prev.piece, prev.square, moved, mv.to(), cont_bonus);
+                        }
                     }
 
                     for j in 0..n_failed {
@@ -374,9 +399,11 @@ impl Search {
                         let denom = 1024 + 45 * j as i32;
                         let scale = 1024 * 1024 / (denom * denom / 1024);
 
-                        self.thread_data.history.update(stm, failed.from(), failed.to(), -quiet_malus * scale / 1024);
-                        if let Some(prev) = prev {
-                            self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(failed.from()), failed.to(), -cont_malus * scale / 1024);
+                        self.thread_data.butterfly.update(stm, failed.from(), failed.to(), -quiet_malus * scale / 1024);
+                        for i in 0..CONT_LEN {
+                            if let Some(prev) = prev_keys[i] {
+                                self.thread_data.continuation.update(prev.piece, prev.square, board.piece_at(failed.from()), failed.to(), -cont_malus * scale / 1024);
+                            }
                         }
                     }
                 }
@@ -389,6 +416,7 @@ impl Search {
             }
 
         }
+
 
         if self.stopped {
             return 0;
@@ -421,7 +449,7 @@ impl Search {
 
         let mut move_picker = MovePicker::new(tt_move);
         move_picker.gen_move(board, false);
-        move_picker.score_quiet(&board, &self.thread_data, 0, None);
+        move_picker.score_quiet(&board, &self.thread_data, 0, [None; CONT_LEN]);
         move_picker.score_noisy(board);
 
         if move_picker.terminal() {
@@ -521,6 +549,7 @@ impl Search {
             best = result;
             best_pv = Vec::from(self.pv_table.get_line(0));
 
+
             // info
             if !self.silent {
                 let score = if Score::is_mate(best.1) {
@@ -546,13 +575,12 @@ impl Search {
     }
 
     // check if move is reducable, i is move number in move ordering
-    fn should_lmr(&self, i: usize, depth: usize, ply: usize, mv: Move, is_check: bool, escaping_check: bool) -> bool {
+    fn should_lmr(&self, i: usize, depth: usize, mv: Move, is_check: bool, escaping_check: bool, killers: (Move, Move)) -> bool {
         if i < 4 { return false }
         if depth < 3 { return false }
         if mv.is_capture() { return false }
         if mv.is_promotion() { return false }
-        let (k1, k2) = self.thread_data.killer.probe(ply);
-        if k1 == mv || k2 == mv {
+        if killers.0 == mv || killers.1 == mv {
             return false
         }
         if is_check { return false }
@@ -590,8 +618,15 @@ impl Search {
         (depth < 5) && !see(board, mv, Self::see_threshold(depth, mv))
     }
 
-    fn lmr_reduction(depth: usize, i: usize) -> usize {
-        (0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25) as usize
+    fn should_hist_prune(mv: Move, depth: usize, hist: i32, killers: (Move, Move), alpha: i32) -> bool {
+        const HIST_PRUNE_MARGIN: i32 = 1000;
+        (depth < 5) && (hist < -HIST_PRUNE_MARGIN * (depth as i32)) && (killers.0 != mv && killers.1 != mv) && !Score::is_mate(alpha)
+    }
+
+    fn lmr_reduction(depth: usize, i: usize, hist: i32) -> i32 {
+        const HIST_DIVISOR: f64 = 10000f64;
+        let base = 0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25;
+        (base - (hist as f64) / HIST_DIVISOR) as i32
     }
 
     fn nmp_reduction(depth: usize) -> usize {
@@ -606,6 +641,14 @@ impl Search {
         (depth as i32) * if mv.is_quiet() { -50 } else { -100 }
     }
 
+    // index i of the result is the move played CONT_OFFSET[i] plies back, or None when that
+    // reaches past the root (or lands on a null move, which stores None)
+    fn cont_keys(&self, ply: usize) -> [Option<ContKey>; CONT_LEN] {
+        std::array::from_fn(|i| {
+            let off = CONT_OFFSET[i];
+            if ply >= off { self.cont_stack[ply - off] } else { None }
+        })
+    }
 }
 
 fn has_non_pawn_piece(board: &Board, color: Color) -> bool {

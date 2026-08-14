@@ -118,6 +118,29 @@ fn prompt_vs_search_bench() -> Result<()> {
     vs_bench::vs_search_bench(&gitref, &depth)
 }
 
+/// Pick one of the timestamped run folders under `rel`, newest first.
+fn pick_run(rel: &str, empty_msg: &str) -> Result<String> {
+    let mut names: Vec<String> = std::fs::read_dir(workspace_root().join(rel))
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    if names.is_empty() {
+        return Err(empty_msg.into());
+    }
+    names.sort_unstable_by(|a, b| b.cmp(a)); // timestamp prefix: newest first
+    match Select::new("run", names).prompt() {
+        Ok(pick) => Ok(pick),
+        Err(InquireError::OperationCanceled | InquireError::OperationInterrupted) => {
+            Err(CANCELED.into())
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 fn prompt_sprt() -> Result<()> {
     let defaults = SprtConfig::default();
     let cfg = SprtConfig {
@@ -139,25 +162,6 @@ fn prompt_sprt() -> Result<()> {
 }
 
 fn prompt_sprt_report() -> Result<()> {
-    let runs = workspace_root().join("target/sprt/runs");
-    let mut names: Vec<String> = std::fs::read_dir(&runs)
-        .ok()
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|e| e.path().is_dir())
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .collect();
-    if names.is_empty() {
-        return Err("no SPRT runs found under target/sprt/runs".into());
-    }
-    names.sort_unstable_by(|a, b| b.cmp(a)); // timestamp prefix: newest first
-    let pick = match Select::new("run", names).prompt() {
-        Ok(pick) => pick,
-        Err(InquireError::OperationCanceled | InquireError::OperationInterrupted) => {
-            return Err(CANCELED.into());
-        }
-        Err(e) => return Err(e.to_string()),
-    };
+    let pick = pick_run("target/sprt/runs", "no SPRT runs found under target/sprt/runs")?;
     sprt_report::report_cmd(&pick)
 }
