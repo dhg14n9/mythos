@@ -65,14 +65,14 @@ go movetime 1000
 - [x] Reverse futility pruning
 - [x] Late move reductions
 - [x] Mate scoring, distance-to-mate adjustment
-- [x] Late move, futility, SEE pruning 
+- [x] Late move, futility, SEE, history pruning 
 
 ### Move ordering
 - [x] TT move first
 - [x] Static exchange evaluation, threshold-based
 - [x] Good/bad noisy split by SEE
 - [x] Killer moves (two per ply)
-- [x] Butterfly history with bonus/malus and gravity scaling
+- [x] Butterfly and Continuation history with bonus/malus and gravity scaling
 - [x] MVV-LVA
 
 ### Evaluation
