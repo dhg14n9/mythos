@@ -566,10 +566,10 @@ fn pair_json(w: &ThreadData, b: &ThreadData) -> String {
 fn stats_json(s: &Stats) -> String {
     format!(
         "{{\"q\":{},\"sd\":{},\"tp\":{},\"th\":{},\"tc\":{},\"co\":{},\"cq\":{},\"ci\":[{}],\"an\":{},\
-         \"nt\":{},\"nc\":{},\"rf\":{},\"lm\":{},\"fu\":{},\"se\":{},\"lr\":{},\"lp\":{},\"lre\":{},\"pr\":{}}}",
+         \"nt\":{},\"nc\":{},\"rf\":{},\"lm\":{},\"fu\":{},\"se\":{},\"hp\":{},\"lr\":{},\"lp\":{},\"lre\":{},\"pr\":{}}}",
         s.qnodes, s.seldepth, s.tt_probe, s.tt_hit, s.tt_cut, s.cutoffs, s.cutoff_quiet,
         s.cutoff_idx.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(","),
-        s.all_nodes, s.nmp_try, s.nmp_cut, s.rfp_cut, s.lmp_skip, s.futility_skip, s.see_skip,
+        s.all_nodes, s.nmp_try, s.nmp_cut, s.rfp_cut, s.lmp_skip, s.futility_skip, s.see_skip, s.hist_skip,
         s.lmr_reduced, s.lmr_plies, s.lmr_research, s.pv_research
     )
 }

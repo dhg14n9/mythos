@@ -54,6 +54,7 @@ pub struct Stats {
     pub lmp_skip: u64,
     pub futility_skip: u64,
     pub see_skip: u64,
+    pub hist_skip: u64,
 
     pub lmr_reduced: u64,
     pub lmr_plies: u64,
@@ -96,6 +97,7 @@ impl Stats {
         self.lmp_skip += other.lmp_skip;
         self.futility_skip += other.futility_skip;
         self.see_skip += other.see_skip;
+        self.hist_skip += other.hist_skip;
         self.lmr_reduced += other.lmr_reduced;
         self.lmr_plies += other.lmr_plies;
         self.lmr_research += other.lmr_research;

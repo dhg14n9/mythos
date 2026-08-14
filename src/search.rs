@@ -311,7 +311,20 @@ impl Search {
         let mut i = 0; // move num in move ordering
         while let Some(mv) = move_picker.next(board) {
 
+            let moved = board.piece_at(mv.from());
+            let killers = self.thread_data.killer.probe(ply);
+            self.cont_stack[ply] = Some(ContKey { piece: moved, square: mv.to() });
+
+
+            let hist = if i != 0 && mv.is_quiet() {
+                self.thread_data.quiet_history(stm, moved, mv, &prev_keys)
+            } else {
+                0
+            };
+
             if !PV && !in_check && best > -Score::MAX {
+
+
                 if Self::should_see_prune(board, depth, mv) {
                     stat!(self.stats.see_skip += 1;);
                     continue;
@@ -323,17 +336,13 @@ impl Search {
                     move_picker.skip_quiets();
                     continue;
                 }
+
+                if mv.is_quiet() && Self::should_hist_prune(mv, depth, hist, killers, alpha) {
+                    stat!(self.stats.hist_skip += 1;);
+                    continue
+                }
             }
 
-            let moved = board.piece_at(mv.from());
-            self.cont_stack[ply] = Some(ContKey { piece: moved, square: mv.to() });
-
-
-            let hist = if i != 0 && mv.is_quiet() {
-                self.thread_data.quiet_history(stm, moved, mv, &prev_keys)
-            } else {
-                0
-            };
 
             board.make_move(mv);
             let give_check = board.is_check();
@@ -350,7 +359,7 @@ impl Search {
             if i == 0 {
                 score = -self.negamax::<PV>(board, new_depth, -beta, -alpha, ply + 1, true);
             } else {
-                let r = if self.should_lmr(i, depth, ply, mv, give_check, in_check) {
+                let r = if self.should_lmr(i, depth, mv, give_check, in_check, killers) {
                     Self::lmr_reduction(depth, i, hist)
                 } else { 0 };
                 let r = r.min(new_depth.saturating_sub(1) as i32).max(0);
@@ -600,13 +609,12 @@ impl Search {
     }
 
     // check if move is reducable, i is move number in move ordering
-    fn should_lmr(&self, i: usize, depth: usize, ply: usize, mv: Move, is_check: bool, escaping_check: bool) -> bool {
+    fn should_lmr(&self, i: usize, depth: usize, mv: Move, is_check: bool, escaping_check: bool, killers: (Move, Move)) -> bool {
         if i < 4 { return false }
         if depth < 3 { return false }
         if mv.is_capture() { return false }
         if mv.is_promotion() { return false }
-        let (k1, k2) = self.thread_data.killer.probe(ply);
-        if k1 == mv || k2 == mv {
+        if killers.0 == mv || killers.1 == mv {
             return false
         }
         if is_check { return false }
@@ -644,8 +652,13 @@ impl Search {
         (depth < 5) && !see(board, mv, Self::see_threshold(depth, mv))
     }
 
+    fn should_hist_prune(mv: Move, depth: usize, hist: i32, killers: (Move, Move), alpha: i32) -> bool {
+        const HIST_PRUNE_MARGIN: i32 = 1000;
+        (depth < 5) && (hist < -HIST_PRUNE_MARGIN * (depth as i32)) && (killers.0 != mv && killers.1 != mv) && !Score::is_mate(alpha)
+    }
+
     fn lmr_reduction(depth: usize, i: usize, hist: i32) -> i32 {
-        const HIST_DIVISOR: f64 = 10000f64; //
+        const HIST_DIVISOR: f64 = 10000f64;
         let base = 0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25;
         (base - (hist as f64) / HIST_DIVISOR) as i32
     }

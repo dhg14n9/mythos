@@ -712,7 +712,7 @@ canvas { display: block; width: 100%; height: auto; border: 1px solid var(--line
             <tr><td>cutoff index</td><td>the move number that produced <code>alpha &ge; beta</code>, bucketed 0&ndash;7+</td></tr>
             <tr><td>all-nodes</td><td>nodes that searched every move without a cutoff</td></tr>
             <tr><td>nmp try / cut</td><td>null-move searches attempted and those that returned &ge; beta</td></tr>
-            <tr><td>rfp / lmp / futility / see</td><td>each pruning rule's firing count</td></tr>
+            <tr><td>rfp / lmp / futility / see / history</td><td>each pruning rule's firing count</td></tr>
             <tr><td>lmr reduced / plies / re-search</td><td>reduced searches, total plies shaved, and re-searches at full depth</td></tr>
             <tr><td>pv re-search</td><td>full-window re-searches after a null-window search beat alpha</td></tr>
             <tr><td>seldepth</td><td>deepest ply reached, qsearch included</td></tr>
@@ -801,7 +801,7 @@ function contGet(t, ctx, piece, to) {
 }
 
 /* --------------------------------------------------------------- stat sums */
-const SKEYS = ['q','sd','tp','th','tc','co','cq','an','nt','nc','rf','lm','fu','se','lr','lp','lre','pr'];
+const SKEYS = ['q','sd','tp','th','tc','co','cq','an','nt','nc','rf','lm','fu','se','hp','lr','lp','lre','pr'];
 function statZero() {
   const s = { ci: [0,0,0,0,0,0,0,0] };
   for (const k of SKEYS) s[k] = 0;
@@ -1065,6 +1065,7 @@ function renderSummaryChart(metric) {
     ['Late-move pruning', 'quiets skipped for being late', s => compact(s.lm)],
     ['Futility skips', 'quiets skipped for being hopeless', s => compact(s.fu)],
     ['SEE skips', 'moves skipped as losing material', s => compact(s.se)],
+    ['History skips', 'quiets skipped for bad history', s => compact(s.hp)],
     ['LMR reductions', 'reduced searches and average plies shaved',
       s => `${compact(s.lr)} (${(s.lp / Math.max(1, s.lr)).toFixed(2)} ply)`],
     ['LMR re-searches', 'reductions that turned out wrong', s => `${compact(s.lre)} (${pct(s.lre, s.lr)})`],
