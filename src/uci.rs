@@ -41,6 +41,7 @@ pub fn run() {
                 println!("id author {AUTHOR}");
                 println!("option name Hash type spin default {HASH_DEFAULT} min {HASH_MIN} max {HASH_MAX}");
                 println!("option name Threads type spin default {THREADS} min {THREADS} max {THREADS}");
+                crate::tunables::print_options();
                 println!("uciok");
             }
             "isready" => println!("readyok"),
@@ -65,6 +66,9 @@ pub fn run() {
                     .unwrap_or(crate::bench::BENCH_DEPTH);
                 crate::bench::search_bench(depth);
             }
+            // Non-standard: dumps the block to paste into an OpenBench SPSA
+            // workload, so the parameter list is never transcribed by hand.
+            "spsa" => crate::tunables::print_spsa(),
             "perftsuite" => {
                 let use_tt = args.iter().any(|a| matches!(*a, "tt" | "--tt"));
                 crate::bench::run(use_tt);
@@ -113,7 +117,12 @@ fn set_option(args: &[&str], hash_mb: &mut usize) -> bool {
                 None => println!("info string invalid value for Threads"),
             }
         }
-        Some(n) => println!("info string unknown option: {n}"),
+        // Every search tunable lands here; see tunables.rs.
+        Some(n) => {
+            if !crate::tunables::set(n, value.copied().unwrap_or("")) {
+                println!("info string unknown option: {n}")
+            }
+        }
         None => println!("info string malformed setoption"),
     }
     return false;

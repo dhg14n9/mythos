@@ -3,6 +3,7 @@
 pub mod bench;
 pub mod board;
 pub mod movepicker;
+pub mod tunables;
 pub mod types;
 pub mod uci;
 mod tables;

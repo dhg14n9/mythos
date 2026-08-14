@@ -1,4 +1,3 @@
-use std::cmp::PartialEq;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -6,6 +5,7 @@ use crate::board::board::Board;
 use crate::eval::eval::eval;
 use crate::movepicker::{see, MovePicker};
 use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY, CONT_LEN, CONT_OFFSET};
+use crate::tunables::*;
 use crate::types::{Color, Move, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
@@ -525,7 +525,7 @@ impl Search {
             while !self.stopped && (alpha >= result.1 || beta <= result.1) {
                 if alpha >= result.1 {
                     alpha -= match alpha_tries {
-                        0 => 30,
+                        0 => asp_window(),
                         1 => 120,
                         2 => 200,
                         _ => alpha + Score::INF
@@ -534,7 +534,7 @@ impl Search {
                 }
                 if beta <= result.1 {
                     beta += match beta_tries {
-                        0 => 30,
+                        0 => asp_window(),
                         1 => 120,
                         2 => 200,
                         _ => Score::INF - beta
@@ -553,8 +553,8 @@ impl Search {
 
             stable_tracker.update(result.0, depth, &mut self.time_control);
 
-            alpha = result.1 - 30;
-            beta = result.1 + 30;
+            alpha = result.1 - asp_window();
+            beta = result.1 + asp_window();
             best = result;
             best_pv = Vec::from(self.pv_table.get_line(0));
 
@@ -585,8 +585,8 @@ impl Search {
 
     // check if move is reducable, i is move number in move ordering
     fn should_lmr(&self, i: usize, depth: usize, mv: Move, is_check: bool, escaping_check: bool, killers: (Move, Move)) -> bool {
-        if i < 4 { return false }
-        if depth < 3 { return false }
+        if i < lmr_min_moves() as usize { return false }
+        if depth < lmr_min_depth() as usize { return false }
         if mv.is_capture() { return false }
         if mv.is_promotion() { return false }
         if killers.0 == mv || killers.1 == mv {
@@ -599,7 +599,7 @@ impl Search {
 
     // allow null move pruning
     fn should_nmp(&self, beta: i32, depth: usize, board: &Board, static_eval: i32) -> bool {
-        if depth < 3 { return false }
+        if depth < nmp_min_depth() as usize { return false }
         if board.is_check() { return false }
         if Score::is_mate(beta) { return false }
         if static_eval < beta { return false }
@@ -611,16 +611,16 @@ impl Search {
     fn should_rfp(&self, board: &Board, beta: i32, depth: usize) -> bool {
         if board.is_check() { return false }
         if Score::is_mate(beta) { return false }
-        if depth > 5 { return false }
+        if depth > rfp_max_depth() as usize { return false }
         true
     }
 
     fn should_lmp(depth: usize, i: usize) -> bool {
-        (depth <= 8) && (i >= ((3 + depth * depth) * 3 / 2))
+        (depth <= lmp_max_depth() as usize) && (i >= ((lmp_base() as usize + depth * depth) * 3 / 2))
     }
 
     fn should_futility(depth: usize, static_eval: i32, alpha: i32) -> bool {
-        (depth <= 6) && ((static_eval + 100 * depth as i32) <= alpha) && !Score::is_mate(alpha)
+        (depth <= fp_max_depth() as usize) && ((static_eval + fp_margin_mult() * depth as i32) <= alpha) && !Score::is_mate(alpha)
     }
 
     fn should_see_prune(board: &Board, depth: usize, mv: Move) -> bool {
@@ -628,8 +628,7 @@ impl Search {
     }
 
     fn should_hist_prune(mv: Move, depth: usize, hist: i32, killers: (Move, Move), alpha: i32) -> bool {
-        const HIST_PRUNE_MARGIN: i32 = 1000;
-        (depth < 5) && (hist < -HIST_PRUNE_MARGIN * (depth as i32)) && (killers.0 != mv && killers.1 != mv) && !Score::is_mate(alpha)
+        (depth < 5) && (hist < -hist_prune_margin() * (depth as i32)) && (killers.0 != mv && killers.1 != mv) && !Score::is_mate(alpha)
     }
 
     fn should_razor(pv: bool, in_check: bool, static_eval: i32, alpha: i32, depth: usize, tt_move: Move, tt_bound: BoundType) -> bool {
@@ -642,22 +641,23 @@ impl Search {
         && depth < 6
     }
 
+
     fn lmr_reduction(depth: usize, i: usize, hist: i32) -> i32 {
-        const HIST_DIVISOR: f64 = 10000f64;
-        let base = 0.75 + (depth as f64).ln() * (i as f64).ln() / 2.25;
-        (base - (hist as f64) / HIST_DIVISOR) as i32
+        let base = (lmr_base() as f64 / 100.0)
+            + (depth as f64).ln() * (i as f64).ln() / (lmr_div() as f64 / 100.0);
+        (base - (hist as f64) / (lmr_hist_div() as f64)) as i32
     }
 
     fn nmp_reduction(depth: usize) -> usize {
-        3 + depth / 3
+        nmp_base() as usize + depth / nmp_depth_div() as usize
     }
 
     fn rfp_margin(depth: usize) -> i32 {
-        150 * depth as i32
+        rfp_margin_mult() * depth as i32
     }
 
     fn see_threshold(depth: usize, mv: Move) -> i32 {
-        (depth as i32) * if mv.is_quiet() { -50 } else { -100 }
+        (depth as i32) * if mv.is_quiet() { see_quiet_margin() } else { see_noisy_margin() }
     }
 
     // index i of the result is the move played CONT_OFFSET[i] plies back, or None when that
