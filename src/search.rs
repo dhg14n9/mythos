@@ -389,10 +389,10 @@ impl Search {
 
             if alpha >= beta {
                 if mv.is_quiet() {
-                    let quiet_bonus = (180 * depth as i32).min(1750) - 70;
-                    let quiet_malus = (170 * depth as i32).min(1100) - 40 - 30 * n_failed as i32;
-                    let cont_bonus  = (100 * depth as i32).min(1100) - 70;
-                    let cont_malus  = (400 * depth as i32).min(950) - 50 - 20 * n_failed as i32;
+                    let quiet_bonus = (hist_quiet_bonus_mult() * depth as i32).min(hist_quiet_bonus_max()) - hist_quiet_bonus_off();
+                    let quiet_malus = (hist_quiet_malus_mult() * depth as i32).min(hist_quiet_malus_max()) - hist_quiet_malus_off() - hist_quiet_malus_decay() * n_failed as i32;
+                    let cont_bonus  = (hist_cont_bonus_mult() * depth as i32).min(hist_cont_bonus_max()) - hist_cont_bonus_off();
+                    let cont_malus  = (hist_cont_malus_mult() * depth as i32).min(hist_cont_malus_max()) - hist_cont_malus_off() - hist_cont_malus_decay() * n_failed as i32;
 
                     // add to killer + butterfly
                     self.thread_data.killer.store(mv, ply);
@@ -405,7 +405,7 @@ impl Search {
 
                     for j in 0..n_failed {
                         let failed = failure[j];
-                        let denom = 1024 + 45 * j as i32;
+                        let denom = 1024 + hist_malus_scale_decay() * j as i32;
                         let scale = 1024 * 1024 / (denom * denom / 1024);
 
                         self.thread_data.butterfly.update(stm, failed.from(), failed.to(), -quiet_malus * scale / 1024);

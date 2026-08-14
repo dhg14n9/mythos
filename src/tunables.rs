@@ -71,6 +71,35 @@ tunables! {
 
     // Aspiration windows
     asp_window            =       30,      8,     60,    2.5;
+
+    // History bonus/malus, all of the form (mult * depth).min(max) - offset,
+    // with the malus terms additionally decaying by `decay` per quiet move that
+    // already failed to cut off. The caps stay well under MAX_BUTTERFLY (8192)
+    // and MAX_CONTINUATION (15000) so the gravity formula in tables.rs does not
+    // overshoot.
+    hist_quiet_bonus_mult  =     180,     60,    400,   17.0;
+    hist_quiet_bonus_max   =    1750,    600,   3000,  120.0;
+    hist_quiet_bonus_off   =      70,      0,    300,   15.0;
+
+    hist_quiet_malus_mult  =     170,     60,    400,   17.0;
+    hist_quiet_malus_max   =    1100,    400,   2400,  100.0;
+    hist_quiet_malus_off   =      40,      0,    300,   15.0;
+    hist_quiet_malus_decay =      30,      0,    100,    5.0;
+
+    hist_cont_bonus_mult   =     100,     40,    300,   13.0;
+    hist_cont_bonus_max    =    1100,    400,   2400,  100.0;
+    hist_cont_bonus_off    =      70,      0,    300,   15.0;
+
+    hist_cont_malus_mult   =     400,    150,    900,   38.0;
+    hist_cont_malus_max    =     950,    300,   2000,   85.0;
+    hist_cont_malus_off    =      50,      0,    300,   15.0;
+    hist_cont_malus_decay  =      20,      0,    100,    5.0;
+
+    // Falloff of the malus *scale* across successive failed quiets, distinct
+    // from the decay terms above: it divides the malus rather than subtracting
+    // from it. 0 disables the falloff (the denominator stays at 1024, so the
+    // scale stays at 1024/1024 = 1) rather than dividing by zero.
+    hist_malus_scale_decay =      45,      0,    150,    7.0;
 }
 
 pub fn print_options() {
