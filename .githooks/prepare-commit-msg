@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+#
+# Appends an OpenBench-style `bench: <nodes>` line to every commit message.
+#
+# The node count comes from `mythos bench`, whose last line is
+# "<nodes> nodes <nps> nps" (see src/bench.rs). It is deterministic —
+# fixed depth, fixed 16 MB TT, single thread — so the same commit produces
+# the same number on any machine.
+#
+# Install (once per clone, core.hooksPath is local config and is not cloned):
+#     git config core.hooksPath .githooks
+set -eu
+
+MSG_FILE=$1
+SOURCE=${2-}
+
+# Don't touch merge/squash messages.
+case "$SOURCE" in merge|squash) exit 0 ;; esac
+
+# GUI-launched clients (RustRover) often lack ~/.cargo/bin on PATH.
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+
+# Stay quiet unless the build actually fails — otherwise every commit dialog
+# fills up with the crate's warnings.
+BUILD_LOG=$(mktemp)
+if ! cargo build --release --quiet -p mythos --bin mythos >"$BUILD_LOG" 2>&1; then
+    cat "$BUILD_LOG" >&2
+    rm -f "$BUILD_LOG"
+    echo "prepare-commit-msg: release build failed, aborting commit" >&2
+    exit 1
+fi
+rm -f "$BUILD_LOG"
+
+NODES=$(./target/release/mythos bench | tail -n1 | awk '{print $1}')
+case "$NODES" in
+    ''|*[!0-9]*) echo "prepare-commit-msg: bench produced no node count" >&2; exit 1 ;;
+esac
+
+# Drop any existing bench line (matters on --amend) and insert a fresh one.
+#
+# The line goes *before* git's comment block, not at the end of the file:
+# under `commit.verbose` the file ends with a "# ---- >8 ----" scissors line
+# and a diff, and git discards everything from the scissors down.
+TMP=$(mktemp)
+awk -v nodes="$NODES" '
+    tolower($0) ~ /^bench:? *[0-9]+ *$/ { next }
+    !done && /^#/                       { print ""; print "bench: " nodes; done = 1 }
+                                        { print }
+    END                                 { if (!done) { print ""; print "bench: " nodes } }
+' "$MSG_FILE" > "$TMP"
+mv "$TMP" "$MSG_FILE"
