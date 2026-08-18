@@ -110,7 +110,8 @@ pub struct Search {
     pub thread_data: ThreadData,
     pub root_depth: usize,
     pub pv_table: PvTable,
-    pub cont_stack: Box<[Option<ContKey>; MAX_PLY]>
+    pub cont_stack: Box<[Option<ContKey>; MAX_PLY]>,
+    root_best_move: Move
 }
 
 impl Search {
@@ -124,7 +125,8 @@ impl Search {
             thread_data,
             root_depth: 0,
             pv_table: PvTable::new(),
-            cont_stack: Box::from([None; MAX_PLY])
+            cont_stack: Box::from([None; MAX_PLY]),
+            root_best_move: Move::NULL
         }
     }
 
@@ -214,7 +216,8 @@ impl Search {
         }
     }
 
-    pub fn negamax<const PV: bool>(
+
+    pub fn negamax<const ROOT: bool, const PV: bool>(
         &mut self,
         board: &mut Board,
         depth: usize,
@@ -223,8 +226,14 @@ impl Search {
         ply: usize,
         allow_null: bool
     ) -> i32 {
+        debug_assert!(!ROOT || (PV && ply == 0));
+
         self.nodes += 1;
         self.pv_table.clear(ply);
+
+        if ROOT {
+            self.root_best_move = Move::NULL;
+        }
 
         if self.should_stop() {
             return 0; // search cancelled
@@ -269,11 +278,11 @@ impl Search {
         //     return self.qsearch::<false>(board, alpha, beta, ply);
         // }
 
-        if allow_null && self.should_nmp(beta, depth, board, static_eval) {
+        if !ROOT && allow_null && self.should_nmp(beta, depth, board, static_eval) {
             self.cont_stack[ply] = None;
 
             board.make_null_move();
-            let score = -self.negamax::<false>(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth)), -beta, -beta + 1, ply + 1, false);
+            let score = -self.negamax::<false, false>(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth)), -beta, -beta + 1, ply + 1, false);
             board.unmake_null_move();
 
             if score >= beta {
@@ -281,7 +290,7 @@ impl Search {
             }
         }
 
-        if self.should_rfp(board, beta, depth) && static_eval > beta + Self::rfp_margin(depth) {
+        if !ROOT && self.should_rfp(board, beta, depth) && static_eval > beta + Self::rfp_margin(depth) {
             return static_eval
         }
 
@@ -350,24 +359,24 @@ impl Search {
             let mut score;
 
             if i == 0 {
-                score = -self.negamax::<PV>(board, new_depth, -beta, -alpha, ply + 1, true);
+                score = -self.negamax::<false, PV>(board, new_depth, -beta, -alpha, ply + 1, true);
             } else {
-                let r = if self.should_lmr(i, depth, mv, give_check, in_check, killers) {
+                let r = if !ROOT && self.should_lmr(i, depth, mv, give_check, in_check, killers) {
                     Self::lmr_reduction(depth, i, hist)
                 } else { 0 };
                 let r = r.min(new_depth.saturating_sub(1) as i32).max(0);
                 let reduced_depth = new_depth - r as usize;
 
-                score = -self.negamax::<false>(board, reduced_depth, -alpha - 1, -alpha, ply + 1, true);
+                score = -self.negamax::<false, false>(board, reduced_depth, -alpha - 1, -alpha, ply + 1, true);
 
                 // wrong reduction
                 if score > alpha && reduced_depth < new_depth {
-                    score = -self.negamax::<false>(board, new_depth, -alpha - 1, -alpha, ply + 1, true);
+                    score = -self.negamax::<false, false>(board, new_depth, -alpha - 1, -alpha, ply + 1, true);
                 }
 
                 // new PV
                 if score > alpha && score < beta {
-                    score = -self.negamax::<PV>(board, new_depth, -beta, -alpha, ply + 1, true);
+                    score = -self.negamax::<false, PV>(board, new_depth, -beta, -alpha, ply + 1, true);
                 }
             }
 
@@ -377,6 +386,10 @@ impl Search {
             if score > best {
                 best = score;
                 best_move = mv;
+
+                if ROOT {
+                    self.root_best_move = mv;
+                }
             }
 
             if best > alpha {
@@ -447,54 +460,6 @@ impl Search {
         score
     }
 
-    // return bestmove + score
-    pub fn start_negamax(&mut self, board: &mut Board, depth: usize, alpha: i32, beta: i32) -> Option<(Move, i32)> {
-        self.nodes += 1;
-        self.pv_table.clear(0);
-
-        if depth == 0 { return None };
-
-        let tt_move = self.trans_table.probe(board.hash()).map_or(Move::NULL, |(_, best, _, _)| best);
-
-        let mut move_picker = MovePicker::new(tt_move);
-        move_picker.gen_move(board, false);
-        move_picker.score_quiet(&board, &self.thread_data, 0, [None; CONT_LEN]);
-        move_picker.score_noisy(board);
-
-        if move_picker.terminal() {
-            return None;
-        }
-
-        let mut best = (Move::NULL, -Score::INF);
-        let mut alpha = alpha;
-
-        while let Some(mv) = move_picker.next(board) {
-            self.cont_stack[0] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() });
-
-            board.make_move(mv);
-            let score = -self.negamax::<true>(board, depth - 1, -beta, -alpha, 1, true);
-            board.unmake_move(mv);
-
-            if score > best.1 {
-                best = (mv, score)
-            }
-            if score > alpha {
-                alpha = score;
-                self.pv_table.update(0, best.0)
-            }
-
-            if alpha >= beta {
-                break;
-            }
-        }
-
-        if Score::is_mate(best.1) {
-            best.1 = best.1 - best.1.signum()
-        }
-
-        Some(best)
-    }
-
     // iterative deepening
     pub fn iterative(&mut self, board: &mut Board, max_depth: usize) -> (Move, i32) {
 
@@ -517,13 +482,10 @@ impl Search {
             let mut alpha_tries: usize = 0;
             let mut beta_tries: usize = 0;
 
-            let mut result = match self.start_negamax(board, depth, alpha, beta) {
-                Some(r) => r,
-                None => break, // no legal moves at the root
-            };
+            let mut score = self.negamax::<true, true>(board, depth, alpha, beta, 0, true);
 
-            while !self.stopped && (alpha >= result.1 || beta <= result.1) {
-                if alpha >= result.1 {
+            while !self.stopped && (alpha >= score || beta <= score) {
+                if alpha >= score {
                     alpha -= match alpha_tries {
                         0 => asp_window(),
                         1 => 120,
@@ -532,7 +494,7 @@ impl Search {
                     };
                     alpha_tries += 1;
                 }
-                if beta <= result.1 {
+                if beta <= score {
                     beta += match beta_tries {
                         0 => asp_window(),
                         1 => 120,
@@ -541,16 +503,14 @@ impl Search {
                     };
                     beta_tries += 1;
                 }
-                result = match self.start_negamax(board, depth, alpha, beta) {
-                    Some(r) => r,
-                    None => break,
-                };
+                score = self.negamax::<true, true>(board, depth, alpha, beta, 0, true);
             }
 
-            if self.stopped {
+            if self.stopped || self.root_best_move.is_null() {
                 break;
             }
 
+            let result = (self.root_best_move, score);
             stable_tracker.update(result.0, depth, &mut self.time_control);
 
             alpha = result.1 - asp_window();
