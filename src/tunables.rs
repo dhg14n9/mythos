@@ -100,6 +100,17 @@ tunables! {
     // from it. 0 disables the falloff (the denominator stays at 1024, so the
     // scale stays at 1024/1024 = 1) rather than dividing by zero.
     hist_malus_scale_decay =      45,      0,    150,    7.0;
+
+    // Time management: how far the soft limit is stretched while the root best
+    // move keeps changing. The extension is a clamped line in the number of
+    // stable iterations, max(min, base - step * stable), all scaled by 100.
+    // tm_stab_min bottoms out at 100 so the extension can never shrink the soft
+    // limit below its base; dropping under that is a behaviour change, not a
+    // tuning range. Only applies from tm_stab_min_depth upwards.
+    tm_stab_base           =     300,    150,    500,   17.0;
+    tm_stab_step           =      25,      0,     80,    4.0;
+    tm_stab_min            =     100,    100,    150,    2.5;
+    tm_stab_min_depth      =       8,      4,     14,    0.5;
 }
 
 pub fn print_options() {

@@ -26,14 +26,11 @@ impl StableTracker {
     }
 
     fn extension(&self) -> f32 {
-        match self.stable_iteration {
-            0 => 2.5,
-            1 => 1.8,
-            2 => 1.4,
-            3 => 1.2,
-            4 => 1.0,
-            _ => 0.9
-        }
+        let base = tm_stab_base() as f32 / 100.0;
+        let step = tm_stab_step() as f32 / 100.0;
+        let min  = tm_stab_min()  as f32 / 100.0;
+
+        (base - step * self.stable_iteration as f32).max(min)
     }
 
     pub fn update(&mut self, mv: Move, depth: usize, tc: &mut TimeControl) {
@@ -44,7 +41,7 @@ impl StableTracker {
             self.stable_iteration = 0;
         }
 
-        if tc.soft_base != Duration::MAX  && depth > 8 {
+        if tc.soft_base != Duration::MAX  && depth > tm_stab_min_depth() as usize {
             tc.soft_lim = tc.soft_base.mul_f32(self.extension()).min(tc.hard_lim);
         }
     }
