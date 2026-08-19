@@ -11,9 +11,6 @@ Mythos is an engine I'm building from scratch to learn rust and coding in genera
 It speaks the [UCI protocol](https://backscattering.de/chess/uci/), so it plugs
 into any standard chess GUI.
 
-> **Status:** playable but early. Board representation, legal move generation, and
-> a basic alpha-beta search all work. Not yet rated.
-
 ## Building
 
 You'll need **Rust 1.85 or later**.
@@ -26,24 +23,7 @@ cargo build --release
 
 By default the build targets your local CPU (`target-cpu=native` in
 `.cargo/config.toml`), which enables the faster PEXT move-generation path on CPUs
-with BMI2. If you want a portable binary to share or run on another machine,
-remove or override that flag before building.
-
-## Usage
-
-Mythos is a UCI engine — it has no graphical interface of its own. Point a chess
-GUI at the compiled binary and it'll take care of the rest.
-
-### Talking to it directly
-
-You can also drive it by hand over stdin:
-
-```
-$ ./target/release/mythos
-uci
-position startpos moves e2e4 e7e5
-go movetime 1000
-```
+with BMI2.
 
 ## Features
 
@@ -95,60 +75,11 @@ go movetime 1000
 - [ ] Self-play data generation for NNUE training
 
 
-## Development
-
-Dev and test automation lives in the `xtask` crate. Run it with no arguments for
-an interactive menu, or call a command directly:
-
-```bash
-cargo xtask              # interactive menu
-cargo xtask <command>    # run a command directly
-```
-
-| Command | What it does |
-|---|---|
-| `test [filter]` | run the test suite |
-| `perft` | fast perft suite (~17M nodes) |
-| `perft-deep` | thorough perft suite (~800M nodes) |
-| `perft-bench [--tt] [fen] [depth]` | time a perft and report nodes / elapsed / NPS |
-| `bench-suite [--tt]` | Andrew Wagner's verified suite (127 positions, ~4.7B nodes) |
-| `divide [fen] [depth]` | per-move node counts via UCI `go perft`, to bisect a perft mismatch |
-| `bench` | make/unmake micro-benchmark |
-| `search-bench [depth]` | fixed-depth search over 22 positions, reports the node count (a functional fingerprint of the search); the engine exposes the same thing as `mythos bench` for OpenBench |
-| `sprt` | SPRT match of the working tree vs a git ref |
-| `sprt-report <run>` | regenerate the annotated report for a past SPRT run |
-
-Plain `cargo build` / `cargo test` / `cargo run` are unchanged — xtask only wraps
-the workflows that need extra flags or orchestration.
-
-### Strength testing (SPRT)
-
-```bash
-cargo xtask sprt [--ref REF] [--elo0 E] [--elo1 E] [--tc TC]
-                 [--concurrency N] [--rounds N] [--book PATH]
-```
-
-Builds the working tree and a baseline (`--ref`, default `HEAD`), then plays a
-[SPRT](https://www.chessprogramming.org/Sequential_Probability_Ratio_Test) match
-between them until the elo bounds (default `[0, 5]`, in normalized Elo) are
-accepted or rejected. Defaults: `8+0.08` time control, half the CPU cores,
-20000-round cap. Requires [fastchess](https://github.com/Disservin/fastchess)
-on `PATH`. Each run gets its own folder under `target/sprt/runs/` holding the
-games (`games.pgn`), the exact fastchess configuration (`config.json`), and
-`report.md` — an annotated report that recomputes LLR / Elo / nElo / LOS from
-the final tallies and explains what every value means; regenerate it for any
-past run with `cargo xtask sprt-report <run>`. Openings for sprt come from 
-`xtask/books/UHO_Lichess_4852_v1.epd` (not commited because of file size, must be downloaded
-manually from [official-stockfish books](https://github.com/official-stockfish/books)) and 
-place in `xtask/books`. 
-
-## Acknowledgements
+## Thanks
 
 Mythos leans heavily on the work and generosity of the computer-chess community:
 
-- **[Reckless](https://github.com/codedeliveryservice/Reckless)** by
-  codedeliveryservice — a top-tier open-source Rust engine that I use as a primary
-  reference for modern engine architecture.
+- **[Reckless](https://github.com/codedeliveryservice/Reckless)** by codedeliveryservice 
 - The **[Chess Programming Wiki](https://www.chessprogramming.org/)** — the
   indispensable reference for essentially every technique here.
 - **[Perft results](https://www.chessprogramming.org/Perft_Results)** and Andrew
