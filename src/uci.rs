@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::search::{Search, TimeControl};
 use crate::tables::{ThreadData, TransTable};
-use crate::types::{Color, Move, MoveList};
+use crate::types::{Color, Move, MoveList, Rng};
 
 const NAME: &str = concat!("Mythos ", env!("CARGO_PKG_VERSION"));
 const AUTHOR: &str = "Do Hoang Giang";
@@ -80,6 +80,8 @@ impl Session {
             // Non-standard: dumps the block to paste into an OpenBench SPSA
             // workload, so the parameter list is never transcribed by hand.
             "spsa" => crate::tunables::print_spsa(),
+            // Non-standard: OpenBench DATAGEN opening generation.
+            "genfens" => genfens(args),
             "perftsuite" => {
                 let use_tt = args.iter().any(|a| matches!(*a, "tt" | "--tt"));
                 crate::bench::run(use_tt);
@@ -120,6 +122,83 @@ pub fn run(args: &[String]) {
             Flow::Quit => break,
         }
     }
+}
+
+const GENFENS_PLIES: usize = 8;
+const GENFENS_DEPTH: usize = 6;
+const GENFENS_CUTOFF: i32 = 400;
+const GENFENS_TRIES: usize = 100;
+const GENFENS_HASH: usize = 1;
+
+fn genfens(args: &[&str]) {
+    let count = args.first().and_then(|n| n.parse().ok()).unwrap_or(1);
+    let seed = keyword(args, "seed").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let book = keyword(args, "book").filter(|&b| b != "None");
+
+    gen_openings(count, seed, book, |fen| println!("info string genfens {fen}"));
+}
+
+fn keyword<'a>(args: &[&'a str], key: &str) -> Option<&'a str> {
+    args.iter()
+        .position(|&a| a == key)
+        .and_then(|i| args.get(i + 1))
+        .copied()
+}
+
+pub(crate) fn gen_openings(count: usize, seed: u64, book: Option<&str>, mut emit: impl FnMut(&str)) {
+    if let Some(path) = book {
+        println!("info string genfens: book {path} is not supported, using startpos");
+    }
+
+    let mut rng = Rng::new(seed);
+    let start = Board::start_pos();
+
+    let trans_table = TransTable::new(GENFENS_HASH);
+    let mut thread_data = ThreadData::new();
+
+    for _ in 0..count {
+        for tries in 0..GENFENS_TRIES {
+            let plies = GENFENS_PLIES + rng.next_below(2) as usize;
+            let Some(mut board) = random_line(&mut rng, &start, plies) else {
+                continue;
+            };
+
+            let mut list = MoveList::new();
+            board.gen_move(&mut list, false);
+            if list.len() == 0 || board.is_draw() {
+                continue;
+            }
+
+            let mut search = Search::new(TimeControl::infinite(), trans_table.clone(), thread_data);
+            search.silent = true;
+            let (_, score) = search.iterative(&mut board, GENFENS_DEPTH);
+            thread_data = search.thread_data;
+
+            if score.abs() > GENFENS_CUTOFF && tries + 1 < GENFENS_TRIES {
+                continue;
+            }
+
+            emit(&board.to_fen());
+            break;
+        }
+    }
+}
+
+fn random_line(rng: &mut Rng, start: &Board, plies: usize) -> Option<Board> {
+    let mut board = start.clone();
+    let mut list = MoveList::new();
+
+    for _ in 0..plies {
+        list.clear();
+        board.gen_move(&mut list, false);
+        if list.len() == 0 {
+            return None;
+        }
+        let index = rng.next_below(list.len() as u64) as usize;
+        board.make_move(list.get_nth(index));
+    }
+
+    Some(board)
 }
 
 fn set_option(args: &[&str], hash_mb: &mut usize) -> bool {
