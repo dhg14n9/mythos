@@ -122,6 +122,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "datagen"
+version = "0.1.0"
+dependencies = [
+ "mythos",
+]
+
+[[package]]
 name = "derive_more"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

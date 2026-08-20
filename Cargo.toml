@@ -16,7 +16,7 @@ path = "src/main.rs"
 log = "0.4.33"
 
 [workspace]
-members = ["tuner","xtask"]
+members = ["tuner","xtask","datagen"]
 exclude = ["target"]
 
 [profile.dev]
