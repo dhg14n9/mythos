@@ -311,12 +311,8 @@ fn go(
 
     let stop = Arc::clone(stop);
     let (hard_lim, soft_lim) = parse_time(args, board.stm());
-    let max_depth = args
-        .iter()
-        .position(|&a| a == "depth")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|d| d.parse().ok())
-        .unwrap_or(100);
+    let max_depth = value(args, "depth").unwrap_or(100) as usize;
+    let hard_node = value(args, "nodes").unwrap_or(u64::MAX);
     let mut board = board.clone();
     let tt = trans_table.clone();
     let td = thread_data.take().expect("No thread data");
@@ -326,10 +322,18 @@ fn go(
             start,
             soft_lim,
             hard_lim,
-            soft_base: soft_lim
+            soft_base: soft_lim,
+            hard_node
         };
         let mut search = Search::new(time_control, tt, td);
         let best = search.iterative(&mut board, max_depth);
+        // Non-standard: OpenBench DATAGEN runs fastchess with
+        // match_line='^info string pgncomment .*', which attaches the payload to
+        // this move in the PGN. Must be printed before `bestmove`, since that is
+        // where fastchess stops reading. The score is raw internal units (cp, from
+        // the side to move's perspective); mate scores are left as-is so the
+        // converter can filter them with the same |s| > 40000 bound as Score::is_mate.
+        println!("info string pgncomment {}", best.1);
         println!("bestmove {}", best.0);
 
         search.thread_data
@@ -379,16 +383,17 @@ fn perft_divide(board: &mut Board, depth: usize) {
     println!("Nodes searched: {total}");
 }
 
+// value of a `go` parameter, e.g. `nodes 5000` -> value(args, "nodes") == Some(5000)
+fn value(args: &[&str], key: &str) -> Option<u64> {
+    let idx = args.iter().position(|&a| a == key)?;
+    args.get(idx + 1)?.parse().ok()
+}
+
 fn parse_time(args: &[&str], stm: Color) -> (Duration, Duration) {
     // GUI latency
     const OVERHEAD_MS: u64 = 50;
 
-    let value = |key: &str| -> Option<u64> {
-        let idx = args.iter().position(|&a| a == key)?;
-        args.get(idx + 1)?.parse().ok()
-    };
-
-    if let Some(ms) = value("movetime") {
+    if let Some(ms) = value(args, "movetime") {
         let lim = Duration::from_millis(ms.saturating_sub(OVERHEAD_MS).max(1));
         return (lim, lim);
     }
@@ -398,13 +403,13 @@ fn parse_time(args: &[&str], stm: Color) -> (Duration, Duration) {
         Color::Black => ("btime", "binc"),
     };
 
-    let Some(time) = value(time_key) else {
+    let Some(time) = value(args, time_key) else {
         return (Duration::MAX, Duration::MAX);
     };
 
     let time = time.saturating_sub(OVERHEAD_MS).max(1);
-    let inc = value(inc_key).unwrap_or(0);
-    let mtg = value("movestogo").unwrap_or(40).max(1);
+    let inc = value(args, inc_key).unwrap_or(0);
+    let mtg = value(args, "movestogo").unwrap_or(40).max(1);
 
     let hard = (time / 4).max(1);
     let soft = (time / mtg + inc * 1 / 4).clamp(1, hard);

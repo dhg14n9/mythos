@@ -83,7 +83,8 @@ pub struct TimeControl {
     pub start: Instant,
     pub soft_lim: Duration,
     pub hard_lim: Duration,
-    pub soft_base: Duration
+    pub soft_base: Duration,
+    pub hard_node: u64
 }
 
 impl TimeControl {
@@ -93,7 +94,8 @@ impl TimeControl {
             start: Instant::now(),
             soft_lim: Duration::MAX,
             hard_lim: Duration::MAX,
-            soft_base: Duration::MAX
+            soft_base: Duration::MAX,
+            hard_node: u64::MAX
         }
     }
 }
@@ -129,6 +131,10 @@ impl Search {
 
     fn should_stop(&mut self) -> bool {
         if self.stopped {
+            return true;
+        }
+        if self.nodes >= self.time_control.hard_node {
+            self.stopped = true;
             return true;
         }
         if (self.nodes & (TC_NODE_CHECK - 1) == 0) &&
