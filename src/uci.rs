@@ -19,20 +19,31 @@ const HASH_MAX: usize = 4096;
 
 const THREADS: usize = 1;
 
-pub fn run() {
-    let mut board = Board::start_pos();
-    let stop = Arc::new(AtomicBool::new(false));
-    let mut hash_mb = HASH_DEFAULT;
+struct Session {
+    board: Board,
+    stop: Arc<AtomicBool>,
+    hash_mb: usize,
+    trans_table: TransTable,
+    thread_data: Option<ThreadData>,
+    handle: Option<JoinHandle<ThreadData>>
+}
 
-    let mut trans_table = TransTable::new(hash_mb);
-    let mut thread_data: Option<ThreadData> = Some(ThreadData::new());
-    let mut handle: Option<JoinHandle<ThreadData>> = None;
+impl Session {
+    pub fn new(hash_mb: usize) -> Self {
+        Self {
+            board: Board::start_pos(),
+            stop: Arc::new(AtomicBool::new(false)),
+            hash_mb,
+            trans_table: TransTable::new(hash_mb),
+            thread_data: Some(ThreadData::new()),
+            handle: None
+        }
+    }
 
-    for line in io::stdin().lock().lines() {
-        let Ok(line) = line else { break };
+    pub fn execute(&mut self, line: &str) -> Flow {
         let tokens: Vec<&str> = line.split_whitespace().collect();
         let Some((&cmd, args)) = tokens.split_first() else {
-            continue;
+            return Flow::Continue;
         };
 
         match cmd {
@@ -46,19 +57,19 @@ pub fn run() {
             }
             "isready" => println!("readyok"),
             "ucinewgame" => {
-                join_thread(&*stop, &mut handle, &mut thread_data);
-                board = Board::start_pos();
-                trans_table.clear();
-                if let Some(td) = thread_data.as_mut() { td.clear() }
+                join_thread(&*self.stop, &mut self.handle, &mut self.thread_data);
+                self.board = Board::start_pos();
+                self.trans_table.clear();
+                if let Some(td) = self.thread_data.as_mut() { td.clear() }
             },
             "setoption" => {
-                if set_option(args, &mut hash_mb) {
-                    join_thread(&*stop, &mut handle, &mut thread_data);
-                    trans_table = TransTable::new(hash_mb)
+                if set_option(args, &mut self.hash_mb) {
+                    join_thread(&*self.stop, &mut self.handle, &mut self.thread_data);
+                    self.trans_table = TransTable::new(self.hash_mb)
                 }
             },
-            "position" => position(&mut board, args),
-            "go" => go(&mut board, args, &stop, &mut handle, &trans_table, &mut thread_data),
+            "position" => position(&mut self.board, args),
+            "go" => go(&mut self.board, args, &self.stop, &mut self.handle, &self.trans_table, &mut self.thread_data),
             "bench" => {
                 let depth = args
                     .first()
@@ -73,15 +84,40 @@ pub fn run() {
                 let use_tt = args.iter().any(|a| matches!(*a, "tt" | "--tt"));
                 crate::bench::run(use_tt);
             }
-            "stop" => { stop.store(true, Ordering::Relaxed) }
+            "stop" => { self.stop.store(true, Ordering::Relaxed) }
             "quit" => {
-                stop.store(true, Ordering::Relaxed);
-                if let Some(h) = handle.take() {
+                self.stop.store(true, Ordering::Relaxed);
+                if let Some(h) = self.handle.take() {
                     let _ = h.join();
                 }
-                break;
+                return Flow::Quit
             },
             _ => println!("info string unknown command: {cmd}"),
+        }
+        Flow::Continue
+
+    }
+
+}
+
+enum Flow {
+    Continue, Quit
+}
+
+pub fn run(args: &[String]) {
+    let mut session = Session::new(HASH_DEFAULT);
+
+    for arg in args {
+        if let Flow::Quit = session.execute(arg) {
+            return;
+        }
+    }
+
+    for line in io::stdin().lock().lines() {
+        let Ok(line) = line else { break };
+        match session.execute(&line) {
+            Flow::Continue => {}
+            Flow::Quit => break,
         }
     }
 }
