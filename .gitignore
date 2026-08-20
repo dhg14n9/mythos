@@ -23,6 +23,9 @@ sprt_*.txt
 # versioned, use git-lfs rather than committing them directly.
 *.nnue
 
+# Local working plan / notes for the NNUE project
+NNUE_PLAN.md
+
 # --- OpenBench ---
 # Binaries dropped in the repo root by `make EXE=...`
 /Engine-*
