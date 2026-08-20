@@ -131,6 +131,57 @@ impl Board {
         Ok(board)
     }
 
+
+    pub fn to_fen(&self) -> String {
+        use std::fmt::Write as _;
+
+        let mut fen = String::with_capacity(90);
+
+        for rank in (0..8u8).rev() {
+            let mut empty = 0u8;
+            for file in 0..8u8 {
+                let piece = self.piece_at(Square::from_rank_file(Rank::new(rank), File::new(file)));
+                if piece == Piece::None {
+                    empty += 1;
+                    continue;
+                }
+                if empty > 0 {
+                    fen.push((b'0' + empty) as char);
+                    empty = 0;
+                }
+                fen.push(piece.to_char());
+            }
+            if empty > 0 {
+                fen.push((b'0' + empty) as char);
+            }
+            if rank > 0 {
+                fen.push('/');
+            }
+        }
+
+        let _ = write!(fen, " {} ", self.side_to_move);
+
+        let castling_start = fen.len();
+        for (kind, ch) in [
+            (CastlingKind::WhiteKing, 'K'),
+            (CastlingKind::WhiteQueen, 'Q'),
+            (CastlingKind::BlackKing, 'k'),
+            (CastlingKind::BlackQueen, 'q'),
+        ] {
+            if self.castling_right.is_allowed(kind) {
+                fen.push(ch);
+            }
+        }
+        if fen.len() == castling_start {
+            fen.push('-');
+        }
+
+        // Square's Display already prints "-" for Square::None.
+        let _ = write!(fen, " {} {} {}", self.en_passant, self.half_move, self.full_move());
+
+        fen
+    }
+
     pub fn start_pos() -> Self {
         Self::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1").unwrap()
     }
