@@ -12,3 +12,4 @@ pub mod eval;
 mod search;
 #[cfg(test)]
 mod tests;
+pub mod nnue;
