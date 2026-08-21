@@ -10,6 +10,16 @@ impl Accumulator {
     pub fn empty() -> Self {
         Self([0; HL])
     }
+
+    pub fn get(&self, index: usize) -> i16 {
+        debug_assert!(index < HL);
+
+        self.0[index]
+    }
+
+    pub fn set(&mut self, index: usize, x: i16) {
+        self.0[index] = x
+    }
 }
 
 impl Add for Accumulator {
