@@ -18,11 +18,6 @@
 *.log
 sprt_*.txt
 
-# --- NNUE networks (when you get there) ---
-# Trained nets are large binaries. Ignore them here; if you want them
-# versioned, use git-lfs rather than committing them directly.
-*.nnue
-
 # Local working plan / notes for the NNUE project
 NNUE_PLAN.md
 

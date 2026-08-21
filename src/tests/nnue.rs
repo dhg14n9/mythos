@@ -5,7 +5,7 @@ use crate::nnue::accumulator::feature_index;
 use crate::nnue::network::{evaluate, load_net, refresh};
 use crate::types::{Color, Piece, PieceType, Square};
 
-const NET: &str = "nets/random.nnue";
+const NET: &str = "nets/net.nnue";
 
 const STARTPOS: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
