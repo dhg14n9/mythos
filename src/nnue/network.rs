@@ -13,6 +13,13 @@ pub struct Network {
     output_bias: i16
 }
 
+pub fn load_net(path: &str) -> Box<Network> {
+    let bytes = std::fs::read(path).expect("failed to load net file");
+    assert_eq!(bytes.len(), size_of::<Network>());
+    Box::new(unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const Network) })
+
+}
+
 pub fn refresh(net: &Network, board: &Board, perspective: Color) -> Accumulator {
     let mut result = net.feature_bias;
     let occ = board.occ();
