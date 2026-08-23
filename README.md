@@ -65,6 +65,8 @@ with BMI2.
 - [x] Gradient-descent (Texel) tuner with Adam, memory-mapped datasets,
   K fitting, train/validation split and early stopping
 - [x] NNUE evaluation with incremental accumulator updates
+- [x] Nets trained in [bullet](https://github.com/jw1912/bullet) on self-play
+  data 
 
 ### Tooling & testing
 - [x] `cargo xtask` as a single entry point 
@@ -87,7 +89,11 @@ Mythos leans heavily on the work and generosity of the computer-chess community:
   move-generation correctness.
 - **[PeSTO](https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function)** by
   Ronald Friederich — the tapered piece-square tables and material values used by
-  the current evaluation.
+  the legacy evaluation.
+- **[OpenBench](https://github.com/AndyGrant/OpenBench)** by Andrew Grant — Mythos
+  used for sprt, SPSA tuning
+- **[bullet](https://github.com/jw1912/bullet)** by jw1912 — NNUE trainer,
+  and bulletformat for the training-data format.
 
 
 ## License
