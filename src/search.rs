@@ -2,8 +2,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use crate::board::board::Board;
-use crate::eval::eval::eval;
 use crate::movepicker::{see, MovePicker};
+use crate::nnue;
 use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY, CONT_LEN, CONT_OFFSET};
 use crate::tunables::*;
 use crate::types::{Color, Move, PieceType, Score};
@@ -159,15 +159,17 @@ impl Search {
             return 0; // search cancelled
         }
 
+        let static_eval = nnue::eval(board);
+
         if ply >= MAX_PLY - 1 {
-            return eval(board);
+            return static_eval;
         }
 
         let in_check = board.is_check();
         let mut best = -Score::MAX;
 
         if !in_check {
-            best = eval(board);
+            best = static_eval;
             if best >= beta {
                 return best;
             }
@@ -247,7 +249,7 @@ impl Search {
         }
 
         if ply >= MAX_PLY - 1 {
-            return eval(board);
+            return nnue::eval(board);
         }
 
         let tt_entry = self.trans_table.probe(board.hash());
@@ -272,7 +274,7 @@ impl Search {
             return self.qsearch::<PV>(board, alpha, beta, ply);
         };
 
-        let static_eval = eval(board);
+        let static_eval = nnue::eval(board);
         let stm = board.stm();
         let in_check = board.is_check();
 
