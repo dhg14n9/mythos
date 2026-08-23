@@ -36,10 +36,6 @@ pub struct Board {
 }
 
 impl Board {
-    // phase weight
-    pub const GAME_PHASE_INC: [i32; 6] = [0, 1, 1, 2, 4, 0];
-    pub const GAME_PHASE_MAX: i32 = 24;
-
     pub fn from_fen(fen: &str) -> Result<Self, &'static str> {
         let mut board = Board {
             piece_type_bb: [Bitboard::EMPTY; PieceType::NUM],
@@ -390,14 +386,6 @@ impl Board {
 
     pub fn occ(&self) -> Bitboard {
         self.color_bb(Color::White) | self.color_bb(Color::Black)
-    }
-
-    pub fn phase(&self) -> i32 {
-        let mut phase = 0;
-        for (piece_type, bitboard) in self.piece_type_bb.iter().enumerate() {
-            phase += bitboard.pop_count() as i32 * Self::GAME_PHASE_INC[piece_type];
-        }
-        phase
     }
 
     pub fn is_check(&self) -> bool {
