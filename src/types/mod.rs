@@ -8,6 +8,7 @@ pub mod score;
 pub mod square;
 pub mod uninit_array;
 pub mod zobrist;
+pub mod rng;
 
 pub use bitboard::*;
 pub use castling::*;
@@ -19,6 +20,7 @@ pub use score::*;
 pub use square::*;
 use std::ops::{Index, IndexMut};
 pub use zobrist::*;
+pub use rng::*;
 
 #[derive(Copy, Clone)]
 pub enum Direction {

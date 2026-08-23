@@ -16,12 +16,6 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Some(arg) => {
-            eprintln!(
-                "unknown argument: {arg} (expected `bench [depth]`, `perftsuite [tt]` or no arguments for UCI)"
-            );
-            std::process::exit(2);
-        }
-        None => mythos::uci::run(),
+        _ => mythos::uci::run(&args),
     }
 }

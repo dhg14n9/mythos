@@ -36,10 +36,6 @@ pub struct Board {
 }
 
 impl Board {
-    // phase weight
-    pub const GAME_PHASE_INC: [i32; 6] = [0, 1, 1, 2, 4, 0];
-    pub const GAME_PHASE_MAX: i32 = 24;
-
     pub fn from_fen(fen: &str) -> Result<Self, &'static str> {
         let mut board = Board {
             piece_type_bb: [Bitboard::EMPTY; PieceType::NUM],
@@ -129,6 +125,57 @@ impl Board {
         board.checkers = checkers;
 
         Ok(board)
+    }
+
+
+    pub fn to_fen(&self) -> String {
+        use std::fmt::Write as _;
+
+        let mut fen = String::with_capacity(90);
+
+        for rank in (0..8u8).rev() {
+            let mut empty = 0u8;
+            for file in 0..8u8 {
+                let piece = self.piece_at(Square::from_rank_file(Rank::new(rank), File::new(file)));
+                if piece == Piece::None {
+                    empty += 1;
+                    continue;
+                }
+                if empty > 0 {
+                    fen.push((b'0' + empty) as char);
+                    empty = 0;
+                }
+                fen.push(piece.to_char());
+            }
+            if empty > 0 {
+                fen.push((b'0' + empty) as char);
+            }
+            if rank > 0 {
+                fen.push('/');
+            }
+        }
+
+        let _ = write!(fen, " {} ", self.side_to_move);
+
+        let castling_start = fen.len();
+        for (kind, ch) in [
+            (CastlingKind::WhiteKing, 'K'),
+            (CastlingKind::WhiteQueen, 'Q'),
+            (CastlingKind::BlackKing, 'k'),
+            (CastlingKind::BlackQueen, 'q'),
+        ] {
+            if self.castling_right.is_allowed(kind) {
+                fen.push(ch);
+            }
+        }
+        if fen.len() == castling_start {
+            fen.push('-');
+        }
+
+        // Square's Display already prints "-" for Square::None.
+        let _ = write!(fen, " {} {} {}", self.en_passant, self.half_move, self.full_move());
+
+        fen
     }
 
     pub fn start_pos() -> Self {
@@ -248,7 +295,7 @@ impl Board {
         self.castling_right = new_rights;
     }
 
-    fn castle_rook_squares(kind: MoveKind, king_to: Square) -> (Square, Square) {
+    pub fn castle_rook_squares(kind: MoveKind, king_to: Square) -> (Square, Square) {
         if matches!(kind, MoveKind::KingCastle) {
             (king_to.offset(1), king_to.offset(-1))
         } else {
@@ -339,14 +386,6 @@ impl Board {
 
     pub fn occ(&self) -> Bitboard {
         self.color_bb(Color::White) | self.color_bb(Color::Black)
-    }
-
-    pub fn phase(&self) -> i32 {
-        let mut phase = 0;
-        for (piece_type, bitboard) in self.piece_type_bb.iter().enumerate() {
-            phase += bitboard.pop_count() as i32 * Self::GAME_PHASE_INC[piece_type];
-        }
-        phase
     }
 
     pub fn is_check(&self) -> bool {

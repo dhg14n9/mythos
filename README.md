@@ -31,7 +31,7 @@ with BMI2.
 - [x] Bitboard board representation
 - [x] Magic bitboards for sliders, with a PEXT path on BMI2 CPUs
 - [x] Fully legal move generation
-- [x] Incremental Zobrist hashing with a state-history stack for unmake
+- [x] Incremental Zobrist hashing 
 - [x] Fifty-move and repetition draw detection
 
 ### Search
@@ -52,7 +52,7 @@ with BMI2.
 - [x] Static exchange evaluation, threshold-based
 - [x] Good/bad noisy split by SEE
 - [x] Killer moves (two per ply)
-- [x] Butterfly and Continuation history with bonus/malus and gravity scaling
+- [x] Butterfly and Continuation history 
 - [x] MVV-LVA
 
 ### Evaluation

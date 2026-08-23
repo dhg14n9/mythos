@@ -8,7 +8,7 @@ pub mod types;
 pub mod uci;
 mod tables;
 
-pub mod eval;
 mod search;
 #[cfg(test)]
 mod tests;
+pub mod nnue;

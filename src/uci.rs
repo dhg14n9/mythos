@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::search::{Search, TimeControl};
 use crate::tables::{ThreadData, TransTable};
-use crate::types::{Color, Move, MoveList};
+use crate::types::{Color, Move, MoveList, Rng};
 
 const NAME: &str = concat!("Mythos ", env!("CARGO_PKG_VERSION"));
 const AUTHOR: &str = "Do Hoang Giang";
@@ -19,20 +19,31 @@ const HASH_MAX: usize = 4096;
 
 const THREADS: usize = 1;
 
-pub fn run() {
-    let mut board = Board::start_pos();
-    let stop = Arc::new(AtomicBool::new(false));
-    let mut hash_mb = HASH_DEFAULT;
+struct Session {
+    board: Board,
+    stop: Arc<AtomicBool>,
+    hash_mb: usize,
+    trans_table: TransTable,
+    thread_data: Option<ThreadData>,
+    handle: Option<JoinHandle<ThreadData>>
+}
 
-    let mut trans_table = TransTable::new(hash_mb);
-    let mut thread_data: Option<ThreadData> = Some(ThreadData::new());
-    let mut handle: Option<JoinHandle<ThreadData>> = None;
+impl Session {
+    pub fn new(hash_mb: usize) -> Self {
+        Self {
+            board: Board::start_pos(),
+            stop: Arc::new(AtomicBool::new(false)),
+            hash_mb,
+            trans_table: TransTable::new(hash_mb),
+            thread_data: Some(ThreadData::new()),
+            handle: None
+        }
+    }
 
-    for line in io::stdin().lock().lines() {
-        let Ok(line) = line else { break };
+    pub fn execute(&mut self, line: &str) -> Flow {
         let tokens: Vec<&str> = line.split_whitespace().collect();
         let Some((&cmd, args)) = tokens.split_first() else {
-            continue;
+            return Flow::Continue;
         };
 
         match cmd {
@@ -46,19 +57,19 @@ pub fn run() {
             }
             "isready" => println!("readyok"),
             "ucinewgame" => {
-                join_thread(&*stop, &mut handle, &mut thread_data);
-                board = Board::start_pos();
-                trans_table.clear();
-                if let Some(td) = thread_data.as_mut() { td.clear() }
+                join_thread(&*self.stop, &mut self.handle, &mut self.thread_data);
+                self.board = Board::start_pos();
+                self.trans_table.clear();
+                if let Some(td) = self.thread_data.as_mut() { td.clear() }
             },
             "setoption" => {
-                if set_option(args, &mut hash_mb) {
-                    join_thread(&*stop, &mut handle, &mut thread_data);
-                    trans_table = TransTable::new(hash_mb)
+                if set_option(args, &mut self.hash_mb) {
+                    join_thread(&*self.stop, &mut self.handle, &mut self.thread_data);
+                    self.trans_table = TransTable::new(self.hash_mb)
                 }
             },
-            "position" => position(&mut board, args),
-            "go" => go(&mut board, args, &stop, &mut handle, &trans_table, &mut thread_data),
+            "position" => position(&mut self.board, args),
+            "go" => go(&mut self.board, args, &self.stop, &mut self.handle, &self.trans_table, &mut self.thread_data),
             "bench" => {
                 let depth = args
                     .first()
@@ -69,21 +80,125 @@ pub fn run() {
             // Non-standard: dumps the block to paste into an OpenBench SPSA
             // workload, so the parameter list is never transcribed by hand.
             "spsa" => crate::tunables::print_spsa(),
+            // Non-standard: OpenBench DATAGEN opening generation.
+            "genfens" => genfens(args),
             "perftsuite" => {
                 let use_tt = args.iter().any(|a| matches!(*a, "tt" | "--tt"));
                 crate::bench::run(use_tt);
             }
-            "stop" => { stop.store(true, Ordering::Relaxed) }
+            "stop" => { self.stop.store(true, Ordering::Relaxed) }
             "quit" => {
-                stop.store(true, Ordering::Relaxed);
-                if let Some(h) = handle.take() {
+                self.stop.store(true, Ordering::Relaxed);
+                if let Some(h) = self.handle.take() {
                     let _ = h.join();
                 }
-                break;
+                return Flow::Quit
             },
             _ => println!("info string unknown command: {cmd}"),
         }
+        Flow::Continue
+
     }
+
+}
+
+enum Flow {
+    Continue, Quit
+}
+
+pub fn run(args: &[String]) {
+    let mut session = Session::new(HASH_DEFAULT);
+
+    for arg in args {
+        if let Flow::Quit = session.execute(arg) {
+            return;
+        }
+    }
+
+    for line in io::stdin().lock().lines() {
+        let Ok(line) = line else { break };
+        match session.execute(&line) {
+            Flow::Continue => {}
+            Flow::Quit => break,
+        }
+    }
+}
+
+const GENFENS_PLIES: usize = 8;
+const GENFENS_DEPTH: usize = 6;
+const GENFENS_CUTOFF: i32 = 400;
+const GENFENS_TRIES: usize = 100;
+const GENFENS_HASH: usize = 1;
+
+fn genfens(args: &[&str]) {
+    let count = args.first().and_then(|n| n.parse().ok()).unwrap_or(1);
+    let seed = keyword(args, "seed").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let book = keyword(args, "book").filter(|&b| b != "None");
+
+    gen_openings(count, seed, book, |fen| println!("info string genfens {fen}"));
+}
+
+fn keyword<'a>(args: &[&'a str], key: &str) -> Option<&'a str> {
+    args.iter()
+        .position(|&a| a == key)
+        .and_then(|i| args.get(i + 1))
+        .copied()
+}
+
+pub(crate) fn gen_openings(count: usize, seed: u64, book: Option<&str>, mut emit: impl FnMut(&str)) {
+    if let Some(path) = book {
+        println!("info string genfens: book {path} is not supported, using startpos");
+    }
+
+    let mut rng = Rng::new(seed);
+    let start = Board::start_pos();
+
+    let trans_table = TransTable::new(GENFENS_HASH);
+    let mut thread_data = ThreadData::new();
+
+    for _ in 0..count {
+        for tries in 0..GENFENS_TRIES {
+            let plies = GENFENS_PLIES + rng.next_below(2) as usize;
+            let Some(mut board) = random_line(&mut rng, &start, plies) else {
+                continue;
+            };
+
+            let mut list = MoveList::new();
+            board.gen_move(&mut list, false);
+            if list.len() == 0 || board.is_draw() {
+                continue;
+            }
+
+            let mut search = Search::new(TimeControl::infinite(), trans_table.clone(), thread_data);
+            search.silent = true;
+            let (_, score) = search.iterative(&mut board, GENFENS_DEPTH);
+            thread_data = search.thread_data;
+
+            if score.abs() > GENFENS_CUTOFF && tries + 1 < GENFENS_TRIES {
+                continue;
+            }
+
+            emit(&board.to_fen());
+            break;
+        }
+    }
+}
+
+fn random_line(rng: &mut Rng, start: &Board, plies: usize) -> Option<Board> {
+    let mut board = start.clone();
+    let mut list = MoveList::new();
+
+    for _ in 0..plies {
+        list.clear();
+        board.gen_move(&mut list, false);
+        if list.len() == 0 {
+            return None;
+        }
+        let index = rng.next_below(list.len() as u64) as usize;
+        board.make_move(list.get_nth(index));
+    }
+
+    Some(board)
 }
 
 fn set_option(args: &[&str], hash_mb: &mut usize) -> bool {
@@ -196,12 +311,8 @@ fn go(
 
     let stop = Arc::clone(stop);
     let (hard_lim, soft_lim) = parse_time(args, board.stm());
-    let max_depth = args
-        .iter()
-        .position(|&a| a == "depth")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|d| d.parse().ok())
-        .unwrap_or(100);
+    let max_depth = value(args, "depth").unwrap_or(100) as usize;
+    let hard_node = value(args, "nodes").unwrap_or(u64::MAX);
     let mut board = board.clone();
     let tt = trans_table.clone();
     let td = thread_data.take().expect("No thread data");
@@ -211,10 +322,18 @@ fn go(
             start,
             soft_lim,
             hard_lim,
-            soft_base: soft_lim
+            soft_base: soft_lim,
+            hard_node
         };
         let mut search = Search::new(time_control, tt, td);
         let best = search.iterative(&mut board, max_depth);
+        // Non-standard: OpenBench DATAGEN runs fastchess with
+        // match_line='^info string pgncomment .*', which attaches the payload to
+        // this move in the PGN. Must be printed before `bestmove`, since that is
+        // where fastchess stops reading. The score is raw internal units (cp, from
+        // the side to move's perspective); mate scores are left as-is so the
+        // converter can filter them with the same |s| > 40000 bound as Score::is_mate.
+        println!("info string pgncomment {}", best.1);
         println!("bestmove {}", best.0);
 
         search.thread_data
@@ -264,16 +383,17 @@ fn perft_divide(board: &mut Board, depth: usize) {
     println!("Nodes searched: {total}");
 }
 
+// value of a `go` parameter, e.g. `nodes 5000` -> value(args, "nodes") == Some(5000)
+fn value(args: &[&str], key: &str) -> Option<u64> {
+    let idx = args.iter().position(|&a| a == key)?;
+    args.get(idx + 1)?.parse().ok()
+}
+
 fn parse_time(args: &[&str], stm: Color) -> (Duration, Duration) {
     // GUI latency
     const OVERHEAD_MS: u64 = 50;
 
-    let value = |key: &str| -> Option<u64> {
-        let idx = args.iter().position(|&a| a == key)?;
-        args.get(idx + 1)?.parse().ok()
-    };
-
-    if let Some(ms) = value("movetime") {
+    if let Some(ms) = value(args, "movetime") {
         let lim = Duration::from_millis(ms.saturating_sub(OVERHEAD_MS).max(1));
         return (lim, lim);
     }
@@ -283,13 +403,13 @@ fn parse_time(args: &[&str], stm: Color) -> (Duration, Duration) {
         Color::Black => ("btime", "binc"),
     };
 
-    let Some(time) = value(time_key) else {
+    let Some(time) = value(args, time_key) else {
         return (Duration::MAX, Duration::MAX);
     };
 
     let time = time.saturating_sub(OVERHEAD_MS).max(1);
-    let inc = value(inc_key).unwrap_or(0);
-    let mtg = value("movestogo").unwrap_or(40).max(1);
+    let inc = value(args, inc_key).unwrap_or(0);
+    let mtg = value(args, "movestogo").unwrap_or(40).max(1);
 
     let hard = (time / 4).max(1);
     let soft = (time / mtg + inc * 1 / 4).clamp(1, hard);

@@ -2,8 +2,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use crate::board::board::Board;
-use crate::eval::eval::eval;
 use crate::movepicker::{see, MovePicker};
+use crate::nnue;
+use crate::nnue::accumulator::{Accumulator, Delta};
+use crate::nnue::NETWORK;
+use crate::nnue::network::{refresh, update};
 use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY, CONT_LEN, CONT_OFFSET};
 use crate::tunables::*;
 use crate::types::{Color, Move, PieceType, Score};
@@ -83,7 +86,8 @@ pub struct TimeControl {
     pub start: Instant,
     pub soft_lim: Duration,
     pub hard_lim: Duration,
-    pub soft_base: Duration
+    pub soft_base: Duration,
+    pub hard_node: u64
 }
 
 impl TimeControl {
@@ -93,7 +97,8 @@ impl TimeControl {
             start: Instant::now(),
             soft_lim: Duration::MAX,
             hard_lim: Duration::MAX,
-            soft_base: Duration::MAX
+            soft_base: Duration::MAX,
+            hard_node: u64::MAX
         }
     }
 }
@@ -108,7 +113,8 @@ pub struct Search {
     pub root_depth: usize,
     pub pv_table: PvTable,
     pub cont_stack: Box<[Option<ContKey>; MAX_PLY]>,
-    root_best_move: Move
+    root_best_move: Move,
+    accumulator_stack: Box<[[Accumulator; 2]; MAX_PLY]>
 }
 
 impl Search {
@@ -123,12 +129,17 @@ impl Search {
             root_depth: 0,
             pv_table: PvTable::new(),
             cont_stack: Box::from([None; MAX_PLY]),
-            root_best_move: Move::NULL
+            root_best_move: Move::NULL,
+            accumulator_stack: Box::from([[Accumulator::empty(); 2]; MAX_PLY])
         }
     }
 
     fn should_stop(&mut self) -> bool {
         if self.stopped {
+            return true;
+        }
+        if self.nodes >= self.time_control.hard_node {
+            self.stopped = true;
             return true;
         }
         if (self.nodes & (TC_NODE_CHECK - 1) == 0) &&
@@ -153,15 +164,17 @@ impl Search {
             return 0; // search cancelled
         }
 
+        let static_eval = nnue::eval(board, &self.accumulator_stack, ply);
+
         if ply >= MAX_PLY - 1 {
-            return eval(board);
+            return static_eval;
         }
 
         let in_check = board.is_check();
         let mut best = -Score::MAX;
 
         if !in_check {
-            best = eval(board);
+            best = static_eval;
             if best >= beta {
                 return best;
             }
@@ -188,7 +201,13 @@ impl Search {
 
             self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() });
 
+            let delta = Delta::new(board, mv);
+
             board.make_move(mv);
+
+            let (head, tail) = self.accumulator_stack.split_at_mut(ply + 1);
+            update(&NETWORK, &head[ply], &mut tail[0], &delta);
+
             let score = -self.qsearch::<PV>(board, -beta, -alpha, ply + 1);
             board.unmake_move(mv);
             best = best.max(score);
@@ -241,7 +260,7 @@ impl Search {
         }
 
         if ply >= MAX_PLY - 1 {
-            return eval(board);
+            return nnue::eval(board, &self.accumulator_stack, ply);
         }
 
         let tt_entry = self.trans_table.probe(board.hash());
@@ -266,7 +285,7 @@ impl Search {
             return self.qsearch::<PV>(board, alpha, beta, ply);
         };
 
-        let static_eval = eval(board);
+        let static_eval = nnue::eval(board, &self.accumulator_stack, ply);
         let stm = board.stm();
         let in_check = board.is_check();
 
@@ -279,6 +298,8 @@ impl Search {
             self.cont_stack[ply] = None;
 
             board.make_null_move();
+            self.accumulator_stack[ply + 1] = self.accumulator_stack[ply];
+
             let score = -self.negamax::<false, false>(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth)), -beta, -beta + 1, ply + 1, false);
             board.unmake_null_move();
 
@@ -342,8 +363,13 @@ impl Search {
                 }
             }
 
+            let delta = Delta::new(board, mv);
 
             board.make_move(mv);
+
+            let (head, tail) = self.accumulator_stack.split_at_mut(ply + 1);
+            update(&NETWORK, &head[ply], &mut tail[0], &delta);
+
             let give_check = board.is_check();
 
             let mut extension = 0;
@@ -470,6 +496,8 @@ impl Search {
         let mut beta = Score::INF;
         let mut best_pv: Vec<Move> = Vec::new();
         let mut stable_tracker = StableTracker::new();
+
+        self.refresh_accumulators(board, 0);
 
         for depth in 1..=max_depth {
             if self.time_control.start.elapsed() > self.time_control.soft_lim {
@@ -624,6 +652,11 @@ impl Search {
             let off = CONT_OFFSET[i];
             if ply >= off { self.cont_stack[ply - off] } else { None }
         })
+    }
+
+    fn refresh_accumulators(&mut self, board: &Board, ply: usize) {
+        self.accumulator_stack[ply][0] = refresh(&NETWORK, board, Color::White);
+        self.accumulator_stack[ply][1] = refresh(&NETWORK, board, Color::Black);
     }
 }
 
