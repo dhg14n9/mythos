@@ -64,7 +64,7 @@ with BMI2.
 - [x] Bishop pair and tempo bonuses
 - [x] Gradient-descent (Texel) tuner with Adam, memory-mapped datasets,
   K fitting, train/validation split and early stopping
-- [ ] NNUE evaluation with incremental accumulator updates
+- [x] NNUE evaluation with incremental accumulator updates
 
 ### Tooling & testing
 - [x] `cargo xtask` as a single entry point 
@@ -72,7 +72,7 @@ with BMI2.
 - [x] TT-accelerated perft and `divide` for bisecting move-generation bugs
 - [x] Fixed-depth search benchmark as a functional fingerprint of the search
 - [x] Automated SPRT against any git ref
-- [ ] Self-play data generation for NNUE training
+- [x] Self-play data generation for NNUE training
 
 
 ## Thanks
