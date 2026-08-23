@@ -1,5 +1,5 @@
 use crate::board::board::Board;
-use crate::nnue::accumulator::{feature_index, Accumulator};
+use crate::nnue::accumulator::{feature_index, Accumulator, Delta};
 use crate::nnue::{HL, INPUT, QA, QB, SCALE};
 use crate::types::Color;
 
@@ -52,4 +52,20 @@ pub fn evaluate(net: &Network, us: &Accumulator, them: &Accumulator) -> i32 {
 fn screlu(x: i16) -> i32 {
     let y = i32::from(x).clamp(0, i32::from(QA));
     y * y
+}
+
+pub fn update(net: &Network, parents: &[Accumulator; 2], child: &mut [Accumulator; 2], delta: &Delta) {
+    *child = *parents;
+    for color in Color::ALL {
+        for (piece, square) in delta.adds() {
+            let index = feature_index(color, *piece, *square);
+            child[color] += net.feature_weights[index]
+        }
+
+        for (piece, square) in delta.subs() {
+            let index = feature_index(color, *piece, *square);
+            child[color] -= net.feature_weights[index]
+        }
+    }
+
 }

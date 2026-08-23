@@ -299,7 +299,7 @@ impl Board {
         self.castling_right = new_rights;
     }
 
-    fn castle_rook_squares(kind: MoveKind, king_to: Square) -> (Square, Square) {
+    pub fn castle_rook_squares(kind: MoveKind, king_to: Square) -> (Square, Square) {
         if matches!(kind, MoveKind::KingCastle) {
             (king_to.offset(1), king_to.offset(-1))
         } else {
