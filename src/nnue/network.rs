@@ -1,7 +1,7 @@
 use crate::board::board::Board;
 use crate::nnue::accumulator::{feature_index, Accumulator, Delta};
 use crate::nnue::{HL, INPUT, QA, QB, SCALE};
-use crate::types::Color;
+use crate::types::{Color, Piece, Square};
 
 const _: () = assert!(size_of::<Network>() == 394_816);
 
@@ -55,17 +55,31 @@ fn screlu(x: i16) -> i32 {
 }
 
 pub fn update(net: &Network, parents: &[Accumulator; 2], child: &mut [Accumulator; 2], delta: &Delta) {
-    *child = *parents;
     for color in Color::ALL {
-        for (piece, square) in delta.adds() {
-            let index = feature_index(color, *piece, *square);
-            child[color] += net.feature_weights[index]
-        }
-
-        for (piece, square) in delta.subs() {
-            let index = feature_index(color, *piece, *square);
-            child[color] -= net.feature_weights[index]
+        let weights = |&(piece, square): &(Piece, Square)| {
+            &net.feature_weights[feature_index(color, piece, square)]
+        };
+        let parent = &parents[color];
+        match (delta.adds(), delta.subs()) {
+            ([a0], [s0]) => {
+                child[color].set_add_sub(parent, weights(a0), weights(s0))
+            }
+            ([a0], [s0, s1]) => {
+                child[color].set_add_sub2(parent, weights(a0), weights(s0), weights(s1))
+            }
+            ([a0, a1], [s0, s1]) => {
+                child[color].set_add2_sub2(parent, weights(a0), weights(a1), weights(s0), weights(s1))
+            }
+            (adds, subs) => {
+                debug_assert!(false, "unhandled delta shape: {} adds, {} subs", adds.len(), subs.len());
+                child[color] = *parent;
+                for add in adds {
+                    child[color] += *weights(add)
+                }
+                for sub in subs {
+                    child[color] -= *weights(sub)
+                }
+            }
         }
     }
-
 }

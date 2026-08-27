@@ -21,6 +21,27 @@ impl Accumulator {
     pub fn set(&mut self, index: usize, x: i16) {
         self.0[index] = x
     }
+
+    #[inline]
+    pub fn set_add_sub(&mut self, parent: &Self, a0: &Self, s0: &Self) {
+        for i in 0..HL {
+            self.0[i] = parent.0[i] + a0.0[i] - s0.0[i];
+        }
+    }
+
+    #[inline]
+    pub fn set_add_sub2(&mut self, parent: &Self, a0: &Self, s0: &Self, s1: &Self) {
+        for i in 0..HL {
+            self.0[i] = parent.0[i] + a0.0[i] - s0.0[i] - s1.0[i];
+        }
+    }
+
+    #[inline]
+    pub fn set_add2_sub2(&mut self, parent: &Self, a0: &Self, a1: &Self, s0: &Self, s1: &Self) {
+        for i in 0..HL {
+            self.0[i] = parent.0[i] + a0.0[i] + a1.0[i] - s0.0[i] - s1.0[i];
+        }
+    }
 }
 
 impl Add for Accumulator {

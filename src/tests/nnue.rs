@@ -1,9 +1,10 @@
 use std::path::Path;
 
 use crate::board::board::Board;
-use crate::nnue::accumulator::feature_index;
-use crate::nnue::network::{evaluate, load_net, refresh};
-use crate::types::{Color, Piece, PieceType, Square};
+use crate::nnue::NETWORK;
+use crate::nnue::accumulator::{Accumulator, Delta, feature_index};
+use crate::nnue::network::{evaluate, load_net, refresh, update};
+use crate::types::{Color, MoveList, Piece, PieceType, Square};
 
 const NET: &str = "nets/net.nnue";
 
@@ -171,4 +172,66 @@ fn perspective_order_matters() {
         evaluate(&net, &them, &us),
         "swapping perspectives changed nothing",
     );
+}
+
+// ---------------------------------------------------------------- incremental update
+
+// Chosen so that a two-ply walk hits every Delta shape there is: quiet moves,
+// captures, en passant, castling both sides, plain promotions and
+// capture-promotions.
+const UPDATE_FENS: &[&str] = &[
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+    "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+    "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
+    "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
+    "n1n5/PPPk4/8/8/8/8/4Kppp/5N1N b - - 0 1",
+];
+
+// The incremental path has to land on exactly what a from-scratch refresh
+// would. Its failure mode is not a crash: it is an eval that is quietly wrong
+// in whichever rare position the broken shape occurs in, which just bleeds Elo.
+//
+// Both perspectives are checked every time, because a mistake in the "them"
+// (+384) half of feature_index shows up on one side only.
+fn walk_and_check(board: &mut Board, parents: &[Accumulator; 2], depth: usize, fen: &str) {
+    if depth == 0 {
+        return;
+    }
+
+    let mut list = MoveList::new();
+    board.gen_move(&mut list, false);
+
+    for i in 0..list.len() {
+        let mv = list.get_nth(i);
+
+        // Delta reads the piece layout as it stands *before* the move is played.
+        let delta = Delta::new(board, mv);
+        let mut child = [Accumulator::empty(); 2];
+        update(&NETWORK, parents, &mut child, &delta);
+
+        board.make_move(mv);
+
+        for color in Color::ALL {
+            assert!(
+                child[color] == refresh(&NETWORK, board, color),
+                "{fen}: incremental != refresh after {mv}, {color} perspective",
+            );
+        }
+
+        walk_and_check(board, &child, depth - 1, fen);
+        board.unmake_move(mv);
+    }
+}
+
+#[test]
+fn incremental_update_matches_refresh() {
+    for &fen in UPDATE_FENS {
+        let mut board = Board::from_fen(fen).expect(fen);
+        let parents = [
+            refresh(&NETWORK, &board, Color::White),
+            refresh(&NETWORK, &board, Color::Black),
+        ];
+        walk_and_check(&mut board, &parents, 2, fen);
+    }
 }
