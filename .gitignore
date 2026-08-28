@@ -32,13 +32,6 @@ NNUE_PLAN.md
 # --- Claude Code ---
 CLAUDE.md
 
-# --- NNUE nets ---
-# Distributed through OpenBench's Upload Net instead of git: the worker writes
-# the selected net to Networks/<sha> and builds with EVALFILE=<that path>, which
-# build.rs feeds to include_bytes!. Keeps ~800KB binaries out of every commit.
-nets/*.nnue
-gennet/nets/
-
 # --- Ginormous Opening Books ---
 xtask/books/*.epd
 

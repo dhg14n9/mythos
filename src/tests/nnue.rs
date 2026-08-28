@@ -6,7 +6,7 @@ use crate::nnue::accumulator::{Accumulator, Delta, feature_index};
 use crate::nnue::network::{evaluate, load_net, refresh, update};
 use crate::types::{Color, MoveList, Piece, PieceType, Square};
 
-const NET: &str = env!("EVALFILE");
+const NET: &str = "nets/net.nnue";
 
 const STARTPOS: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
