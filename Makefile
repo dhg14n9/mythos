@@ -11,6 +11,12 @@
 
 EXE ?= mythos
 
+# OpenBench passes EVALFILE=<abs path> when a net is selected for the test, so
+# the net need not live in the repo. A make command-line variable is not in the
+# environment of a recipe, so it has to be exported for build.rs to see it.
+# When unset make exports it empty; build.rs treats empty as unset.
+export EVALFILE
+
 # --bin mythos keeps the workspace's tuner/ and xtask/ members out of the build;
 # an OpenBench worker has no reason to compile the dev tooling.
 #

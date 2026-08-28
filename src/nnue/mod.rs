@@ -7,12 +7,22 @@ pub mod accumulator;
 pub mod network;
 
 const INPUT: usize = 768;
-const HL: usize = 512;
+const HL: usize = {
+    let bytes = env!("MYTHOS_HL").as_bytes();
+    let mut hl = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        hl = hl * 10 + (bytes[i] - b'0') as usize;
+        i += 1;
+    }
+    hl
+};
 const QA: i16 = 255;
 const QB: i16 = 64;
 const SCALE: i32 = 400;
 
-pub static NETWORK: Network = unsafe { std::mem::transmute(*include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/nets/net.nnue")))};
+// Path from build.rs too: the EVALFILE= OpenBench passes to make, else nets/net.nnue.
+pub static NETWORK: Network = unsafe { std::mem::transmute(*include_bytes!(env!("EVALFILE")))};
 
 pub fn eval(board: &Board, accumulator_stack: &[[Accumulator; 2]; MAX_PLY], ply: usize) -> i32 {
     let us = board.stm();
