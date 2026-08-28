@@ -154,6 +154,10 @@ impl Square {
         Self::new(self as u8 ^ 56)
     }
 
+    pub fn flip_file(self) -> Self {
+        Self::new(self as u8 ^ 7)
+    }
+
     pub fn relative_to(self, color: Color) -> Self {
         match color {
             Color::White => self,

@@ -84,8 +84,28 @@ impl SubAssign for Accumulator {
     }
 }
 
-pub fn feature_index(perspective: Color, piece: Piece, square: Square) -> usize {
+pub fn feature_index(perspective: Color, piece: Piece, square: Square, mirror: bool) -> usize {
+    let square = if mirror { square.flip_file() } else { square };
+
     (piece.piece_type() as usize) * 64 + (square.relative_to(perspective) as usize) + if perspective == piece.color() { 0 } else { 384 }
+}
+
+pub fn should_mirror(board: &Board, color: Color) -> bool {
+    board.piece_bb(Piece::new(color, PieceType::King)).lsb().is_kingside()
+}
+
+// Mirroring is decided by each perspective's OWN king, so when that king crosses
+// the d/e boundary every feature index for that perspective changes at once and
+// there is no incremental delta for it -- the accumulator has to be rebuilt.
+//
+// `mirror` is the flag for the position AFTER the move. The king's departure
+// square is in `subs`, so comparing its file against the new flag IS the
+// crossing test. Only the moving side's king ever appears there (kings are
+// never captured), so the other colour falls out as false with no special case.
+pub fn needs_refresh(delta: &Delta, color: Color, mirror: bool) -> bool {
+    let king = Piece::new(color, PieceType::King);
+
+    delta.subs().iter().any(|&(piece, square)| piece == king && square.is_kingside() != mirror)
 }
 
 pub struct Delta {

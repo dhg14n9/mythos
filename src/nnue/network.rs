@@ -1,5 +1,5 @@
 use crate::board::board::Board;
-use crate::nnue::accumulator::{feature_index, Accumulator, Delta};
+use crate::nnue::accumulator::{feature_index, needs_refresh, should_mirror, Accumulator, Delta};
 use crate::nnue::{HL, INPUT, QA, QB, SCALE};
 use crate::types::{Color, Piece, Square};
 
@@ -32,10 +32,11 @@ pub fn load_net(path: &str) -> Box<Network> {
 pub fn refresh(net: &Network, board: &Board, perspective: Color) -> Accumulator {
     let mut result = net.feature_bias;
     let occ = board.occ();
+    let mirror = should_mirror(board, perspective);
 
     for square in occ {
         let piece = board.piece_at(square);
-        let index = feature_index(perspective, piece, square);
+        let index = feature_index(perspective, piece, square, mirror);
         result += net.feature_weights[index]
     }
 
@@ -63,10 +64,17 @@ fn screlu(x: i16) -> i32 {
     y * y
 }
 
-pub fn update(net: &Network, parents: &[Accumulator; 2], child: &mut [Accumulator; 2], delta: &Delta) {
+pub fn update(net: &Network, board: &Board, parents: &[Accumulator; 2], child: &mut [Accumulator; 2], delta: &Delta) {
     for color in Color::ALL {
+        let mirror = should_mirror(board, color);
+
+        if needs_refresh(delta, color, mirror) {
+            child[color] = refresh(net, board, color);
+            continue;
+        }
+
         let weights = |&(piece, square): &(Piece, Square)| {
-            &net.feature_weights[feature_index(color, piece, square)]
+            &net.feature_weights[feature_index(color, piece, square, mirror)]
         };
         let parent = &parents[color];
         match (delta.adds(), delta.subs()) {
