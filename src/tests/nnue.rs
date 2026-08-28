@@ -1,8 +1,8 @@
 use std::path::Path;
 use crate::board::board::Board;
-use crate::nnue::NETWORK;
+use crate::nnue::{NETWORK, QA};
 use crate::nnue::accumulator::{feature_index, needs_refresh, should_mirror, Accumulator, Delta};
-use crate::nnue::network::{evaluate, load_net, refresh, update};
+use crate::nnue::network::{evaluate, forward, forward_scalar, load_net, refresh, update};
 use crate::types::{Color, MoveList, Piece, PieceType, Square};
 
 const NET: &str = "nets/net.nnue";
@@ -338,3 +338,47 @@ fn incremental_update_matches_refresh() {
     assert!(refreshes > 0, "no king crossed the d/e boundary -- the refresh fallback was never tested");
 }
 
+
+// ---------------------------------------------------------------- simd forward pass
+
+// The AVX2 forward pass reassociates screlu(x) * w into x * (x * w) and holds
+// the middle term in an i16. That is only valid while QA * max|w| fits, so pin
+// the invariant against the net that is actually compiled in -- a retrain with
+// different quantisation is exactly the change that would silently break it.
+#[test]
+fn output_weights_fit_in_i16() {
+    let worst = NETWORK.output_weights().iter().map(|w| w.unsigned_abs()).max().unwrap();
+    let product = i32::from(QA) * i32::from(worst);
+
+    println!("max |output_weight| = {worst}, QA * it = {product}");
+    assert!(
+        product <= i32::from(i16::MAX),
+        "QA ({QA}) * max |output_weight| ({worst}) = {product} overflows i16 -- \
+         the AVX2 forward pass in network.rs is no longer valid for this net",
+    );
+}
+
+// The SIMD path has to be bit-exact against the scalar one, not merely close:
+// a mismatch of one in the raw sum can cross a quantisation boundary and change
+// the search tree. Runs over every FEN in this file so the accumulators carry
+// realistic, and in places extreme, values.
+#[test]
+fn simd_forward_matches_scalar() {
+    let fens = UPDATE_FENS
+        .iter()
+        .copied()
+        .chain(HM_PAIRS.iter().flat_map(|&(a, b)| [a, b]))
+        .chain([STARTPOS, "8/8/8/8/8/8/4P3/4K2k w - - 0 1"]);
+
+    for fen in fens {
+        let board = Board::from_fen(fen).expect(fen);
+        let us = refresh(&NETWORK, &board, board.stm());
+        let them = refresh(&NETWORK, &board, !board.stm());
+
+        assert_eq!(
+            forward(&NETWORK, &us, &them),
+            forward_scalar(&NETWORK, &us, &them),
+            "{fen}: simd forward pass disagreed with the scalar one",
+        );
+    }
+}

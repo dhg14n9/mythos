@@ -8,7 +8,7 @@ pub mod network;
 
 const INPUT: usize = 768;
 const HL: usize = 512;
-const QA: i16 = 255;
+pub(crate) const QA: i16 = 255;
 const QB: i16 = 64;
 const SCALE: i32 = 400;
 
