@@ -3,7 +3,16 @@ use crate::nnue::accumulator::{feature_index, Accumulator, Delta};
 use crate::nnue::{HL, INPUT, QA, QB, SCALE};
 use crate::types::{Color, Piece, Square};
 
-const _: () = assert!(size_of::<Network>() == 394_816);
+const NET_BYTES: usize = {
+    let raw = size_of::<[Accumulator; INPUT]>() // feature_weights
+        + size_of::<Accumulator>()              // feature_bias
+        + size_of::<[i16; 2 * HL]>()            // output_weights
+        + size_of::<i16>();                     // output_bias
+    let align = align_of::<Network>();
+    (raw + align - 1) / align * align
+};
+
+const _: () = assert!(size_of::<Network>() == NET_BYTES);
 
 #[repr(C)]
 pub struct Network {
