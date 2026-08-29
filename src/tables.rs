@@ -141,6 +141,7 @@ pub const CONT_OFFSET: [usize; 4] = [1, 2, 4, 6];
 pub const CONT_LEN: usize = CONT_OFFSET.len();
 pub const CONT_READ: usize = 2;
 
+
 pub struct Continuation {
     array: Box<[[[[i16; Square::NUM]; Piece::NUM]; Square::NUM]; Piece::NUM]>
 }
