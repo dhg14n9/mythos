@@ -1,9 +1,8 @@
 use std::path::Path;
-
 use crate::board::board::Board;
-use crate::nnue::NETWORK;
-use crate::nnue::accumulator::{Accumulator, Delta, feature_index};
-use crate::nnue::network::{evaluate, load_net, refresh, update};
+use crate::nnue::{NETWORK, QA};
+use crate::nnue::accumulator::{feature_index, needs_refresh, should_mirror, Accumulator, Delta};
+use crate::nnue::network::{evaluate, forward, forward_scalar, load_net, refresh, update};
 use crate::types::{Color, MoveList, Piece, PieceType, Square};
 
 const NET: &str = "nets/net.nnue";
@@ -26,34 +25,48 @@ fn black(pt: PieceType) -> Piece {
 #[test]
 fn feature_index_hand_computed() {
     // "us", no mirror: 0 * 64 + 8 + 0
-    assert_eq!(feature_index(Color::White, white(PieceType::Pawn), Square::A2), 8);
+    assert_eq!(feature_index(Color::White, white(PieceType::Pawn), Square::A2, false), 8);
 
     // "them" AND mirrored: 0 * 64 + (8 ^ 56) + 384
-    assert_eq!(feature_index(Color::Black, white(PieceType::Pawn), Square::A2), 432);
+    assert_eq!(feature_index(Color::Black, white(PieceType::Pawn), Square::A2, false), 432);
 
     // "them", no mirror: 0 * 64 + 48 + 384
-    assert_eq!(feature_index(Color::White, black(PieceType::Pawn), Square::A7), 432);
+    assert_eq!(feature_index(Color::White, black(PieceType::Pawn), Square::A7, false), 432);
 
     // pins the piece_type stride at King = 5: 5 * 64 + 4 + 0
-    assert_eq!(feature_index(Color::White, white(PieceType::King), Square::E1), 324);
+    assert_eq!(feature_index(Color::White, white(PieceType::King), Square::E1, false), 324);
+
+    // The same king, mirrored: 5 * 64 + (4 ^ 7) + 0. E1 is on the kingside, so
+    // it is E1 that gets folded, and it lands on D1 -- this is the assertion
+    // that says which direction flip_file goes.
+    assert_eq!(feature_index(Color::White, white(PieceType::King), Square::E1, true), 323);
+
+    // The flip applies to the "them" half too, not just to our own pieces:
+    // 0 * 64 + (48 ^ 7) + 384, i.e. a black pawn on A7 folds onto H7.
+    assert_eq!(feature_index(Color::White, black(PieceType::Pawn), Square::A7, true), 439);
 }
 
 // "A white piece on square s, seen by Black" and "a black piece of the same
 // type on the mirrored square, seen by White" are the SAME situation, so they
 // must map to the same input. This holds only if both flips -- the colour
 // offset and the rank mirror -- are right; breaking either one breaks it.
+//
+// Run for both mirror settings: the file flip and the colour/rank flip touch
+// disjoint bits, so horizontal mirroring must leave this property untouched.
 #[test]
 fn feature_index_is_colour_mirror_symmetric() {
-    for pt in PieceType::ALL {
-        for sq in 0..64u8 {
-            let square = Square::new(sq);
-            let mirrored = square.flip_rank();
+    for mirror in [false, true] {
+        for pt in PieceType::ALL {
+            for sq in 0..64u8 {
+                let square = Square::new(sq);
+                let mirrored = square.flip_rank();
 
-            assert_eq!(
-                feature_index(Color::Black, white(pt), square),
-                feature_index(Color::White, black(pt), mirrored),
-                "{pt} on {square} broke mirror symmetry",
-            );
+                assert_eq!(
+                    feature_index(Color::Black, white(pt), square, mirror),
+                    feature_index(Color::White, black(pt), mirrored, mirror),
+                    "{pt} on {square} broke mirror symmetry (mirror = {mirror})",
+                );
+            }
         }
     }
 }
@@ -63,23 +76,26 @@ fn feature_index_is_colour_mirror_symmetric() {
 // collision would silently merge two features into one.
 #[test]
 fn feature_index_is_in_range_and_injective() {
-    for perspective in Color::ALL {
-        let mut seen = [false; 768];
+    for mirror in [false, true] {
+        for perspective in Color::ALL {
+            let mut seen = [false; 768];
 
-        for colour in Color::ALL {
-            for pt in PieceType::ALL {
-                for sq in 0..64u8 {
-                    let idx = feature_index(perspective, Piece::new(colour, pt), Square::new(sq));
+            for colour in Color::ALL {
+                for pt in PieceType::ALL {
+                    for sq in 0..64u8 {
+                        let idx = feature_index(perspective, Piece::new(colour, pt), Square::new(sq), mirror);
 
-                    assert!(idx < 768, "index {idx} out of range");
-                    assert!(!seen[idx], "index {idx} collided");
-                    seen[idx] = true;
+                        assert!(idx < 768, "index {idx} out of range");
+                        assert!(!seen[idx], "index {idx} collided");
+                        seen[idx] = true;
+                    }
                 }
             }
-        }
 
-        // 2 colours * 6 types * 64 squares == 768, so every input is claimed.
-        assert!(seen.iter().all(|&s| s), "some inputs were never produced");
+            // 2 colours * 6 types * 64 squares == 768, so every input is claimed.
+            // flip_file is a bijection on squares, so this must hold mirrored too.
+            assert!(seen.iter().all(|&s| s), "some inputs were never produced");
+        }
     }
 }
 
@@ -152,6 +168,64 @@ fn mirrored_positions_evaluate_identically() {
     assert_eq!(score_a, score_b, "mirrored positions disagreed");
 }
 
+// The strongest check on horizontal mirroring, because it tests a *property*
+// rather than a hand-computed constant: with pure HM and no other asymmetry in
+// the feature set, a position and its file-mirror produce byte-identical
+// accumulators, so their evals must be exactly equal.
+//
+// Uses NETWORK rather than load_net: the property holds for any weights at all,
+// so there is nothing to skip on and no reason to guard.
+//
+// Castling rights and en passant are '-' in every pair. Neither is an input
+// feature, and mirroring the board swaps which rook is which, so carrying them
+// would only invite a pointless argument about the FEN.
+const HM_PAIRS: &[(&str, &str)] = &[
+    // Startpos and its mirror: kings on e1/e8 (kingside, so BOTH perspectives
+    // fold) against kings on d1/d8 (queenside, so NEITHER does). A full board of
+    // material, and the two positions sit on opposite sides of the flag.
+    (
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1",
+        "rnbkqbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBKQBNR w - - 0 1",
+    ),
+    // THE ONE THAT MATTERS. White is castled kingside (Kg1, folds) while Black
+    // sits queenside (Kc8, does not) -- one accumulator mirrored and the other
+    // not, in the same position. In the mirror the roles swap. This is what
+    // catches the most likely bug in the whole change: deciding both
+    // perspectives' flip from one shared king instead of each from its own.
+    (
+        "2k4r/ppp5/8/8/8/8/5PPP/5RK1 w - - 0 1",
+        "r4k2/5ppp/8/8/8/8/PPP5/1KR5 w - - 0 1",
+    ),
+    // Kiwipete mirrored: dense, asymmetric, every piece type on the board, so a
+    // flip that is right for kings and pawns but wrong for some other stride
+    // has nowhere to hide.
+    (
+        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w - - 0 1",
+        "r2k3r/1bpqpp1p/1pnp2nb/3NP3/3P2p1/p1Q2N2/PPPBBPPP/R2K3R w - - 0 1",
+    ),
+];
+
+#[test]
+fn horizontally_mirrored_positions_evaluate_identically() {
+    for &(left, right) in HM_PAIRS {
+        let a = Board::from_fen(left).expect(left);
+        let b = Board::from_fen(right).expect(right);
+
+        let score_a = evaluate(
+            &NETWORK,
+            &refresh(&NETWORK, &a, a.stm()),
+            &refresh(&NETWORK, &a, !a.stm()),
+        );
+        let score_b = evaluate(
+            &NETWORK,
+            &refresh(&NETWORK, &b, b.stm()),
+            &refresh(&NETWORK, &b, !b.stm()),
+        );
+
+        assert_eq!(score_a, score_b, "{left} and its mirror {right} disagreed");
+    }
+}
+
 // Swapping which accumulator is "us" must change the answer. If it does not,
 // the two halves of output_weights are being read as one, and the perspective
 // split -- the whole point of the architecture -- is not happening.
@@ -186,6 +260,15 @@ const UPDATE_FENS: &[&str] = &[
     "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
     "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
     "n1n5/PPPk4/8/8/8/8/4Kppp/5N1N b - - 0 1",
+    // Both kings on the d-file with material either side of them, so at depth 2
+    // each colour crosses d->e (queenside to kingside) in several ways. The
+    // Kiwipete entry above only ever crosses in the other direction, and a sign
+    // error in the comparison would pass one and fail the other.
+    "r5r1/2pk1p2/8/8/8/8/2PK1P2/R5R1 w - - 0 1",
+    // A crossing that is also a capture: Kd1xe2 leaves a delta with one add and
+    // two subs, so it checks that the refresh replaces the set_add_sub2 shape
+    // and not just the plain one.
+    "4k3/pp6/8/8/8/8/4n1PP/3K4 w - - 0 1",
 ];
 
 // The incremental path has to land on exactly what a from-scratch refresh
@@ -194,7 +277,12 @@ const UPDATE_FENS: &[&str] = &[
 //
 // Both perspectives are checked every time, because a mistake in the "them"
 // (+384) half of feature_index shows up on one side only.
-fn walk_and_check(board: &mut Board, parents: &[Accumulator; 2], depth: usize, fen: &str) {
+//
+// `refreshes` counts how many times the king-crossing fallback actually fired,
+// so the caller can assert the corpus reaches it. Without that the whole test
+// can quietly stop covering the trigger -- reorder a FEN or change the depth and
+// the crossings vanish while the suite stays green.
+fn walk_and_check(board: &mut Board, parents: &[Accumulator; 2], depth: usize, fen: &str, refreshes: &mut usize) {
     if depth == 0 {
         return;
     }
@@ -205,33 +293,92 @@ fn walk_and_check(board: &mut Board, parents: &[Accumulator; 2], depth: usize, f
     for i in 0..list.len() {
         let mv = list.get_nth(i);
 
-        // Delta reads the piece layout as it stands *before* the move is played.
+        // Delta reads the piece layout as it stands *before* the move is played,
+        // but `update` wants the position *after* it -- the mirroring flag and
+        // the crossing test are both read off the new king square.
         let delta = Delta::new(board, mv);
         let mut child = [Accumulator::empty(); 2];
-        update(&NETWORK, parents, &mut child, &delta);
 
         board.make_move(mv);
+        update(&NETWORK, board, parents, &mut child, &delta);
 
         for color in Color::ALL {
+            if needs_refresh(&delta, color, should_mirror(board, color)) {
+                *refreshes += 1;
+            }
+
             assert!(
                 child[color] == refresh(&NETWORK, board, color),
                 "{fen}: incremental != refresh after {mv}, {color} perspective",
             );
         }
 
-        walk_and_check(board, &child, depth - 1, fen);
+        walk_and_check(board, &child, depth - 1, fen, refreshes);
         board.unmake_move(mv);
     }
 }
 
 #[test]
 fn incremental_update_matches_refresh() {
+    let mut refreshes = 0;
+
     for &fen in UPDATE_FENS {
         let mut board = Board::from_fen(fen).expect(fen);
         let parents = [
             refresh(&NETWORK, &board, Color::White),
             refresh(&NETWORK, &board, Color::Black),
         ];
-        walk_and_check(&mut board, &parents, 2, fen);
+        walk_and_check(&mut board, &parents, 2, fen, &mut refreshes);
+    }
+
+    // The assertion above is vacuous for the king-crossing path unless the walk
+    // actually reaches one. Pin that it does, and print the count so a big drop
+    // is visible when the corpus changes.
+    println!("king-crossing refreshes exercised: {refreshes}");
+    assert!(refreshes > 0, "no king crossed the d/e boundary -- the refresh fallback was never tested");
+}
+
+
+// ---------------------------------------------------------------- simd forward pass
+
+// The AVX2 forward pass reassociates screlu(x) * w into x * (x * w) and holds
+// the middle term in an i16. That is only valid while QA * max|w| fits, so pin
+// the invariant against the net that is actually compiled in -- a retrain with
+// different quantisation is exactly the change that would silently break it.
+#[test]
+fn output_weights_fit_in_i16() {
+    let worst = NETWORK.output_weights().iter().map(|w| w.unsigned_abs()).max().unwrap();
+    let product = i32::from(QA) * i32::from(worst);
+
+    println!("max |output_weight| = {worst}, QA * it = {product}");
+    assert!(
+        product <= i32::from(i16::MAX),
+        "QA ({QA}) * max |output_weight| ({worst}) = {product} overflows i16 -- \
+         the AVX2 forward pass in network.rs is no longer valid for this net",
+    );
+}
+
+// The SIMD path has to be bit-exact against the scalar one, not merely close:
+// a mismatch of one in the raw sum can cross a quantisation boundary and change
+// the search tree. Runs over every FEN in this file so the accumulators carry
+// realistic, and in places extreme, values.
+#[test]
+fn simd_forward_matches_scalar() {
+    let fens = UPDATE_FENS
+        .iter()
+        .copied()
+        .chain(HM_PAIRS.iter().flat_map(|&(a, b)| [a, b]))
+        .chain([STARTPOS, "8/8/8/8/8/8/4P3/4K2k w - - 0 1"]);
+
+    for fen in fens {
+        let board = Board::from_fen(fen).expect(fen);
+        let us = refresh(&NETWORK, &board, board.stm());
+        let them = refresh(&NETWORK, &board, !board.stm());
+
+        assert_eq!(
+            forward(&NETWORK, &us, &them),
+            forward_scalar(&NETWORK, &us, &them),
+            "{fen}: simd forward pass disagreed with the scalar one",
+        );
     }
 }

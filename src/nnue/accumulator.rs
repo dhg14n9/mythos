@@ -22,6 +22,10 @@ impl Accumulator {
         self.0[index] = x
     }
 
+    pub fn as_slice(&self) -> &[i16; HL] {
+        &self.0
+    }
+
     #[inline]
     pub fn set_add_sub(&mut self, parent: &Self, a0: &Self, s0: &Self) {
         for i in 0..HL {
@@ -84,8 +88,20 @@ impl SubAssign for Accumulator {
     }
 }
 
-pub fn feature_index(perspective: Color, piece: Piece, square: Square) -> usize {
+pub fn feature_index(perspective: Color, piece: Piece, square: Square, mirror: bool) -> usize {
+    let square = if mirror { square.flip_file() } else { square };
+
     (piece.piece_type() as usize) * 64 + (square.relative_to(perspective) as usize) + if perspective == piece.color() { 0 } else { 384 }
+}
+
+pub fn should_mirror(board: &Board, color: Color) -> bool {
+    board.piece_bb(Piece::new(color, PieceType::King)).lsb().is_kingside()
+}
+
+pub fn needs_refresh(delta: &Delta, color: Color, mirror: bool) -> bool {
+    let king = Piece::new(color, PieceType::King);
+
+    delta.subs().iter().any(|&(piece, square)| piece == king && square.is_kingside() != mirror)
 }
 
 pub struct Delta {

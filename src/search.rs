@@ -206,7 +206,7 @@ impl Search {
             board.make_move(mv);
 
             let (head, tail) = self.accumulator_stack.split_at_mut(ply + 1);
-            update(&NETWORK, &head[ply], &mut tail[0], &delta);
+            update(&NETWORK, board, &head[ply], &mut tail[0], &delta);
 
             let score = -self.qsearch::<PV>(board, -beta, -alpha, ply + 1);
             board.unmake_move(mv);
@@ -368,7 +368,7 @@ impl Search {
             board.make_move(mv);
 
             let (head, tail) = self.accumulator_stack.split_at_mut(ply + 1);
-            update(&NETWORK, &head[ply], &mut tail[0], &delta);
+            update(&NETWORK, board, &head[ply], &mut tail[0], &delta);
 
             let give_check = board.is_check();
 
