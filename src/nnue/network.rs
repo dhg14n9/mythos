@@ -1,5 +1,5 @@
 use crate::board::board::Board;
-use crate::nnue::accumulator::{feature_index, needs_refresh, should_mirror, Accumulator, Delta};
+use crate::nnue::accumulator::{feature_index, needs_refresh, should_mirror, Accumulator, Delta, AccState};
 use crate::nnue::{HL, INPUT, QA, QB, SCALE};
 use crate::types::{Color, Piece, Square};
 
@@ -124,39 +124,71 @@ fn forward_avx2(net: &Network, us: &Accumulator, them: &Accumulator) -> i32 {
     }
 }
 
-pub fn update(net: &Network, board: &Board, parents: &[Accumulator; 2], child: &mut [Accumulator; 2], delta: &Delta) {
+pub fn push(net: &Network, board: &Board, child: &mut AccState, delta: &Delta) {
     for color in Color::ALL {
         let mirror = should_mirror(board, color);
+        child.mirror[color] = mirror;
 
         if needs_refresh(delta, color, mirror) {
-            child[color] = refresh(net, board, color);
-            continue;
+            child.accs[color] = refresh(net, board, color);
+            child.computed[color] = true;
+        } else {
+            child.computed[color] = false;
         }
+    }
+    child.delta = *delta;
+}
 
-        let weights = |&(piece, square): &(Piece, Square)| {
-            &net.feature_weights[feature_index(color, piece, square, mirror)]
-        };
-        let parent = &parents[color];
-        match (delta.adds(), delta.subs()) {
-            ([a0], [s0]) => {
-                child[color].set_add_sub(parent, weights(a0), weights(s0))
+pub fn materialize(net: &Network, stack: &mut [AccState], ply: usize, color: Color) {
+    if stack[ply].computed[color] {
+        return;
+    }
+
+    let mut oldest = ply;
+    while oldest > 0 && !stack[oldest - 1].computed[color] {
+        oldest -= 1;
+    }
+    debug_assert!(oldest > 0, "accumulator chain ran off the bottom of the stack");
+
+    for i in oldest..=ply {
+        let (head, tail) = stack.split_at_mut(i);
+        apply(net, &head[i - 1], &mut tail[0], color);
+    }
+}
+
+fn apply(net: &Network, parent: &AccState, child: &mut AccState, color: Color) {
+    let mirror = child.mirror[color];
+    let delta = child.delta;
+
+    let weights = |&(piece, square): &(Piece, Square)| {
+        &net.feature_weights[feature_index(color, piece, square, mirror)]
+    };
+
+    let parent = &parent.accs[color];
+    match (delta.adds(), delta.subs()) {
+        ([], []) => {
+            child.accs[color] = *parent
+        }
+        ([a0], [s0]) => {
+            child.accs[color].set_add_sub(parent, weights(a0), weights(s0))
+        }
+        ([a0], [s0, s1]) => {
+            child.accs[color].set_add_sub2(parent, weights(a0), weights(s0), weights(s1))
+        }
+        ([a0, a1], [s0, s1]) => {
+            child.accs[color].set_add2_sub2(parent, weights(a0), weights(a1), weights(s0), weights(s1))
+        }
+        (adds, subs) => {
+            debug_assert!(false, "unhandled delta shape: {} adds, {} subs", adds.len(), subs.len());
+            child.accs[color] = *parent;
+            for add in adds {
+                child.accs[color] += *weights(add)
             }
-            ([a0], [s0, s1]) => {
-                child[color].set_add_sub2(parent, weights(a0), weights(s0), weights(s1))
-            }
-            ([a0, a1], [s0, s1]) => {
-                child[color].set_add2_sub2(parent, weights(a0), weights(a1), weights(s0), weights(s1))
-            }
-            (adds, subs) => {
-                debug_assert!(false, "unhandled delta shape: {} adds, {} subs", adds.len(), subs.len());
-                child[color] = *parent;
-                for add in adds {
-                    child[color] += *weights(add)
-                }
-                for sub in subs {
-                    child[color] -= *weights(sub)
-                }
+            for sub in subs {
+                child.accs[color] -= *weights(sub)
             }
         }
     }
+
+    child.computed[color] = true;
 }

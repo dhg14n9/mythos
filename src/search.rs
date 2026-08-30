@@ -4,9 +4,9 @@ use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::movepicker::{see, MovePicker};
 use crate::nnue;
-use crate::nnue::accumulator::{Accumulator, Delta};
+use crate::nnue::accumulator::{should_mirror, AccState, Delta};
 use crate::nnue::NETWORK;
-use crate::nnue::network::{refresh, update};
+use crate::nnue::network::{push, refresh};
 use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY, CONT_LEN, CONT_OFFSET};
 use crate::tunables::*;
 use crate::types::{Color, Move, PieceType, Score};
@@ -114,7 +114,7 @@ pub struct Search {
     pub pv_table: PvTable,
     pub cont_stack: Box<[Option<ContKey>; MAX_PLY]>,
     root_best_move: Move,
-    accumulator_stack: Box<[[Accumulator; 2]; MAX_PLY]>
+    accumulator_stack: Box<[AccState; MAX_PLY]>
 }
 
 impl Search {
@@ -130,7 +130,7 @@ impl Search {
             pv_table: PvTable::new(),
             cont_stack: Box::from([None; MAX_PLY]),
             root_best_move: Move::NULL,
-            accumulator_stack: Box::from([[Accumulator::empty(); 2]; MAX_PLY])
+            accumulator_stack: Box::from([AccState::empty(); MAX_PLY])
         }
     }
 
@@ -164,7 +164,7 @@ impl Search {
             return 0; // search cancelled
         }
 
-        let static_eval = nnue::eval(board, &self.accumulator_stack, ply);
+        let static_eval = nnue::eval(board, &mut self.accumulator_stack, ply);
 
         if ply >= MAX_PLY - 1 {
             return static_eval;
@@ -205,8 +205,7 @@ impl Search {
 
             board.make_move(mv);
 
-            let (head, tail) = self.accumulator_stack.split_at_mut(ply + 1);
-            update(&NETWORK, board, &head[ply], &mut tail[0], &delta);
+            push(&NETWORK, board, &mut self.accumulator_stack[ply + 1], &delta);
 
             let score = -self.qsearch::<PV>(board, -beta, -alpha, ply + 1);
             board.unmake_move(mv);
@@ -260,7 +259,7 @@ impl Search {
         }
 
         if ply >= MAX_PLY - 1 {
-            return nnue::eval(board, &self.accumulator_stack, ply);
+            return nnue::eval(board, &mut self.accumulator_stack, ply);
         }
 
         let tt_entry = self.trans_table.probe(board.hash());
@@ -285,7 +284,7 @@ impl Search {
             return self.qsearch::<PV>(board, alpha, beta, ply);
         };
 
-        let static_eval = nnue::eval(board, &self.accumulator_stack, ply);
+        let static_eval = nnue::eval(board, &mut self.accumulator_stack, ply);
         let stm = board.stm();
         let in_check = board.is_check();
 
@@ -298,7 +297,10 @@ impl Search {
             self.cont_stack[ply] = None;
 
             board.make_null_move();
-            self.accumulator_stack[ply + 1] = self.accumulator_stack[ply];
+            self.accumulator_stack[ply + 1].delta = Delta::empty();
+            self.accumulator_stack[ply + 1].computed = [false; 2];
+            self.accumulator_stack[ply + 1].mirror = self.accumulator_stack[ply].mirror;
+
 
             let score = -self.negamax::<false, false>(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth)), -beta, -beta + 1, ply + 1, false);
             board.unmake_null_move();
@@ -367,8 +369,7 @@ impl Search {
 
             board.make_move(mv);
 
-            let (head, tail) = self.accumulator_stack.split_at_mut(ply + 1);
-            update(&NETWORK, board, &head[ply], &mut tail[0], &delta);
+            push(&NETWORK, board, &mut self.accumulator_stack[ply + 1], &delta);
 
             let give_check = board.is_check();
 
@@ -655,8 +656,11 @@ impl Search {
     }
 
     fn refresh_accumulators(&mut self, board: &Board, ply: usize) {
-        self.accumulator_stack[ply][0] = refresh(&NETWORK, board, Color::White);
-        self.accumulator_stack[ply][1] = refresh(&NETWORK, board, Color::Black);
+        self.accumulator_stack[ply].accs[0] = refresh(&NETWORK, board, Color::White);
+        self.accumulator_stack[ply].accs[1] = refresh(&NETWORK, board, Color::Black);
+        self.accumulator_stack[ply].computed = [true; 2];
+        self.accumulator_stack[ply].mirror = [should_mirror(board, Color::White), should_mirror(board, Color::Black)];
+
     }
 }
 

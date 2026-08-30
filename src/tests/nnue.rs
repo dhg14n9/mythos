@@ -1,8 +1,8 @@
 use std::path::Path;
 use crate::board::board::Board;
 use crate::nnue::{NETWORK, QA};
-use crate::nnue::accumulator::{feature_index, needs_refresh, should_mirror, Accumulator, Delta};
-use crate::nnue::network::{evaluate, forward, forward_scalar, load_net, refresh, update};
+use crate::nnue::accumulator::{feature_index, needs_refresh, should_mirror, AccState, Delta};
+use crate::nnue::network::{evaluate, forward, forward_scalar, load_net, materialize, push, refresh};
 use crate::types::{Color, MoveList, Piece, PieceType, Square};
 
 const NET: &str = "nets/net.nnue";
@@ -271,6 +271,64 @@ const UPDATE_FENS: &[&str] = &[
     "4k3/pp6/8/8/8/8/4n1PP/3K4 w - - 0 1",
 ];
 
+// How deep the walks go. Chains of deferred entries are exactly this long in
+// the lazy walk, so raising it widens the replay coverage -- at roughly a 30x
+// cost per ply, which is why it is not higher.
+const WALK_DEPTH: usize = 2;
+
+// The root of a walk, built the way `Search::refresh_accumulators` builds ply 0:
+// both perspectives from scratch and marked computed. That flag is what
+// terminates every walk back, so a test stack without it would either panic in
+// debug or index wildly in release.
+fn root_state(board: &Board) -> AccState {
+    let mut state = AccState::empty();
+
+    state.accs[0] = refresh(&NETWORK, board, Color::White);
+    state.accs[1] = refresh(&NETWORK, board, Color::Black);
+    state.computed = [true; 2];
+    state.mirror = [should_mirror(board, Color::White), should_mirror(board, Color::Black)];
+
+    state
+}
+
+// Materialise both perspectives at `ply` and compare against a from-scratch
+// refresh of the position the board is actually in.
+fn check_against_refresh(board: &Board, stack: &mut [AccState], ply: usize, fen: &str, mode: &str) {
+    for color in Color::ALL {
+        materialize(&NETWORK, stack, ply, color);
+
+        assert!(
+            stack[ply].computed[color],
+            "{fen}: {mode}: materialize left {color} uncomputed at ply {ply}",
+        );
+        assert!(
+            stack[ply].accs[color] == refresh(&NETWORK, board, color),
+            "{fen}: {mode}: incremental != refresh at ply {ply}, {color} perspective",
+        );
+    }
+}
+
+// Mark plies 1..=ply deferred again, without touching their deltas.
+//
+// Only used by the lazy walk, and only to preserve its coverage: materialising
+// at a leaf marks every entry in that chain computed, so the *next* sibling
+// leaf would walk back only one ply and the long-chain case would be tested
+// once per subtree instead of once per leaf. Re-deferring restores the state
+// the line was in before anything read it, which is a state the real search is
+// in constantly.
+fn defer_line(stack: &mut [AccState], ply: usize) {
+    for entry in stack[1..=ply].iter_mut() {
+        for color in Color::ALL {
+            // Only re-defer what `push` would have deferred. An entry it
+            // refreshed must stay computed: its delta is a king crossing, which
+            // is precisely the delta that must never be replayed incrementally.
+            if !needs_refresh(&entry.delta, color, entry.mirror[color]) {
+                entry.computed[color] = false;
+            }
+        }
+    }
+}
+
 // The incremental path has to land on exactly what a from-scratch refresh
 // would. Its failure mode is not a crash: it is an eval that is quietly wrong
 // in whichever rare position the broken shape occurs in, which just bleeds Elo.
@@ -278,12 +336,38 @@ const UPDATE_FENS: &[&str] = &[
 // Both perspectives are checked every time, because a mistake in the "them"
 // (+384) half of feature_index shows up on one side only.
 //
+// `lazy` picks which half of the deferred-update contract is under test:
+//
+//   false -- materialise immediately after every push, so every chain is one
+//            entry long. This is the old eager `update` path and it isolates
+//            the delta shapes and the mirroring flag.
+//   true  -- push all the way down and materialise only at the leaf, so the
+//            chain is WALK_DEPTH entries long. This is the only mode that
+//            exercises the walk back, the replay order, and a refresh sitting
+//            in the middle of a chain.
+//
+// The lazy mode also covers the stale-slot family of bugs for free: siblings at
+// one ply share a slot, so a `push` that failed to overwrite `delta` or
+// `computed` is caught the moment the second sibling materialises.
+//
 // `refreshes` counts how many times the king-crossing fallback actually fired,
 // so the caller can assert the corpus reaches it. Without that the whole test
 // can quietly stop covering the trigger -- reorder a FEN or change the depth and
 // the crossings vanish while the suite stays green.
-fn walk_and_check(board: &mut Board, parents: &[Accumulator; 2], depth: usize, fen: &str, refreshes: &mut usize) {
+fn walk_and_check(
+    board: &mut Board,
+    stack: &mut [AccState],
+    ply: usize,
+    depth: usize,
+    fen: &str,
+    refreshes: &mut usize,
+    lazy: bool,
+) {
     if depth == 0 {
+        if lazy {
+            check_against_refresh(board, stack, ply, fen, "lazy leaf");
+            defer_line(stack, ply);
+        }
         return;
     }
 
@@ -294,50 +378,123 @@ fn walk_and_check(board: &mut Board, parents: &[Accumulator; 2], depth: usize, f
         let mv = list.get_nth(i);
 
         // Delta reads the piece layout as it stands *before* the move is played,
-        // but `update` wants the position *after* it -- the mirroring flag and
+        // but `push` wants the position *after* it -- the mirroring flag and
         // the crossing test are both read off the new king square.
         let delta = Delta::new(board, mv);
-        let mut child = [Accumulator::empty(); 2];
 
         board.make_move(mv);
-        update(&NETWORK, board, parents, &mut child, &delta);
+        push(&NETWORK, board, &mut stack[ply + 1], &delta);
 
         for color in Color::ALL {
             if needs_refresh(&delta, color, should_mirror(board, color)) {
                 *refreshes += 1;
             }
-
-            assert!(
-                child[color] == refresh(&NETWORK, board, color),
-                "{fen}: incremental != refresh after {mv}, {color} perspective",
-            );
         }
 
-        walk_and_check(board, &child, depth - 1, fen, refreshes);
+        if !lazy {
+            check_against_refresh(board, stack, ply + 1, fen, "eager");
+        }
+
+        walk_and_check(board, stack, ply + 1, depth - 1, fen, refreshes, lazy);
         board.unmake_move(mv);
     }
 }
 
-#[test]
-fn incremental_update_matches_refresh() {
+fn run_walk(lazy: bool) -> usize {
     let mut refreshes = 0;
 
     for &fen in UPDATE_FENS {
         let mut board = Board::from_fen(fen).expect(fen);
-        let parents = [
-            refresh(&NETWORK, &board, Color::White),
-            refresh(&NETWORK, &board, Color::Black),
-        ];
-        walk_and_check(&mut board, &parents, 2, fen, &mut refreshes);
+        let mut stack = [AccState::empty(); WALK_DEPTH + 1];
+        stack[0] = root_state(&board);
+
+        walk_and_check(&mut board, &mut stack, 0, WALK_DEPTH, fen, &mut refreshes, lazy);
     }
 
-    // The assertion above is vacuous for the king-crossing path unless the walk
-    // actually reaches one. Pin that it does, and print the count so a big drop
-    // is visible when the corpus changes.
+    // The assertion inside the walk is vacuous for the king-crossing path unless
+    // the walk actually reaches one. Pin that it does, and print the count so a
+    // big drop is visible when the corpus changes.
     println!("king-crossing refreshes exercised: {refreshes}");
     assert!(refreshes > 0, "no king crossed the d/e boundary -- the refresh fallback was never tested");
+
+    refreshes
 }
 
+#[test]
+fn incremental_update_matches_refresh() {
+    run_walk(false);
+}
+
+// The deferred half. A refresh landing mid-chain is the case that decides
+// whether the walk back is right: `push` refreshes that entry on the spot and
+// marks it computed, so `materialize` must stop there rather than replaying the
+// king move as an ordinary delta on top of it. Get that wrong and the result is
+// not a panic, it is a plausible-looking wrong accumulator -- which is why this
+// test asserts the corpus reaches a crossing rather than trusting it to.
+#[test]
+fn deferred_chain_matches_refresh() {
+    run_walk(true);
+}
+
+// Reading an accumulator must not change it. This pins the early return in
+// `materialize`: without it a second call walks back past an already-computed
+// entry and replays deltas that are already folded in.
+#[test]
+fn materialize_is_idempotent() {
+    let fen = UPDATE_FENS[1];
+    let mut board = Board::from_fen(fen).expect(fen);
+    let mut stack = [AccState::empty(); WALK_DEPTH + 1];
+    stack[0] = root_state(&board);
+
+    let mut list = MoveList::new();
+    board.gen_move(&mut list, false);
+    let mv = list.get_nth(0);
+
+    let delta = Delta::new(&board, mv);
+    board.make_move(mv);
+    push(&NETWORK, &board, &mut stack[1], &delta);
+
+    for color in Color::ALL {
+        materialize(&NETWORK, &mut stack, 1, color);
+        let once = stack[1].accs[color];
+
+        materialize(&NETWORK, &mut stack, 1, color);
+        assert!(
+            stack[1].accs[color] == once,
+            "a second materialize changed the {color} accumulator",
+        );
+    }
+}
+
+// The null-move shape: an entry whose delta is empty, so its accumulator is its
+// parent's unchanged. Move generation never produces it, so the `([], [])` arm
+// and the null-move path in `negamax` are untested unless it is built by hand --
+// which is exactly how the search builds it.
+#[test]
+fn empty_delta_copies_the_parent() {
+    let fen = UPDATE_FENS[1];
+    let mut board = Board::from_fen(fen).expect(fen);
+    let mut stack = [AccState::empty(); WALK_DEPTH + 1];
+    stack[0] = root_state(&board);
+
+    // ply 1: a real move, left deferred so the empty entry sits mid-chain.
+    let mut list = MoveList::new();
+    board.gen_move(&mut list, false);
+    let mv = list.get_nth(0);
+
+    let delta = Delta::new(&board, mv);
+    board.make_move(mv);
+    push(&NETWORK, &board, &mut stack[1], &delta);
+
+    // ply 2: the null move, built the way search.rs builds it.
+    stack[2].delta = Delta::empty();
+    stack[2].computed = [false; 2];
+    stack[2].mirror = stack[1].mirror;
+
+    // A null move leaves the piece layout alone, so the board is still the
+    // position at ply 1 and a refresh of it is what ply 2 must equal.
+    check_against_refresh(&board, &mut stack, 2, fen, "null move");
+}
 
 // ---------------------------------------------------------------- simd forward pass
 

@@ -88,6 +88,25 @@ impl SubAssign for Accumulator {
     }
 }
 
+#[derive(Copy, Clone)]
+pub struct AccState {
+    pub accs: [Accumulator; 2],
+    pub computed: [bool; 2],
+    pub mirror: [bool; 2],
+    pub delta: Delta
+}
+
+impl AccState {
+    pub fn empty() -> Self {
+        Self {
+            accs: [Accumulator::empty(); 2],
+            computed: [false; 2],
+            mirror: [false; 2],
+            delta: Delta::empty()
+        }
+    }
+}
+
 pub fn feature_index(perspective: Color, piece: Piece, square: Square, mirror: bool) -> usize {
     let square = if mirror { square.flip_file() } else { square };
 
@@ -104,6 +123,7 @@ pub fn needs_refresh(delta: &Delta, color: Color, mirror: bool) -> bool {
     delta.subs().iter().any(|&(piece, square)| piece == king && square.is_kingside() != mirror)
 }
 
+#[derive(Copy, Clone)]
 pub struct Delta {
     adds: [(Piece, Square); 2],
     subs: [(Piece, Square); 2],
@@ -112,6 +132,16 @@ pub struct Delta {
 }
 
 impl Delta {
+
+    pub fn empty() -> Self {
+        Self {
+            adds: [(Piece::None, Square::None); 2],
+            subs: [(Piece::None, Square::None); 2],
+            num_add: 0,
+            num_sub: 0
+        }
+    }
+
     pub fn new(board: &Board, mv: Move) -> Self {
         let mv_piece = board.piece_at(mv.from());
 
