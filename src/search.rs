@@ -9,7 +9,7 @@ use crate::nnue::NETWORK;
 use crate::nnue::network::{push, refresh};
 use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY, CONT_LEN, CONT_OFFSET};
 use crate::tunables::*;
-use crate::types::{Color, Move, PieceType, Score};
+use crate::types::{Color, Move, MoveList, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
 
@@ -192,7 +192,7 @@ impl Search {
         move_picker.score_noisy(board);
 
         if in_check && move_picker.terminal() {
-            return -Score::MAX;
+            return Score::mated_in(ply);
         }
 
         while let Some(mv) = move_picker.next(board) {
@@ -227,11 +227,7 @@ impl Search {
             };
         }
 
-        if Score::is_mate(best) {
-            best - best.signum()
-        } else {
-            best
-        }
+        best
     }
 
 
@@ -240,7 +236,7 @@ impl Search {
         board: &mut Board,
         depth: usize,
         mut alpha: i32,
-        beta: i32,
+        mut beta: i32,
         ply: usize,
         allow_null: bool
     ) -> i32 {
@@ -261,17 +257,22 @@ impl Search {
             return Score::ZERO;
         }
 
-        if ply >= MAX_PLY - 1 {
-            return nnue::eval(board, &mut self.accumulator_stack, ply);
+        if ply > 0 {
+            alpha = alpha.max(Score::mated_in(ply));
+            beta = beta.min(Score::mate_in(ply + 1));
+            if alpha >= beta {
+                return alpha;
+            }
         }
 
         let tt_entry = self.trans_table.probe(board.hash());
         let mut tt_move = Move::NULL;
         let mut tt_bound = BoundType::Upper;
-        if let Some((score, best, entry_depth, bound)) = tt_entry {
+        if let Some((tt_score, best, entry_depth, bound)) = tt_entry {
             tt_move = best;
             tt_bound = bound;
             if entry_depth >= depth && !PV {
+                let score = Score::from_tt(tt_score, ply);
                 let cut = match bound {
                     BoundType::Exact => true,
                     BoundType::Lower => score >= beta,
@@ -332,7 +333,7 @@ impl Search {
         move_picker.score_noisy(board);
 
         if move_picker.terminal() {
-            return if in_check { -Score::MAX } else { Score::ZERO };
+            return if in_check { Score::mated_in(ply) } else { Score::ZERO };
         }
 
         let alpha_orig = alpha;
@@ -478,15 +479,9 @@ impl Search {
         else if best >= beta  { BoundType::Lower }
         else                  { BoundType::Exact };
 
-        let score = if Score::is_mate(best) {
-            best - best.signum()
-        } else {
-            best
-        };
+        self.trans_table.store(board.hash(), Score::to_tt(best, ply), best_move, depth, bound);
 
-        self.trans_table.store(board.hash(), score, best_move, depth, bound);
-
-        score
+        best
     }
 
     // iterative deepening
@@ -548,6 +543,7 @@ impl Search {
             beta = result.1 + asp_window();
             best = result;
             best_pv = Vec::from(self.pv_table.get_line(0));
+            self.extend_pv_from_tt(board, &mut best_pv);
 
 
             // info
@@ -582,6 +578,41 @@ impl Search {
 
         }
         best
+    }
+    
+    fn extend_pv_from_tt(&self, board: &Board, pv: &mut Vec<Move>) {
+        const PV_CAP: usize = 64;
+
+        let mut board = board.clone();
+        for &mv in pv.iter() {
+            board.make_move(mv);
+        }
+
+        // A TT walk will happily hand back a cycle, so remember where we have been.
+        let mut seen: Vec<u64> = Vec::with_capacity(PV_CAP);
+
+        while pv.len() < PV_CAP {
+            let key = board.hash();
+            if seen.contains(&key) {
+                break;
+            }
+            seen.push(key);
+
+            let Some((_, mv, _, _)) = self.trans_table.probe(key) else { break };
+
+            if mv.is_null() || !Self::pv_move_is_legal(&board, mv) {
+                break;
+            }
+
+            board.make_move(mv);
+            pv.push(mv);
+        }
+    }
+
+    fn pv_move_is_legal(board: &Board, mv: Move) -> bool {
+        let mut list = MoveList::new();
+        board.gen_move(&mut list, false);
+        (0..list.len()).any(|i| list.get_nth(i) == mv)
     }
 
     // check if move is reducable, i is move number in move ordering
