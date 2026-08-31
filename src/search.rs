@@ -164,13 +164,14 @@ impl Search {
             return 0; // search cancelled
         }
 
-        let static_eval = nnue::eval(board, &mut self.accumulator_stack, ply);
+        let in_check = board.is_check();
+        let static_eval = if in_check { -Score::INF } else { nnue::eval(board, &mut self.accumulator_stack, ply) };
 
         if ply >= MAX_PLY - 1 {
-            return static_eval;
+            return nnue::eval(board, &mut self.accumulator_stack, ply);
         }
 
-        let in_check = board.is_check();
+
         let mut best = -Score::MAX;
 
         if !in_check {
@@ -184,8 +185,10 @@ impl Search {
         let mut move_picker = MovePicker::new(Move::NULL);
         move_picker.gen_move(board, true);
 
-        let prev = self.cont_keys(ply);
-        move_picker.score_quiet(&board, &self.thread_data, ply, prev);
+        if in_check {
+            let prev = self.cont_keys(ply);
+            move_picker.score_quiet(&board, &self.thread_data, ply, prev);
+        }
         move_picker.score_noisy(board);
 
         if in_check && move_picker.terminal() {
@@ -284,9 +287,9 @@ impl Search {
             return self.qsearch::<PV>(board, alpha, beta, ply);
         };
 
-        let static_eval = nnue::eval(board, &mut self.accumulator_stack, ply);
         let stm = board.stm();
         let in_check = board.is_check();
+        let static_eval = if in_check { -Score::INF } else { nnue::eval(board, &mut self.accumulator_stack, ply) };
 
         // temporary, havent sprt-ed
         // if Self::should_razor(PV, in_check, static_eval, alpha, depth, tt_move, tt_bound) {
@@ -334,10 +337,12 @@ impl Search {
 
         let alpha_orig = alpha;
         let mut i = 0; // move num in move ordering
+
+        let killers = self.thread_data.killer.probe(ply);
+
         while let Some(mv) = move_picker.next(board) {
 
             let moved = board.piece_at(mv.from());
-            let killers = self.thread_data.killer.probe(ply);
             self.cont_stack[ply] = Some(ContKey { piece: moved, square: mv.to() });
 
 

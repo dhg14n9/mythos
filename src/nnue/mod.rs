@@ -1,6 +1,6 @@
 use crate::board::board::Board;
-use crate::nnue::accumulator::{AccState, Accumulator};
-use crate::nnue::network::{refresh, Network, evaluate, materialize};
+use crate::nnue::accumulator::{AccState};
+use crate::nnue::network::{Network, evaluate, materialize};
 use crate::tables::MAX_PLY;
 
 pub mod accumulator;
