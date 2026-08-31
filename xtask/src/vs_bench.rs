@@ -55,13 +55,14 @@ fn parse_rows(output: &str) -> Vec<Row> {
     rows
 }
 
-fn run_bench(bin: &Path, depth: &str, label: &str) -> Result<Vec<Row>> {
+fn run_bench(bin: &Path, depth: &str, hash: Option<&str>, label: &str) -> Result<Vec<Row>> {
     println!("[vs] running {label} searchbench (depth {depth})...");
-    let out = run_capture(
-        Command::new(bin)
-            .current_dir(workspace_root())
-            .args(["searchbench", depth]),
-    )?;
+    let mut cmd = Command::new(bin);
+    cmd.current_dir(workspace_root()).args(["searchbench", depth]);
+    if let Some(h) = hash {
+        cmd.args(["--hash", h]);
+    }
+    let out = run_capture(&mut cmd)?;
     let rows = parse_rows(&out);
     if rows.is_empty() {
         return Err(format!(
@@ -111,7 +112,7 @@ fn build_ref_binary(gitref: &str) -> Result<(PathBuf, String)> {
 
 /// Run `searchbench` on the working tree and on a git ref, and diff the
 /// per-position node counts and best moves.
-pub fn vs_search_bench(gitref: &str, depth: &str) -> Result<()> {
+pub fn vs_search_bench(gitref: &str, depth: &str, hash: Option<&str>) -> Result<()> {
     let root = workspace_root();
 
     let (base_bin, sha) = build_ref_binary(gitref)?;
@@ -120,8 +121,8 @@ pub fn vs_search_bench(gitref: &str, depth: &str) -> Result<()> {
     run(cargo().args(["build", "--release"]))?;
     let dev_bin = root.join("target/release/mythos");
 
-    let base = run_bench(&base_bin, depth, &format!("base ({sha})"))?;
-    let dev = run_bench(&dev_bin, depth, "dev")?;
+    let base = run_bench(&base_bin, depth, hash, &format!("base ({sha})"))?;
+    let dev = run_bench(&dev_bin, depth, hash, "dev")?;
 
     println!();
     println!(

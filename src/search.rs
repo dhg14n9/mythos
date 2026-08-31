@@ -560,9 +560,10 @@ impl Search {
                 let ellapsed = self.time_control.start.elapsed();
                 let nps = (self.nodes as f64 / ellapsed.as_secs_f64().max(f64::EPSILON)) as u64;
                 println!(
-                    "info depth {depth} score {} nodes {} nps {nps} time {} pv {}",
+                    "info depth {depth} score {} nodes {} nps {nps} hashfull {} time {} pv {}",
                     score, // is mate print "mate N", not mate print cp score
                     self.nodes,
+                    self.trans_table.hashfull(),
                     ellapsed.as_millis(),
                     best_pv.iter()
                            .map(|x| x.to_string())
@@ -570,6 +571,15 @@ impl Search {
                            .join(" ")
                 );
             }
+
+            if Score::is_mate(best.1) && best.1 > 0 {
+                let plies_till_mate = (Score::MAX - best.1.abs()) as usize;
+                if plies_till_mate <= depth {
+                    break
+                }
+
+            }
+
         }
         best
     }

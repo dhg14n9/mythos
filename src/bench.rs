@@ -10,6 +10,31 @@ use crate::types::MoveList;
 const EPD: &str = include_str!("tests/perft_bench.epd");
 
 pub const BENCH_DEPTH: usize = 13;
+pub const BENCH_HASH_MB: usize = 16;
+
+// `bench [depth] [--hash MB]`, shared by the `bench` binary subcommand and the
+// UCI `bench` command. `--hash` consumes its value so it is never mistaken for
+// the positional depth.
+pub fn parse_bench_args<S: AsRef<str>>(args: &[S]) -> (usize, usize) {
+    let mut depth = BENCH_DEPTH;
+    let mut hash = BENCH_HASH_MB;
+    let mut it = args.iter().map(|a| a.as_ref());
+    while let Some(arg) = it.next() {
+        match arg {
+            "--hash" | "hash" => {
+                if let Some(mb) = it.next().and_then(|v| v.parse().ok()) {
+                    hash = mb;
+                }
+            }
+            other => {
+                if let Ok(d) = other.parse() {
+                    depth = d;
+                }
+            }
+        }
+    }
+    (depth, hash)
+}
 
 pub fn cases() -> Vec<(&'static str, usize, u64)> {
     EPD.lines()
@@ -54,7 +79,7 @@ pub fn group_digits(n: u64) -> String {
 // positions and report the node count. The total is a functional fingerprint
 // of the search — a patch that shouldn't change search behavior must not
 // change it.
-pub fn search_bench(depth: usize) {
+pub fn search_bench(depth: usize, hash_mb: usize) {
     let cases = cases();
     let positions: Vec<&str> = cases.iter().step_by(6).map(|&(fen, _, _)| fen).collect();
 
@@ -63,7 +88,7 @@ pub fn search_bench(depth: usize) {
 
     for (i, fen) in positions.iter().enumerate() {
         let mut board = Board::from_fen(fen).expect("invalid FEN in suite");
-        let mut search = Search::new(TimeControl::infinite(), TransTable::new(16), ThreadData::new());
+        let mut search = Search::new(TimeControl::infinite(), TransTable::new(hash_mb), ThreadData::new());
         search.silent = true;
 
         let start = Instant::now();
@@ -74,13 +99,14 @@ pub fn search_bench(depth: usize) {
         let nps = search.nodes as f64 / elapsed.as_secs_f64().max(f64::EPSILON);
 
         println!(
-            "{:>3}/{}  depth {:>2}  nodes {:>13}  time {:>7.3}s  speed {:>7.1} Mnps  bestmove {:<5}  {}",
+            "{:>3}/{}  depth {:>2}  nodes {:>13}  time {:>7.3}s  speed {:>7.1} Mnps  hashfull {:>4}  bestmove {:<5}  {}",
             i + 1,
             positions.len(),
             depth,
             group_digits(search.nodes),
             elapsed.as_secs_f64(),
             nps / 1e6,
+            search.trans_table.hashfull(),
             best.to_string(),
             fen,
         );
@@ -92,6 +118,7 @@ pub fn search_bench(depth: usize) {
     println!();
     println!("  positions : {}", positions.len());
     println!("  depth     : {depth}");
+    println!("  hash      : {hash_mb} MB");
     println!("  nodes     : {}", group_digits(total_nodes));
     println!("  time      : {:.3?}", elapsed);
     println!(

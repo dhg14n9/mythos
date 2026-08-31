@@ -69,13 +69,10 @@ impl Session {
                 }
             },
             "position" => position(&mut self.board, args),
-            "go" => go(&mut self.board, args, &self.stop, &mut self.handle, &self.trans_table, &mut self.thread_data),
+            "go" => go(&mut self.board, args, &self.stop, &mut self.handle, &mut self.trans_table, &mut self.thread_data),
             "bench" => {
-                let depth = args
-                    .first()
-                    .and_then(|d| d.parse().ok())
-                    .unwrap_or(crate::bench::BENCH_DEPTH);
-                crate::bench::search_bench(depth);
+                let (depth, hash) = crate::bench::parse_bench_args(args);
+                crate::bench::search_bench(depth, hash);
             }
             // Non-standard: dumps the block to paste into an OpenBench SPSA
             // workload, so the parameter list is never transcribed by hand.
@@ -296,7 +293,7 @@ fn go(
     args: &[&str],
     stop: &Arc<AtomicBool>,
     handle: &mut Option<thread::JoinHandle<ThreadData>>,
-    trans_table: &TransTable,
+    trans_table: &mut TransTable,
     thread_data: &mut Option<ThreadData>
 ) {
     let start = Instant::now();
@@ -308,6 +305,7 @@ fn go(
     }
 
     join_thread(stop, handle, thread_data);
+    trans_table.generation = (trans_table.generation + 1) & TransTable::AGE_MASK; 
 
     let stop = Arc::clone(stop);
     let (hard_lim, soft_lim) = parse_time(args, board.stm());

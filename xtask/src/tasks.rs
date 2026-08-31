@@ -54,11 +54,28 @@ pub fn perft_bench(tt: bool, fen: Option<&str>, depth: Option<&str>) -> Result<(
         ]))
 }
 
-pub fn search_bench(depth: Option<&str>) -> Result<()> {
+/// Pull `--hash MB` out of an argument list, leaving the positionals behind.
+pub fn split_hash(args: &[String]) -> (Option<&str>, Vec<&str>) {
+    let mut hash = None;
+    let mut rest = Vec::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--hash" => hash = it.next().map(String::as_str),
+            other => rest.push(other),
+        }
+    }
+    (hash, rest)
+}
+
+pub fn search_bench(depth: Option<&str>, hash: Option<&str>) -> Result<()> {
     let mut cmd = cargo();
     cmd.args(["run", "--release", "--quiet", "--", "searchbench"]);
     if let Some(d) = depth {
         cmd.arg(d);
+    }
+    if let Some(h) = hash {
+        cmd.args(["--hash", h]);
     }
     run(&mut cmd)
 }

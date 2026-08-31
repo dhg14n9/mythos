@@ -38,10 +38,14 @@ fn dispatch(args: &[String]) -> Result<()> {
             rest.get(1).map(String::as_str),
         ),
         "bench" => tasks::bench(),
-        "search-bench" => tasks::search_bench(rest.first().map(String::as_str)),
+        "search-bench" => {
+            let (hash, pos) = tasks::split_hash(rest);
+            tasks::search_bench(pos.first().copied(), hash)
+        }
         "vs-search-bench" => {
-            let (gitref, depth) = parse_vs_args(rest)?;
-            vs_bench::vs_search_bench(gitref, depth)
+            let (hash, pos) = tasks::split_hash(rest);
+            let (gitref, depth) = parse_vs_args(&pos)?;
+            vs_bench::vs_search_bench(gitref, depth, hash)
         }
         "sprt" => sprt::sprt(&parse_sprt_flags(rest)?),
         "sprt-report" => match rest {
@@ -58,10 +62,10 @@ fn dispatch(args: &[String]) -> Result<()> {
 
 /// `vs-search-bench [ref] [depth]` in either order: a purely numeric
 /// argument is the depth, anything else is the git ref.
-fn parse_vs_args(args: &[String]) -> Result<(&str, &str)> {
+fn parse_vs_args<'a>(args: &[&'a str]) -> Result<(&'a str, &'a str)> {
     let mut gitref = "HEAD";
     let mut depth = "7";
-    for a in args {
+    for &a in args {
         if a.chars().all(|c| c.is_ascii_digit()) {
             depth = a;
         } else {
@@ -113,13 +117,17 @@ Run with no command for an interactive menu, or call a command directly:
                      per-move node counts via UCI `go perft`, to bisect a
                      perft mismatch (start position at depth 1 by default)
   bench              make/unmake micro-benchmark (100M pairs)
-  search-bench [depth]
+  search-bench [depth] [--hash MB]
                      run the search to a fixed depth over 22 suite positions
                      and report the node count — a functional fingerprint of
-                     the search (depth 13 by default)
-  vs-search-bench [ref] [depth]
+                     the search (depth 13, hash 16 MB by default). At the
+                     default hash the table sits near-empty, so replacement
+                     policy is invisible; pass a small --hash to saturate it
+  vs-search-bench [ref] [depth] [--hash MB]
                      search-bench the working tree vs a git ref (default
-                     HEAD) and diff per-position node counts and best moves
+                     HEAD) and diff per-position node counts and best moves.
+                     --hash is passed to both binaries, so the base ref must
+                     be new enough to understand the flag
 
   sprt [--ref REF] [--elo0 E] [--elo1 E] [--tc TC]
        [--concurrency N] [--rounds N] [--book PATH] [--affinity CPUS]

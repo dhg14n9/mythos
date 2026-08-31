@@ -109,13 +109,15 @@ fn prompt_divide() -> Result<()> {
 
 fn prompt_search_bench() -> Result<()> {
     let depth = ask(Text::new("depth").with_default("7"))?;
-    tasks::search_bench(Some(&depth))
+    let hash = ask(Text::new("hash (MB)").with_default("16"))?;
+    tasks::search_bench(Some(&depth), Some(&hash))
 }
 
 fn prompt_vs_search_bench() -> Result<()> {
     let gitref = ask(Text::new("base ref").with_default("HEAD"))?;
     let depth = ask(Text::new("depth").with_default("7"))?;
-    vs_bench::vs_search_bench(&gitref, &depth)
+    let hash = ask(Text::new("hash (MB)").with_default("16"))?;
+    vs_bench::vs_search_bench(&gitref, &depth, Some(&hash))
 }
 
 /// Pick one of the timestamped run folders under `rel`, newest first.

@@ -1,9 +1,10 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering::Relaxed;
 use crate::types::{Color, Move, Piece, Square};
 
 // trans table
-#[derive(Default, Copy, Clone, PartialEq)]
+#[derive(Default, Copy, Clone, PartialEq, Debug)]
 #[repr(u8)]
 pub enum BoundType {
     #[default]
@@ -21,14 +22,26 @@ pub struct Slot {
 #[derive(Clone)]
 pub struct TransTable {
     array: Arc<[Slot]>,
-    num_entry: usize
+    num_entry: usize,
+    pub generation: u8,
 }
 
+const BOUND_SHIFT: usize =  0;
+const DEPTH_SHIFT: usize =  2;
+const MOVE_SHIFT : usize = 10;
+const AGE_SHIFT  : usize = 26;
+const SCORE_SHIFT: usize = 46;
+
+const AGE_PEN: u8 = 4;
+
+
 impl TransTable {
+    pub const AGE_MASK: u8 = 0x3F;
+
     pub fn new(size_mb: usize) -> Self {
         let num_entry = (size_mb.max(1) * 1024 * 1024) / size_of::<Slot>();
         let array: Arc<[Slot]> = (0..num_entry).map(|_| Slot::default()).collect();
-        Self { array, num_entry }
+        Self { array, num_entry, generation: 0 }
     }
     fn index(key: u64, num_entry: usize) -> usize {
         ((key as u128 * num_entry as u128) >> 64) as usize
@@ -39,7 +52,8 @@ impl TransTable {
         let key_cell = slot.key.load(Ordering::Relaxed);
         let data = slot.data.load(Ordering::Relaxed);
         if key_cell ^ data == key {
-            Some(Self::unpack(data))
+            let (score, mv, depth, bound_type, _) = Self::unpack(data);
+            Some((score, mv, depth, bound_type))
         } else {
             None
         }
@@ -47,7 +61,14 @@ impl TransTable {
 
     pub fn store(&self, key: u64, score: i32, best: Move, depth: usize, bound_type: BoundType) {
         let slot = &self.array[Self::index(key, self.num_entry)];
-        let data = Self::pack(score, best, depth, bound_type);
+        let (_, _, entry_depth, _, entry_age) = Self::unpack(slot.data.load(Relaxed));
+        let real_age = (self.generation.wrapping_sub(entry_age)) & Self::AGE_MASK;
+
+        if (depth as i32) < Self::quality(entry_depth, real_age) {
+            return
+        }
+
+        let data = Self::pack(score, best, depth, bound_type, self.generation);
         slot.key.store(key ^ data, Ordering::Relaxed);
         slot.data.store(data, Ordering::Relaxed);
     }
@@ -59,23 +80,61 @@ impl TransTable {
         }
     }
 
-    // pack score, move, depth, bound into a u64.
-    // score must be on top because when score as u64, every bit on the right will be corrupted into
-    // ones. score on top will throw these (ones) on top as redundant bits
-    fn pack(score: i32, best: Move, depth: usize, bound_type: BoundType) -> u64 {
-        ((score as u64) << 26) | ((best.raw() as u64) << 10) | ((depth as u64) << 2) | bound_type as u64
+
+    pub fn hashfull(&self) -> usize {
+        let sample = self.num_entry.min(1000);
+        if sample == 0 {
+            return 0;
+        }
+        let used = self.array[..sample]
+            .iter()
+            .filter(|slot| {
+                slot.key.load(Ordering::Relaxed) != 0 || slot.data.load(Ordering::Relaxed) != 0
+            })
+            .count();
+        used * 1000 / sample
     }
 
-    fn unpack(data: u64) -> (i32, Move, usize, BoundType) {
-        let score = (data >> 26) as i32;
-        let mv = Move::from_raw(((data >> 10) & 0xffff) as u16);
-        let depth = ((data >> 2) & 0xff) as usize;
+    // The whole entry lives in one u64:
+    //
+    //   63            46 45      32 31       26 25        10 9       2 1   0
+    //  [ score: 18 sgn ][ free: 14 ][ age: 6  ] [ move: 16 ] [depth: 8] [bnd]
+    //
+    // score sits at the top so unpack recovers its sign with a single arithmetic
+    // shift (`data as i64 >> SCORE_SHIFT`) rather than masking and sign-extending
+    // by hand -- a logical shift here silently turns every negative score into a
+    // large positive one. age is the generation that wrote the entry, 6 bits so it
+    // wraps every 64 searches (hence the wrapping_sub in store). Bits 32..45 are
+    // free -- wide enough for a static eval, the usual next tenant.
+    fn pack(score: i32, best: Move, depth: usize, bound_type: BoundType, age: u8) -> u64 {
+        debug_assert!(
+            (-(1 << 17)..(1 << 17)).contains(&score),
+            "score {score} overflows the 18-bit field"
+        );
+        debug_assert!(depth < 256, "depth {depth} overflows the 8-bit field");
+
+        ((score as u64) << SCORE_SHIFT)         |
+            ((best.raw() as u64) << MOVE_SHIFT) |
+            ((depth as u64) << DEPTH_SHIFT)     |
+            ((bound_type as u64) << BOUND_SHIFT)|
+            ((age as u64) << AGE_SHIFT)
+    }
+
+    fn unpack(data: u64) -> (i32, Move, usize, BoundType, u8) {
+        let score = (data as i64 >> SCORE_SHIFT) as i32;
+        let mv = Move::from_raw(((data >> MOVE_SHIFT) & 0xffff) as u16);
+        let depth = ((data >> DEPTH_SHIFT) & 0xff) as usize;
         let bound_type = match data & 3 {
             0 => BoundType::Exact,
             1 => BoundType::Lower,
             _ => BoundType::Upper
         };
-        (score, mv, depth, bound_type)
+        let age = ((data >> AGE_SHIFT) as u8) & Self::AGE_MASK;
+        (score, mv, depth, bound_type, age)
+    }
+
+    fn quality(depth: usize, real_age: u8) -> i32 {
+        depth as i32 - (AGE_PEN as i32 * real_age as i32)
     }
 
 }
