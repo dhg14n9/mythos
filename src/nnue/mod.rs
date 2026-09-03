@@ -11,7 +11,7 @@ const HL: usize = 512;
 pub(crate) const QA: i16 = 255;
 const QB: i16 = 64;
 const SCALE: i32 = 400;
-pub(crate) const OUTPUT_BUCKETS: usize = 1;
+pub(crate) const OUTPUT_BUCKETS: usize = 8;
 
 pub static NETWORK: Network = unsafe { std::mem::transmute(*include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/nets/net.nnue")))};
 
