@@ -1,13 +1,13 @@
 use crate::board::board::Board;
 use crate::nnue::accumulator::{feature_index, needs_refresh, should_mirror, Accumulator, Delta, AccState};
-use crate::nnue::{HL, INPUT, QA, QB, SCALE};
+use crate::nnue::{HL, INPUT, OUTPUT_BUCKETS, QA, QB, SCALE};
 use crate::types::{Color, Piece, Square};
 
 const NET_BYTES: usize = {
     let raw = size_of::<[Accumulator; INPUT]>() // feature_weights
         + size_of::<Accumulator>()              // feature_bias
-        + size_of::<[i16; 2 * HL]>()            // output_weights
-        + size_of::<i16>();                     // output_bias
+        + size_of::<[[i16; 2 * HL]; OUTPUT_BUCKETS]>() // output_weights
+        + size_of::<[i16; OUTPUT_BUCKETS]>();          // output_bias
     let align = align_of::<Network>();
     (raw + align - 1) / align * align
 };
@@ -18,13 +18,13 @@ const _: () = assert!(size_of::<Network>() == NET_BYTES);
 pub struct Network {
     feature_weights: [Accumulator; INPUT],
     feature_bias: Accumulator,
-    output_weights: [i16; 2 * HL],
-    output_bias: i16
+    output_weights: [[i16; 2 * HL]; OUTPUT_BUCKETS],
+    output_bias: [i16; OUTPUT_BUCKETS]
 }
 
 impl Network {
-    pub fn output_weights(&self) -> &[i16; 2 * HL] {
-        &self.output_weights
+    pub fn output_weights(&self, bucket: usize) -> &[i16; 2 * HL] {
+        &self.output_weights[bucket]
     }
 }
 
@@ -49,11 +49,11 @@ pub fn refresh(net: &Network, board: &Board, perspective: Color) -> Accumulator 
     result
 }
 
-pub fn evaluate(net: &Network, us: &Accumulator, them: &Accumulator) -> i32 {
-    let mut sum = forward(net, us, them);
+pub fn evaluate(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usize) -> i32 {
+    let mut sum = forward(net, us, them, bucket);
 
     sum /= QA as i32;
-    sum += net.output_bias as i32;
+    sum += net.output_bias[bucket] as i32;
     sum *= SCALE;
     sum /= (QA * QB) as i32;
 
@@ -61,23 +61,23 @@ pub fn evaluate(net: &Network, us: &Accumulator, them: &Accumulator) -> i32 {
 }
 
 #[inline]
-pub fn forward(net: &Network, us: &Accumulator, them: &Accumulator) -> i32 {
+pub fn forward(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usize) -> i32 {
     #[cfg(target_feature = "avx2")]
     {
-        forward_avx2(net, us, them)
+        forward_avx2(net, us, them, bucket)
     }
     #[cfg(not(target_feature = "avx2"))]
     {
-        forward_scalar(net, us, them)
+        forward_scalar(net, us, them, bucket)
     }
 }
 
-pub fn forward_scalar(net: &Network, us: &Accumulator, them: &Accumulator) -> i32 {
+pub fn forward_scalar(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usize) -> i32 {
     let mut sum = 0;
 
     for i in 0..HL {
-        sum += screlu(us.get(i)) * net.output_weights[i] as i32;
-        sum += screlu(them.get(i)) * net.output_weights[HL + i] as i32;
+        sum += screlu(us.get(i)) * net.output_weights[bucket][i] as i32;
+        sum += screlu(them.get(i)) * net.output_weights[bucket][HL + i] as i32;
     }
 
     sum
@@ -91,7 +91,7 @@ fn screlu(x: i16) -> i32 {
 
 #[cfg(target_feature = "avx2")]
 #[inline]
-fn forward_avx2(net: &Network, us: &Accumulator, them: &Accumulator) -> i32 {
+fn forward_avx2(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usize) -> i32 {
     use std::arch::x86_64::*;
 
     const LANES: usize = 16;
@@ -104,7 +104,7 @@ fn forward_avx2(net: &Network, us: &Accumulator, them: &Accumulator) -> i32 {
 
         for (side, offset) in [(us, 0usize), (them, HL)] {
             let values = side.as_slice().as_ptr();
-            let weights = net.output_weights.as_ptr().add(offset);
+            let weights = net.output_weights[bucket].as_ptr().add(offset);
 
             let mut i = 0;
             while i < HL {

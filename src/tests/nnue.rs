@@ -1,6 +1,6 @@
 use std::path::Path;
 use crate::board::board::Board;
-use crate::nnue::{NETWORK, QA};
+use crate::nnue::{NETWORK, OUTPUT_BUCKETS, QA};
 use crate::nnue::accumulator::{feature_index, needs_refresh, should_mirror, AccState, Delta};
 use crate::nnue::network::{evaluate, forward, forward_scalar, load_net, materialize, push, refresh};
 use crate::types::{Color, MoveList, Piece, PieceType, Square};
@@ -125,7 +125,7 @@ fn forward_pass_produces_a_score() {
     let us = refresh(&net, &board, board.stm());
     let them = refresh(&net, &board, !board.stm());
 
-    let score = evaluate(&net, &us, &them);
+    let score = evaluate(&net, &us, &them, 0);
     println!("startpos raw nnue output: {score}");
 
     // Sanity bound only. A score outside this means the quantisation arithmetic
@@ -158,11 +158,13 @@ fn mirrored_positions_evaluate_identically() {
         &net,
         &refresh(&net, &a, a.stm()),
         &refresh(&net, &a, !a.stm()),
+        0,
     );
     let score_b = evaluate(
         &net,
         &refresh(&net, &b, b.stm()),
         &refresh(&net, &b, !b.stm()),
+        0,
     );
 
     assert_eq!(score_a, score_b, "mirrored positions disagreed");
@@ -215,11 +217,13 @@ fn horizontally_mirrored_positions_evaluate_identically() {
             &NETWORK,
             &refresh(&NETWORK, &a, a.stm()),
             &refresh(&NETWORK, &a, !a.stm()),
+            0,
         );
         let score_b = evaluate(
             &NETWORK,
             &refresh(&NETWORK, &b, b.stm()),
             &refresh(&NETWORK, &b, !b.stm()),
+            0,
         );
 
         assert_eq!(score_a, score_b, "{left} and its mirror {right} disagreed");
@@ -242,8 +246,8 @@ fn perspective_order_matters() {
     let them = refresh(&net, &board, !board.stm());
 
     assert_ne!(
-        evaluate(&net, &us, &them),
-        evaluate(&net, &them, &us),
+        evaluate(&net, &us, &them, 0),
+        evaluate(&net, &them, &us, 0),
         "swapping perspectives changed nothing",
     );
 }
@@ -504,7 +508,11 @@ fn empty_delta_copies_the_parent() {
 // different quantisation is exactly the change that would silently break it.
 #[test]
 fn output_weights_fit_in_i16() {
-    let worst = NETWORK.output_weights().iter().map(|w| w.unsigned_abs()).max().unwrap();
+    let worst = (0..OUTPUT_BUCKETS)
+        .flat_map(|bucket| NETWORK.output_weights(bucket).iter())
+        .map(|w| w.unsigned_abs())
+        .max()
+        .unwrap();
     let product = i32::from(QA) * i32::from(worst);
 
     println!("max |output_weight| = {worst}, QA * it = {product}");
@@ -532,10 +540,12 @@ fn simd_forward_matches_scalar() {
         let us = refresh(&NETWORK, &board, board.stm());
         let them = refresh(&NETWORK, &board, !board.stm());
 
-        assert_eq!(
-            forward(&NETWORK, &us, &them),
-            forward_scalar(&NETWORK, &us, &them),
-            "{fen}: simd forward pass disagreed with the scalar one",
-        );
+        for bucket in 0..OUTPUT_BUCKETS {
+            assert_eq!(
+                forward(&NETWORK, &us, &them, bucket),
+                forward_scalar(&NETWORK, &us, &them, bucket),
+                "{fen}: simd forward pass disagreed with the scalar one in bucket {bucket}",
+            );
+        }
     }
 }
