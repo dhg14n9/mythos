@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::movepicker::{see, MovePicker};
 use crate::nnue;
-use crate::nnue::accumulator::{should_mirror, AccState, Delta};
+use crate::nnue::accumulator::{king_context, AccState, Delta};
 use crate::nnue::NETWORK;
 use crate::nnue::network::{push, refresh};
 use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY, CONT_LEN, CONT_OFFSET};
@@ -304,6 +304,7 @@ impl Search {
             self.accumulator_stack[ply + 1].delta = Delta::empty();
             self.accumulator_stack[ply + 1].computed = [false; 2];
             self.accumulator_stack[ply + 1].mirror = self.accumulator_stack[ply].mirror;
+            self.accumulator_stack[ply + 1].bucket = self.accumulator_stack[ply].bucket;
 
 
             let score = -self.negamax::<false, false>(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth)), -beta, -beta + 1, ply + 1, false);
@@ -702,10 +703,14 @@ impl Search {
     }
 
     fn refresh_accumulators(&mut self, board: &Board, ply: usize) {
-        self.accumulator_stack[ply].accs[0] = refresh(&NETWORK, board, Color::White);
-        self.accumulator_stack[ply].accs[1] = refresh(&NETWORK, board, Color::Black);
+        for color in Color::ALL {
+            let (mirror, bucket) = king_context(board, color);
+
+            self.accumulator_stack[ply].accs[color] = refresh(&NETWORK, board, color);
+            self.accumulator_stack[ply].mirror[color] = mirror;
+            self.accumulator_stack[ply].bucket[color] = bucket;
+        }
         self.accumulator_stack[ply].computed = [true; 2];
-        self.accumulator_stack[ply].mirror = [should_mirror(board, Color::White), should_mirror(board, Color::Black)];
 
     }
 }

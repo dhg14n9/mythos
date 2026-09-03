@@ -1,7 +1,7 @@
 use std::path::Path;
 use crate::board::board::Board;
-use crate::nnue::{NETWORK, OUTPUT_BUCKETS, QA};
-use crate::nnue::accumulator::{feature_index, needs_refresh, should_mirror, AccState, Delta};
+use crate::nnue::{BUCKET_COUNT, BUCKET_SIZE, INPUT, NETWORK, OUTPUT_BUCKETS, QA};
+use crate::nnue::accumulator::{feature_index, king_bucket, king_context, needs_refresh, should_mirror, AccState, Delta};
 use crate::nnue::network::{evaluate, forward, forward_scalar, load_net, materialize, push, refresh};
 use crate::types::{Color, MoveList, Piece, PieceType, Square};
 
@@ -25,25 +25,32 @@ fn black(pt: PieceType) -> Piece {
 #[test]
 fn feature_index_hand_computed() {
     // "us", no mirror: 0 * 64 + 8 + 0
-    assert_eq!(feature_index(Color::White, white(PieceType::Pawn), Square::A2, false), 8);
+    assert_eq!(feature_index(Color::White, white(PieceType::Pawn), Square::A2, false, 0), 8);
 
     // "them" AND mirrored: 0 * 64 + (8 ^ 56) + 384
-    assert_eq!(feature_index(Color::Black, white(PieceType::Pawn), Square::A2, false), 432);
+    assert_eq!(feature_index(Color::Black, white(PieceType::Pawn), Square::A2, false, 0), 432);
 
     // "them", no mirror: 0 * 64 + 48 + 384
-    assert_eq!(feature_index(Color::White, black(PieceType::Pawn), Square::A7, false), 432);
+    assert_eq!(feature_index(Color::White, black(PieceType::Pawn), Square::A7, false, 0), 432);
 
     // pins the piece_type stride at King = 5: 5 * 64 + 4 + 0
-    assert_eq!(feature_index(Color::White, white(PieceType::King), Square::E1, false), 324);
+    assert_eq!(feature_index(Color::White, white(PieceType::King), Square::E1, false, 0), 324);
 
     // The same king, mirrored: 5 * 64 + (4 ^ 7) + 0. E1 is on the kingside, so
     // it is E1 that gets folded, and it lands on D1 -- this is the assertion
     // that says which direction flip_file goes.
-    assert_eq!(feature_index(Color::White, white(PieceType::King), Square::E1, true), 323);
+    assert_eq!(feature_index(Color::White, white(PieceType::King), Square::E1, true, 0), 323);
 
     // The flip applies to the "them" half too, not just to our own pieces:
     // 0 * 64 + (48 ^ 7) + 384, i.e. a black pawn on A7 folds onto H7.
-    assert_eq!(feature_index(Color::White, black(PieceType::Pawn), Square::A7, true), 439);
+    assert_eq!(feature_index(Color::White, black(PieceType::Pawn), Square::A7, true, 0), 439);
+
+    // The king-bucket stride: a bucket is a whole 768-input block, so the same
+    // feature in bucket k sits exactly k * 768 further along. The engine's
+    // block ordering has to match bullet's, which lays the buckets out
+    // contiguously and repeats the factoriser across them on save.
+    assert_eq!(feature_index(Color::White, white(PieceType::Pawn), Square::A2, false, 1), 768 + 8);
+    assert_eq!(feature_index(Color::White, white(PieceType::King), Square::E1, true, 9), 9 * 768 + 323);
 }
 
 // "A white piece on square s, seen by Black" and "a black piece of the same
@@ -55,17 +62,19 @@ fn feature_index_hand_computed() {
 // disjoint bits, so horizontal mirroring must leave this property untouched.
 #[test]
 fn feature_index_is_colour_mirror_symmetric() {
-    for mirror in [false, true] {
-        for pt in PieceType::ALL {
-            for sq in 0..64u8 {
-                let square = Square::new(sq);
-                let mirrored = square.flip_rank();
+    for bucket in 0..BUCKET_COUNT {
+        for mirror in [false, true] {
+            for pt in PieceType::ALL {
+                for sq in 0..64u8 {
+                    let square = Square::new(sq);
+                    let mirrored = square.flip_rank();
 
-                assert_eq!(
-                    feature_index(Color::Black, white(pt), square, mirror),
-                    feature_index(Color::White, black(pt), mirrored, mirror),
-                    "{pt} on {square} broke mirror symmetry (mirror = {mirror})",
-                );
+                    assert_eq!(
+                        feature_index(Color::Black, white(pt), square, mirror, bucket),
+                        feature_index(Color::White, black(pt), mirrored, mirror, bucket),
+                        "{pt} on {square} broke mirror symmetry (mirror = {mirror}, bucket = {bucket})",
+                    );
+                }
             }
         }
     }
@@ -78,23 +87,118 @@ fn feature_index_is_colour_mirror_symmetric() {
 fn feature_index_is_in_range_and_injective() {
     for mirror in [false, true] {
         for perspective in Color::ALL {
-            let mut seen = [false; 768];
+            let mut seen = [false; INPUT];
 
-            for colour in Color::ALL {
-                for pt in PieceType::ALL {
-                    for sq in 0..64u8 {
-                        let idx = feature_index(perspective, Piece::new(colour, pt), Square::new(sq), mirror);
+            for bucket in 0..BUCKET_COUNT {
+                for colour in Color::ALL {
+                    for pt in PieceType::ALL {
+                        for sq in 0..64u8 {
+                            let idx = feature_index(perspective, Piece::new(colour, pt), Square::new(sq), mirror, bucket);
 
-                        assert!(idx < 768, "index {idx} out of range");
-                        assert!(!seen[idx], "index {idx} collided");
-                        seen[idx] = true;
+                            assert!(idx < INPUT, "index {idx} out of range");
+                            // Pins the stride: a bucket's features must stay
+                            // inside that bucket's own block of weights.
+                            assert_eq!(idx / BUCKET_SIZE, bucket, "index {idx} escaped bucket {bucket}");
+                            assert!(!seen[idx], "index {idx} collided");
+                            seen[idx] = true;
+                        }
                     }
                 }
             }
 
-            // 2 colours * 6 types * 64 squares == 768, so every input is claimed.
-            // flip_file is a bijection on squares, so this must hold mirrored too.
+            // 2 colours * 6 types * 64 squares == 768 per bucket, so every input
+            // is claimed. flip_file is a bijection on squares, so this must hold
+            // mirrored too.
             assert!(seen.iter().all(|&s| s), "some inputs were never produced");
+        }
+    }
+}
+
+// ---------------------------------------------------------------- king buckets
+
+// The anchors that fix the ORIENTATION of KING_LAYOUT, hand-computed from the
+// trainer's array. Nothing else can catch a layout read from the wrong end: a
+// rank order that is upside down, or a fold that runs the wrong way, is wrong
+// identically for both perspectives, so every symmetry property below still
+// holds and only the strength is quietly gone.
+//
+// KING_LAYOUT is four entries per rank, starting from the king's OWN back rank,
+// files a-d, with e-h folded onto d-a.
+#[test]
+fn king_bucket_hand_computed() {
+    let cases = [
+        (Color::White, Square::A1, 0), // the corner: rank 0, file 0
+        (Color::White, Square::H1, 0), // ... and its fold, h -> a
+        (Color::White, Square::G1, 1), // castled kingside, folds onto B1
+        (Color::White, Square::C1, 2), // queenside, no fold
+        (Color::White, Square::E1, 3), // folds onto D1: rank 0, file 3
+        (Color::White, Square::D1, 3), // ... which D1 reaches without folding
+        (Color::White, Square::E4, 7), // rank 3, file 3 -> layout[15]
+        (Color::White, Square::E8, 9), // white king on the far rank -> layout[31]
+        (Color::Black, Square::E8, 3), // the same square is Black's own E1
+        (Color::Black, Square::G8, 1),
+        (Color::Black, Square::E5, 7), // Black's rank 3
+    ];
+
+    for (perspective, king, expected) in cases {
+        assert_eq!(
+            king_bucket(perspective, king, king.is_kingside()),
+            expected,
+            "{perspective} king on {king}",
+        );
+    }
+}
+
+// A position and its colour-mirror must pick the same bucket, or the two
+// perspectives are reading different halves of the layout.
+#[test]
+fn king_bucket_is_perspective_symmetric() {
+    for sq in 0..64u8 {
+        let white = Square::new(sq);
+        let black = white.flip_rank();
+
+        assert_eq!(
+            king_bucket(Color::White, white, white.is_kingside()),
+            king_bucket(Color::Black, black, black.is_kingside()),
+            "{white} seen by White and {black} seen by Black disagreed",
+        );
+    }
+}
+
+// Horizontal mirroring happens before the layout lookup, so a square and its
+// file-mirror are the same bucket. This is what makes the bucket safe to leave
+// out of the HM equivalence test below.
+#[test]
+fn king_bucket_folds_across_the_file() {
+    for perspective in Color::ALL {
+        for sq in 0..64u8 {
+            let square = Square::new(sq);
+            let folded = square.flip_file();
+
+            assert_eq!(
+                king_bucket(perspective, square, square.is_kingside()),
+                king_bucket(perspective, folded, folded.is_kingside()),
+                "{square} and {folded} landed in different buckets",
+            );
+        }
+    }
+}
+
+// king_context is the single lookup that push, refresh and the root all go
+// through. It must agree with the two functions it replaced -- and in
+// particular it must read each colour's OWN king, which is the mistake the
+// helper exists to make impossible.
+#[test]
+fn king_context_agrees_with_its_parts() {
+    for &fen in UPDATE_FENS {
+        let board = Board::from_fen(fen).expect(fen);
+
+        for color in Color::ALL {
+            let king = board.piece_bb(Piece::new(color, PieceType::King)).lsb();
+            let (mirror, bucket) = king_context(&board, color);
+
+            assert_eq!(mirror, should_mirror(&board, color), "{fen}: {color} mirror");
+            assert_eq!(bucket, king_bucket(color, king, mirror), "{fen}: {color} bucket");
         }
     }
 }
@@ -269,11 +373,39 @@ const UPDATE_FENS: &[&str] = &[
     // Kiwipete entry above only ever crosses in the other direction, and a sign
     // error in the comparison would pass one and fail the other.
     "r5r1/2pk1p2/8/8/8/8/2PK1P2/R5R1 w - - 0 1",
-    // A crossing that is also a capture: Kd1xe2 leaves a delta with one add and
+    // A refresh that is also a capture: Kd1xe2 leaves a delta with one add and
     // two subs, so it checks that the refresh replaces the set_add_sub2 shape
     // and not just the plain one.
     "4k3/pp6/8/8/8/8/4n1PP/3K4 w - - 0 1",
 ];
+
+// Why a `push` refreshed, recomputed here from the king's old and new squares
+// rather than by asking `needs_refresh`. The point is to have a second,
+// independent derivation of the same fact: the walk asserts the two agree, so
+// the counting below cannot drift into merely restating the implementation.
+//
+// `board` is the position AFTER the move. Returns None when the move did not
+// touch this colour's king, in which case no refresh may happen at all.
+fn refresh_reason(board: &Board, delta: &Delta, color: Color) -> Option<(bool, bool)> {
+    let king = Piece::new(color, PieceType::King);
+    let from = delta.subs().iter().find(|&&(piece, _)| piece == king).map(|&(_, square)| square)?;
+
+    let (new_mirror, new_bucket) = king_context(board, color);
+    let old_mirror = from.is_kingside();
+
+    Some((old_mirror != new_mirror, king_bucket(color, from, old_mirror) != new_bucket))
+}
+
+// The two refresh triggers, counted separately. They are genuinely independent:
+// Ke1-d1 flips the mirror while staying in bucket 3, and Kd1-c1 changes bucket
+// with no flip, so an implementation that checks only one of the two conditions
+// passes half these counters and fails the other half.
+#[derive(Default)]
+struct Refreshes {
+    mirror_only: usize,
+    bucket_only: usize,
+    both: usize,
+}
 
 // How deep the walks go. Chains of deferred entries are exactly this long in
 // the lazy walk, so raising it widens the replay coverage -- at roughly a 30x
@@ -290,7 +422,12 @@ fn root_state(board: &Board) -> AccState {
     state.accs[0] = refresh(&NETWORK, board, Color::White);
     state.accs[1] = refresh(&NETWORK, board, Color::Black);
     state.computed = [true; 2];
-    state.mirror = [should_mirror(board, Color::White), should_mirror(board, Color::Black)];
+
+    for color in Color::ALL {
+        let (mirror, bucket) = king_context(board, color);
+        state.mirror[color] = mirror;
+        state.bucket[color] = bucket;
+    }
 
     state
 }
@@ -324,9 +461,10 @@ fn defer_line(stack: &mut [AccState], ply: usize) {
     for entry in stack[1..=ply].iter_mut() {
         for color in Color::ALL {
             // Only re-defer what `push` would have deferred. An entry it
-            // refreshed must stay computed: its delta is a king crossing, which
-            // is precisely the delta that must never be replayed incrementally.
-            if !needs_refresh(&entry.delta, color, entry.mirror[color]) {
+            // refreshed must stay computed: its delta moved the king to a
+            // different weight block, which is precisely the delta that must
+            // never be replayed incrementally.
+            if !needs_refresh(&entry.delta, color, entry.mirror[color], entry.bucket[color]) {
                 entry.computed[color] = false;
             }
         }
@@ -354,17 +492,17 @@ fn defer_line(stack: &mut [AccState], ply: usize) {
 // one ply share a slot, so a `push` that failed to overwrite `delta` or
 // `computed` is caught the moment the second sibling materialises.
 //
-// `refreshes` counts how many times the king-crossing fallback actually fired,
-// so the caller can assert the corpus reaches it. Without that the whole test
-// can quietly stop covering the trigger -- reorder a FEN or change the depth and
-// the crossings vanish while the suite stays green.
+// `refreshes` counts how many times each refresh trigger actually fired, so the
+// caller can assert the corpus reaches all of them. Without that the whole test
+// can quietly stop covering a trigger -- reorder a FEN or change the depth and
+// the king moves that reach it vanish while the suite stays green.
 fn walk_and_check(
     board: &mut Board,
     stack: &mut [AccState],
     ply: usize,
     depth: usize,
     fen: &str,
-    refreshes: &mut usize,
+    refreshes: &mut Refreshes,
     lazy: bool,
 ) {
     if depth == 0 {
@@ -383,15 +521,35 @@ fn walk_and_check(
 
         // Delta reads the piece layout as it stands *before* the move is played,
         // but `push` wants the position *after* it -- the mirroring flag and
-        // the crossing test are both read off the new king square.
+        // the bucket are both read off the new king square.
         let delta = Delta::new(board, mv);
 
         board.make_move(mv);
         push(&NETWORK, board, &mut stack[ply + 1], &delta);
 
         for color in Color::ALL {
-            if needs_refresh(&delta, color, should_mirror(board, color)) {
-                *refreshes += 1;
+            let (mirror, bucket) = king_context(board, color);
+            let fired = needs_refresh(&delta, color, mirror, bucket);
+
+            match refresh_reason(board, &delta, color) {
+                None => assert!(
+                    !fired,
+                    "{fen}: needs_refresh fired for {color} on a move that never touched its king",
+                ),
+                Some((moved_mirror, moved_bucket)) => {
+                    assert_eq!(
+                        fired,
+                        moved_mirror || moved_bucket,
+                        "{fen}: needs_refresh disagreed with the king's own context for {color}",
+                    );
+
+                    match (moved_mirror, moved_bucket) {
+                        (true, false) => refreshes.mirror_only += 1,
+                        (false, true) => refreshes.bucket_only += 1,
+                        (true, true) => refreshes.both += 1,
+                        (false, false) => {}
+                    }
+                }
             }
         }
 
@@ -404,8 +562,8 @@ fn walk_and_check(
     }
 }
 
-fn run_walk(lazy: bool) -> usize {
-    let mut refreshes = 0;
+fn run_walk(lazy: bool) -> Refreshes {
+    let mut refreshes = Refreshes::default();
 
     for &fen in UPDATE_FENS {
         let mut board = Board::from_fen(fen).expect(fen);
@@ -415,11 +573,17 @@ fn run_walk(lazy: bool) -> usize {
         walk_and_check(&mut board, &mut stack, 0, WALK_DEPTH, fen, &mut refreshes, lazy);
     }
 
-    // The assertion inside the walk is vacuous for the king-crossing path unless
-    // the walk actually reaches one. Pin that it does, and print the count so a
-    // big drop is visible when the corpus changes.
-    println!("king-crossing refreshes exercised: {refreshes}");
-    assert!(refreshes > 0, "no king crossed the d/e boundary -- the refresh fallback was never tested");
+    // The assertion inside the walk is vacuous for the refresh path unless the
+    // walk actually reaches it, and reaching it by one trigger says nothing
+    // about the other. Pin all three shapes, and print them so a drop is
+    // visible when the corpus changes.
+    println!(
+        "refreshes exercised: mirror only {}, bucket only {}, both {}",
+        refreshes.mirror_only, refreshes.bucket_only, refreshes.both,
+    );
+    assert!(refreshes.mirror_only > 0, "no king crossed d/e without changing bucket");
+    assert!(refreshes.bucket_only > 0, "no king changed bucket without crossing d/e");
+    assert!(refreshes.both > 0, "no king changed both at once");
 
     refreshes
 }
@@ -434,7 +598,7 @@ fn incremental_update_matches_refresh() {
 // marks it computed, so `materialize` must stop there rather than replaying the
 // king move as an ordinary delta on top of it. Get that wrong and the result is
 // not a panic, it is a plausible-looking wrong accumulator -- which is why this
-// test asserts the corpus reaches a crossing rather than trusting it to.
+// test asserts the corpus reaches a refresh rather than trusting it to.
 #[test]
 fn deferred_chain_matches_refresh() {
     run_walk(true);
@@ -494,6 +658,7 @@ fn empty_delta_copies_the_parent() {
     stack[2].delta = Delta::empty();
     stack[2].computed = [false; 2];
     stack[2].mirror = stack[1].mirror;
+    stack[2].bucket = stack[1].bucket;
 
     // A null move leaves the piece layout alone, so the board is still the
     // position at ply 1 and a refresh of it is what ply 2 must equal.

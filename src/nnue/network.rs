@@ -1,5 +1,5 @@
 use crate::board::board::Board;
-use crate::nnue::accumulator::{feature_index, needs_refresh, should_mirror, Accumulator, Delta, AccState};
+use crate::nnue::accumulator::{feature_index, king_context, needs_refresh, Accumulator, Delta, AccState};
 use crate::nnue::{HL, INPUT, OUTPUT_BUCKETS, QA, QB, SCALE};
 use crate::types::{Color, Piece, Square};
 
@@ -31,18 +31,26 @@ impl Network {
 pub fn load_net(path: &str) -> Box<Network> {
     let bytes = std::fs::read(path).expect("failed to load net file");
     assert_eq!(bytes.len(), size_of::<Network>());
-    Box::new(unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const Network) })
 
+    // Read straight into the heap. Going through a `Network` temporary would
+    // put the whole net on a stack frame, which no longer fits: with king
+    // buckets it is 7.9 MB against a test thread's 8 MB stack.
+    let mut net: Box<std::mem::MaybeUninit<Network>> = Box::new_uninit();
+
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), net.as_mut_ptr().cast::<u8>(), size_of::<Network>());
+        net.assume_init()
+    }
 }
 
 pub fn refresh(net: &Network, board: &Board, perspective: Color) -> Accumulator {
     let mut result = net.feature_bias;
     let occ = board.occ();
-    let mirror = should_mirror(board, perspective);
+    let (mirror, bucket) = king_context(board, perspective);
 
     for square in occ {
         let piece = board.piece_at(square);
-        let index = feature_index(perspective, piece, square, mirror);
+        let index = feature_index(perspective, piece, square, mirror, bucket);
         result += net.feature_weights[index]
     }
 
@@ -126,10 +134,11 @@ fn forward_avx2(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usi
 
 pub fn push(net: &Network, board: &Board, child: &mut AccState, delta: &Delta) {
     for color in Color::ALL {
-        let mirror = should_mirror(board, color);
+        let (mirror, bucket) = king_context(board, color);
         child.mirror[color] = mirror;
+        child.bucket[color] = bucket;
 
-        if needs_refresh(delta, color, mirror) {
+        if needs_refresh(delta, color, mirror, bucket) {
             child.accs[color] = refresh(net, board, color);
             child.computed[color] = true;
         } else {
@@ -157,11 +166,14 @@ pub fn materialize(net: &Network, stack: &mut [AccState], ply: usize, color: Col
 }
 
 fn apply(net: &Network, parent: &AccState, child: &mut AccState, color: Color) {
+    // A deferred entry never changed weight block -- that is precisely what
+    // `needs_refresh` guarantees -- so these also describe its parent.
     let mirror = child.mirror[color];
+    let bucket = child.bucket[color];
     let delta = child.delta;
 
     let weights = |&(piece, square): &(Piece, Square)| {
-        &net.feature_weights[feature_index(color, piece, square, mirror)]
+        &net.feature_weights[feature_index(color, piece, square, mirror, bucket)]
     };
 
     let parent = &parent.accs[color];

@@ -1,6 +1,6 @@
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use crate::board::board::Board;
-use crate::nnue::HL;
+use crate::nnue::{BUCKET_SIZE, HL, KING_LAYOUT};
 use crate::types::{Color, Move, Piece, PieceType, Square};
 
 #[repr(C, align(64))]
@@ -93,6 +93,7 @@ pub struct AccState {
     pub accs: [Accumulator; 2],
     pub computed: [bool; 2],
     pub mirror: [bool; 2],
+    pub bucket: [usize; 2],
     pub delta: Delta
 }
 
@@ -102,25 +103,61 @@ impl AccState {
             accs: [Accumulator::empty(); 2],
             computed: [false; 2],
             mirror: [false; 2],
+            bucket: [0; 2],
             delta: Delta::empty()
         }
     }
 }
 
-pub fn feature_index(perspective: Color, piece: Piece, square: Square, mirror: bool) -> usize {
+pub fn feature_index(perspective: Color, piece: Piece, square: Square, mirror: bool, bucket: usize) -> usize {
     let square = if mirror { square.flip_file() } else { square };
 
-    (piece.piece_type() as usize) * 64 + (square.relative_to(perspective) as usize) + if perspective == piece.color() { 0 } else { 384 }
+    (piece.piece_type() as usize) * 64 +
+        (square.relative_to(perspective) as usize) +
+        if perspective == piece.color() { 0 } else { 384 } +
+        bucket * BUCKET_SIZE
+}
+
+
+pub fn king_context(board: &Board, color: Color) -> (bool, usize) {
+    let king = board.piece_bb(Piece::new(color, PieceType::King)).lsb();
+    let mirror = king.is_kingside();
+
+    (mirror, king_bucket(color, king, mirror))
 }
 
 pub fn should_mirror(board: &Board, color: Color) -> bool {
     board.piece_bb(Piece::new(color, PieceType::King)).lsb().is_kingside()
 }
 
-pub fn needs_refresh(delta: &Delta, color: Color, mirror: bool) -> bool {
+pub fn king_bucket(perspective: Color, king: Square, mirror: bool) -> usize {
+    let king = king.relative_to(perspective);
+    let king = if mirror { king.flip_file() } else { king };
+    let index = (king.rank() as usize * 4) + king.file() as usize;
+
+    KING_LAYOUT[index]
+}
+
+// `mirror` and `bucket` describe the position *after* the move. A deferred
+// entry is replayed against its parent's weight block, so the king may only
+// stay deferred while both are unchanged -- a bucket change rewrites every
+// feature index just as surely as a mirror flip does.
+//
+// The old bucket has to be read with the OLD square's own mirror flag, not the
+// new one: `mirror` belongs to the square the king landed on, and folding the
+// square it came from with it names a bucket that never existed.
+pub fn needs_refresh(delta: &Delta, color: Color, mirror: bool, bucket: usize) -> bool {
     let king = Piece::new(color, PieceType::King);
 
-    delta.subs().iter().any(|&(piece, square)| piece == king && square.is_kingside() != mirror)
+    delta.subs().iter().any(|&(piece, square)| {
+        if piece != king {
+            return false;
+        }
+
+        let old_mirror = square.is_kingside();
+
+        old_mirror != mirror || king_bucket(color, square, old_mirror) != bucket
+    })
 }
 
 #[derive(Copy, Clone)]
