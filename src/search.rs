@@ -595,6 +595,10 @@ impl Search {
             board.make_move(mv);
         }
 
+        if board.is_draw() {
+            return;
+        }
+
         // A TT walk will happily hand back a cycle, so remember where we have been.
         let mut seen: Vec<u64> = Vec::with_capacity(PV_CAP);
 
@@ -613,6 +617,10 @@ impl Search {
 
             board.make_move(mv);
             pv.push(mv);
+
+            if board.is_draw() {
+                break;
+            }
         }
     }
 
