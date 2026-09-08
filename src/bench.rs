@@ -80,6 +80,8 @@ pub fn group_digits(n: u64) -> String {
 // of the search — a patch that shouldn't change search behavior must not
 // change it.
 pub fn search_bench(depth: usize, hash_mb: usize) {
+    crate::nnue::stats::reset();
+
     let cases = cases();
     let positions: Vec<&str> = cases.iter().step_by(6).map(|&(fen, _, _)| fen).collect();
 
@@ -126,6 +128,8 @@ pub fn search_bench(depth: usize, hash_mb: usize) {
         nps / 1e6,
         group_digits(nps as u64)
     );
+    crate::nnue::stats::report(total_nodes);
+
     println!();
     println!("{total_nodes} nodes {} nps", nps as u64);
 }

@@ -1,7 +1,8 @@
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use crate::board::board::Board;
-use crate::nnue::HL;
-use crate::types::{Color, Move, Piece, PieceType, Square};
+use crate::nnue::{BUCKET_COUNT, BUCKET_SIZE, HL, KING_LAYOUT};
+use crate::nnue::network::Network;
+use crate::types::{Bitboard, Color, Move, Piece, PieceType, Square};
 
 #[repr(C, align(64))]
 #[derive(Copy, Clone, PartialEq)]
@@ -93,6 +94,7 @@ pub struct AccState {
     pub accs: [Accumulator; 2],
     pub computed: [bool; 2],
     pub mirror: [bool; 2],
+    pub bucket: [usize; 2],
     pub delta: Delta
 }
 
@@ -102,25 +104,61 @@ impl AccState {
             accs: [Accumulator::empty(); 2],
             computed: [false; 2],
             mirror: [false; 2],
+            bucket: [0; 2],
             delta: Delta::empty()
         }
     }
 }
 
-pub fn feature_index(perspective: Color, piece: Piece, square: Square, mirror: bool) -> usize {
+pub fn feature_index(perspective: Color, piece: Piece, square: Square, mirror: bool, bucket: usize) -> usize {
     let square = if mirror { square.flip_file() } else { square };
 
-    (piece.piece_type() as usize) * 64 + (square.relative_to(perspective) as usize) + if perspective == piece.color() { 0 } else { 384 }
+    (piece.piece_type() as usize) * 64 +
+        (square.relative_to(perspective) as usize) +
+        if perspective == piece.color() { 0 } else { 384 } +
+        bucket * BUCKET_SIZE
+}
+
+
+pub fn king_context(board: &Board, color: Color) -> (bool, usize) {
+    let king = board.piece_bb(Piece::new(color, PieceType::King)).lsb();
+    let mirror = king.is_kingside();
+
+    (mirror, king_bucket(color, king, mirror))
 }
 
 pub fn should_mirror(board: &Board, color: Color) -> bool {
     board.piece_bb(Piece::new(color, PieceType::King)).lsb().is_kingside()
 }
 
-pub fn needs_refresh(delta: &Delta, color: Color, mirror: bool) -> bool {
+pub fn king_bucket(perspective: Color, king: Square, mirror: bool) -> usize {
+    let king = king.relative_to(perspective);
+    let king = if mirror { king.flip_file() } else { king };
+    let index = (king.rank() as usize * 4) + king.file() as usize;
+
+    KING_LAYOUT[index]
+}
+
+// `mirror` and `bucket` describe the position *after* the move. A deferred
+// entry is replayed against its parent's weight block, so the king may only
+// stay deferred while both are unchanged -- a bucket change rewrites every
+// feature index just as surely as a mirror flip does.
+//
+// The old bucket has to be read with the OLD square's own mirror flag, not the
+// new one: `mirror` belongs to the square the king landed on, and folding the
+// square it came from with it names a bucket that never existed.
+pub fn needs_refresh(delta: &Delta, color: Color, mirror: bool, bucket: usize) -> bool {
     let king = Piece::new(color, PieceType::King);
 
-    delta.subs().iter().any(|&(piece, square)| piece == king && square.is_kingside() != mirror)
+    delta.subs().iter().any(|&(piece, square)| {
+        if piece != king {
+            return false;
+        }
+
+        let old_mirror = square.is_kingside();
+
+        old_mirror != mirror || king_bucket(color, square, old_mirror) != bucket
+    })
 }
 
 #[derive(Copy, Clone)]
@@ -188,3 +226,85 @@ impl Delta {
         &self.subs[..self.num_sub]
     }
 }
+
+
+pub struct FinnyEntry {
+    acc: Accumulator,
+    bb: [Bitboard; Piece::NUM],
+}
+
+impl FinnyEntry {
+    pub fn new(net: &Network) -> Self {
+        Self {
+            acc: net.feature_bias(),
+            bb: [Bitboard::EMPTY; Piece::NUM]
+        }
+    }
+}
+
+pub struct FinnyTable([[[FinnyEntry; BUCKET_COUNT]; 2 /*mirror*/]; 2 /*perspective*/]);
+
+impl FinnyTable {
+    pub fn new(net: &Network) -> Self {
+        use std::array::from_fn;
+        Self (
+            from_fn( |_|
+                from_fn( |_|
+                    from_fn( |_|
+                        FinnyEntry::new(net)
+                    )
+                )
+            )
+        )
+    }
+
+    pub fn entry_mut(&mut self, perspective: Color, mirror: bool, bucket: usize) -> &mut FinnyEntry {
+        &mut self.0[perspective][mirror as usize][bucket]
+    }
+
+    // `mirror` and `bucket` are passed in rather than looked up here: both
+    // callers have already computed them, and routing every refresh through the
+    // one `king_context` call keeps this from becoming a second place that can
+    // disagree about which cell a position belongs to.
+    pub fn refresh(&mut self, net: &Network, board: &Board, perspective: Color, mirror: bool, bucket: usize) -> Accumulator {
+        let entry = self.entry_mut(perspective, mirror, bucket);
+
+        // Counted only under `--features nnue-stats`; both are compiled away
+        // otherwise, along with the `record_refresh` call at the bottom.
+        #[cfg(feature = "nnue-stats")]
+        let (mut diff, mut stale) = (0u64, 0u64);
+
+        for i in 0..Piece::NUM {
+            let piece = Piece::from_value(i as u8);
+            let curr = board.piece_bb(piece);
+            let old = entry.bb[piece];
+
+            let added = curr & !old;
+            let removed = old & !curr;
+
+            #[cfg(feature = "nnue-stats")]
+            {
+                diff += (added.pop_count() + removed.pop_count()) as u64;
+                stale += old.pop_count() as u64;
+            }
+
+            for sq in added {
+                entry.acc += net.feature_weights()[feature_index(perspective, piece, sq, mirror, bucket)];
+            }
+            for sq in removed {
+                entry.acc -= net.feature_weights()[feature_index(perspective, piece, sq, mirror, bucket)];
+            }
+
+            entry.bb[piece] = curr
+        }
+
+        // A cell is cold when its snapshot held nothing at all, which is the
+        // only state `FinnyEntry::new` produces and one no real position can
+        // reach -- both kings are always on the board.
+        #[cfg(feature = "nnue-stats")]
+        crate::nnue::stats::record_refresh(diff, board.occ().pop_count() as u64, stale == 0);
+
+        entry.acc
+    }
+}
+

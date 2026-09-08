@@ -1,13 +1,13 @@
 use crate::board::board::Board;
-use crate::nnue::accumulator::{feature_index, needs_refresh, should_mirror, Accumulator, Delta, AccState};
-use crate::nnue::{HL, INPUT, QA, QB, SCALE};
+use crate::nnue::accumulator::{feature_index, king_context, needs_refresh, Accumulator, Delta, AccState, FinnyTable};
+use crate::nnue::{HL, INPUT, OUTPUT_BUCKETS, QA, QB, SCALE};
 use crate::types::{Color, Piece, Square};
 
 const NET_BYTES: usize = {
     let raw = size_of::<[Accumulator; INPUT]>() // feature_weights
         + size_of::<Accumulator>()              // feature_bias
-        + size_of::<[i16; 2 * HL]>()            // output_weights
-        + size_of::<i16>();                     // output_bias
+        + size_of::<[[i16; 2 * HL]; OUTPUT_BUCKETS]>() // output_weights
+        + size_of::<[i16; OUTPUT_BUCKETS]>();          // output_bias
     let align = align_of::<Network>();
     (raw + align - 1) / align * align
 };
@@ -18,42 +18,58 @@ const _: () = assert!(size_of::<Network>() == NET_BYTES);
 pub struct Network {
     feature_weights: [Accumulator; INPUT],
     feature_bias: Accumulator,
-    output_weights: [i16; 2 * HL],
-    output_bias: i16
+    output_weights: [[i16; 2 * HL]; OUTPUT_BUCKETS],
+    output_bias: [i16; OUTPUT_BUCKETS]
 }
 
 impl Network {
-    pub fn output_weights(&self) -> &[i16; 2 * HL] {
-        &self.output_weights
+    pub fn output_weights(&self, bucket: usize) -> &[i16; 2 * HL] {
+        &self.output_weights[bucket]
+    }
+
+    pub fn feature_bias(&self) -> Accumulator {
+        self.feature_bias
+    }
+
+    pub fn feature_weights(&self) -> &[Accumulator; INPUT] {
+        &self.feature_weights
     }
 }
 
 pub fn load_net(path: &str) -> Box<Network> {
     let bytes = std::fs::read(path).expect("failed to load net file");
     assert_eq!(bytes.len(), size_of::<Network>());
-    Box::new(unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const Network) })
 
+    // Read straight into the heap. Going through a `Network` temporary would
+    // put the whole net on a stack frame, which no longer fits: with king
+    // buckets it is 7.9 MB against a test thread's 8 MB stack.
+    let mut net: Box<std::mem::MaybeUninit<Network>> = Box::new_uninit();
+
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), net.as_mut_ptr().cast::<u8>(), size_of::<Network>());
+        net.assume_init()
+    }
 }
 
 pub fn refresh(net: &Network, board: &Board, perspective: Color) -> Accumulator {
     let mut result = net.feature_bias;
     let occ = board.occ();
-    let mirror = should_mirror(board, perspective);
+    let (mirror, bucket) = king_context(board, perspective);
 
     for square in occ {
         let piece = board.piece_at(square);
-        let index = feature_index(perspective, piece, square, mirror);
+        let index = feature_index(perspective, piece, square, mirror, bucket);
         result += net.feature_weights[index]
     }
 
     result
 }
 
-pub fn evaluate(net: &Network, us: &Accumulator, them: &Accumulator) -> i32 {
-    let mut sum = forward(net, us, them);
+pub fn evaluate(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usize) -> i32 {
+    let mut sum = forward(net, us, them, bucket);
 
     sum /= QA as i32;
-    sum += net.output_bias as i32;
+    sum += net.output_bias[bucket] as i32;
     sum *= SCALE;
     sum /= (QA * QB) as i32;
 
@@ -61,23 +77,23 @@ pub fn evaluate(net: &Network, us: &Accumulator, them: &Accumulator) -> i32 {
 }
 
 #[inline]
-pub fn forward(net: &Network, us: &Accumulator, them: &Accumulator) -> i32 {
+pub fn forward(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usize) -> i32 {
     #[cfg(target_feature = "avx2")]
     {
-        forward_avx2(net, us, them)
+        forward_avx2(net, us, them, bucket)
     }
     #[cfg(not(target_feature = "avx2"))]
     {
-        forward_scalar(net, us, them)
+        forward_scalar(net, us, them, bucket)
     }
 }
 
-pub fn forward_scalar(net: &Network, us: &Accumulator, them: &Accumulator) -> i32 {
+pub fn forward_scalar(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usize) -> i32 {
     let mut sum = 0;
 
     for i in 0..HL {
-        sum += screlu(us.get(i)) * net.output_weights[i] as i32;
-        sum += screlu(them.get(i)) * net.output_weights[HL + i] as i32;
+        sum += screlu(us.get(i)) * net.output_weights[bucket][i] as i32;
+        sum += screlu(them.get(i)) * net.output_weights[bucket][HL + i] as i32;
     }
 
     sum
@@ -91,7 +107,7 @@ fn screlu(x: i16) -> i32 {
 
 #[cfg(target_feature = "avx2")]
 #[inline]
-fn forward_avx2(net: &Network, us: &Accumulator, them: &Accumulator) -> i32 {
+fn forward_avx2(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usize) -> i32 {
     use std::arch::x86_64::*;
 
     const LANES: usize = 16;
@@ -104,7 +120,7 @@ fn forward_avx2(net: &Network, us: &Accumulator, them: &Accumulator) -> i32 {
 
         for (side, offset) in [(us, 0usize), (them, HL)] {
             let values = side.as_slice().as_ptr();
-            let weights = net.output_weights.as_ptr().add(offset);
+            let weights = net.output_weights[bucket].as_ptr().add(offset);
 
             let mut i = 0;
             while i < HL {
@@ -124,13 +140,14 @@ fn forward_avx2(net: &Network, us: &Accumulator, them: &Accumulator) -> i32 {
     }
 }
 
-pub fn push(net: &Network, board: &Board, child: &mut AccState, delta: &Delta) {
+pub fn push(net: &Network, board: &Board, child: &mut AccState, delta: &Delta, finny_table: &mut FinnyTable) {
     for color in Color::ALL {
-        let mirror = should_mirror(board, color);
+        let (mirror, bucket) = king_context(board, color);
         child.mirror[color] = mirror;
+        child.bucket[color] = bucket;
 
-        if needs_refresh(delta, color, mirror) {
-            child.accs[color] = refresh(net, board, color);
+        if needs_refresh(delta, color, mirror, bucket) {
+            child.accs[color] = finny_table.refresh(net, board, color, mirror, bucket);
             child.computed[color] = true;
         } else {
             child.computed[color] = false;
@@ -157,11 +174,14 @@ pub fn materialize(net: &Network, stack: &mut [AccState], ply: usize, color: Col
 }
 
 fn apply(net: &Network, parent: &AccState, child: &mut AccState, color: Color) {
+    // A deferred entry never changed weight block -- that is precisely what
+    // `needs_refresh` guarantees -- so these also describe its parent.
     let mirror = child.mirror[color];
+    let bucket = child.bucket[color];
     let delta = child.delta;
 
     let weights = |&(piece, square): &(Piece, Square)| {
-        &net.feature_weights[feature_index(color, piece, square, mirror)]
+        &net.feature_weights[feature_index(color, piece, square, mirror, bucket)]
     };
 
     let parent = &parent.accs[color];
