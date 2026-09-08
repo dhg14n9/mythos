@@ -5,6 +5,7 @@ use crate::tables::MAX_PLY;
 
 pub mod accumulator;
 pub mod network;
+pub mod stats;
 
 pub(crate) const BUCKET_SIZE: usize = 768;
 const HL: usize = 512;

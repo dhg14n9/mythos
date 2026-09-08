@@ -1,5 +1,5 @@
 use crate::board::board::Board;
-use crate::nnue::accumulator::{feature_index, king_context, needs_refresh, Accumulator, Delta, AccState};
+use crate::nnue::accumulator::{feature_index, king_context, needs_refresh, Accumulator, Delta, AccState, FinnyTable};
 use crate::nnue::{HL, INPUT, OUTPUT_BUCKETS, QA, QB, SCALE};
 use crate::types::{Color, Piece, Square};
 
@@ -25,6 +25,14 @@ pub struct Network {
 impl Network {
     pub fn output_weights(&self, bucket: usize) -> &[i16; 2 * HL] {
         &self.output_weights[bucket]
+    }
+
+    pub fn feature_bias(&self) -> Accumulator {
+        self.feature_bias
+    }
+
+    pub fn feature_weights(&self) -> &[Accumulator; INPUT] {
+        &self.feature_weights
     }
 }
 
@@ -132,14 +140,14 @@ fn forward_avx2(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usi
     }
 }
 
-pub fn push(net: &Network, board: &Board, child: &mut AccState, delta: &Delta) {
+pub fn push(net: &Network, board: &Board, child: &mut AccState, delta: &Delta, finny_table: &mut FinnyTable) {
     for color in Color::ALL {
         let (mirror, bucket) = king_context(board, color);
         child.mirror[color] = mirror;
         child.bucket[color] = bucket;
 
         if needs_refresh(delta, color, mirror, bucket) {
-            child.accs[color] = refresh(net, board, color);
+            child.accs[color] = finny_table.refresh(net, board, color, mirror, bucket);
             child.computed[color] = true;
         } else {
             child.computed[color] = false;

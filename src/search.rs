@@ -4,9 +4,9 @@ use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::movepicker::{see, MovePicker};
 use crate::nnue;
-use crate::nnue::accumulator::{king_context, AccState, Delta};
+use crate::nnue::accumulator::{king_context, AccState, Delta, FinnyTable};
 use crate::nnue::NETWORK;
-use crate::nnue::network::{push, refresh};
+use crate::nnue::network::push;
 use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY, CONT_LEN, CONT_OFFSET};
 use crate::tunables::*;
 use crate::types::{Color, Move, MoveList, PieceType, Score};
@@ -114,7 +114,8 @@ pub struct Search {
     pub pv_table: PvTable,
     pub cont_stack: Box<[Option<ContKey>; MAX_PLY]>,
     root_best_move: Move,
-    accumulator_stack: Box<[AccState; MAX_PLY]>
+    accumulator_stack: Box<[AccState; MAX_PLY]>,
+    finny_table: FinnyTable
 }
 
 impl Search {
@@ -130,7 +131,8 @@ impl Search {
             pv_table: PvTable::new(),
             cont_stack: Box::from([None; MAX_PLY]),
             root_best_move: Move::NULL,
-            accumulator_stack: Box::from([AccState::empty(); MAX_PLY])
+            accumulator_stack: Box::from([AccState::empty(); MAX_PLY]),
+            finny_table: FinnyTable::new(&NETWORK),
         }
     }
 
@@ -208,7 +210,7 @@ impl Search {
 
             board.make_move(mv);
 
-            push(&NETWORK, board, &mut self.accumulator_stack[ply + 1], &delta);
+            push(&NETWORK, board, &mut self.accumulator_stack[ply + 1], &delta, &mut self.finny_table);
 
             let score = -self.qsearch::<PV>(board, -beta, -alpha, ply + 1);
             board.unmake_move(mv);
@@ -376,7 +378,7 @@ impl Search {
 
             board.make_move(mv);
 
-            push(&NETWORK, board, &mut self.accumulator_stack[ply + 1], &delta);
+            push(&NETWORK, board, &mut self.accumulator_stack[ply + 1], &delta, &mut self.finny_table);
 
             let give_check = board.is_check();
 
@@ -706,7 +708,7 @@ impl Search {
         for color in Color::ALL {
             let (mirror, bucket) = king_context(board, color);
 
-            self.accumulator_stack[ply].accs[color] = refresh(&NETWORK, board, color);
+            self.accumulator_stack[ply].accs[color] = self.finny_table.refresh(&NETWORK, board, color, mirror, bucket);
             self.accumulator_stack[ply].mirror[color] = mirror;
             self.accumulator_stack[ply].bucket[color] = bucket;
         }

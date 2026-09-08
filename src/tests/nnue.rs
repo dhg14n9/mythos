@@ -1,7 +1,7 @@
 use std::path::Path;
 use crate::board::board::Board;
 use crate::nnue::{BUCKET_COUNT, BUCKET_SIZE, INPUT, NETWORK, OUTPUT_BUCKETS, QA};
-use crate::nnue::accumulator::{feature_index, king_bucket, king_context, needs_refresh, should_mirror, AccState, Delta};
+use crate::nnue::accumulator::{feature_index, king_bucket, king_context, needs_refresh, should_mirror, AccState, Delta, FinnyTable};
 use crate::nnue::network::{evaluate, forward, forward_scalar, load_net, materialize, push, refresh};
 use crate::types::{Color, MoveList, Piece, PieceType, Square};
 
@@ -504,6 +504,7 @@ fn walk_and_check(
     fen: &str,
     refreshes: &mut Refreshes,
     lazy: bool,
+    finny: &mut FinnyTable,
 ) {
     if depth == 0 {
         if lazy {
@@ -525,7 +526,7 @@ fn walk_and_check(
         let delta = Delta::new(board, mv);
 
         board.make_move(mv);
-        push(&NETWORK, board, &mut stack[ply + 1], &delta);
+        push(&NETWORK, board, &mut stack[ply + 1], &delta, finny);
 
         for color in Color::ALL {
             let (mirror, bucket) = king_context(board, color);
@@ -557,7 +558,7 @@ fn walk_and_check(
             check_against_refresh(board, stack, ply + 1, fen, "eager");
         }
 
-        walk_and_check(board, stack, ply + 1, depth - 1, fen, refreshes, lazy);
+        walk_and_check(board, stack, ply + 1, depth - 1, fen, refreshes, lazy, finny);
         board.unmake_move(mv);
     }
 }
@@ -565,12 +566,20 @@ fn walk_and_check(
 fn run_walk(lazy: bool) -> Refreshes {
     let mut refreshes = Refreshes::default();
 
+    // One table for the whole run, deliberately. A fresh table would make every
+    // refresh a cold one -- an empty snapshot diffs into a full rebuild, which
+    // is right by construction and tests nothing. Reusing it across the corpus
+    // means the walk hits warm entries with hundreds of different positions,
+    // and `check_against_refresh` is already comparing against the from-scratch
+    // oracle at every leaf.
+    let mut finny = FinnyTable::new(&NETWORK);
+
     for &fen in UPDATE_FENS {
         let mut board = Board::from_fen(fen).expect(fen);
         let mut stack = [AccState::empty(); WALK_DEPTH + 1];
         stack[0] = root_state(&board);
 
-        walk_and_check(&mut board, &mut stack, 0, WALK_DEPTH, fen, &mut refreshes, lazy);
+        walk_and_check(&mut board, &mut stack, 0, WALK_DEPTH, fen, &mut refreshes, lazy, &mut finny);
     }
 
     // The assertion inside the walk is vacuous for the refresh path unless the
@@ -604,6 +613,69 @@ fn deferred_chain_matches_refresh() {
     run_walk(true);
 }
 
+// ---------------------------------------------------------------- finny tables
+
+// A cached refresh has to land on exactly what a from-scratch one produces.
+//
+// The cold case is trivially right and proves nothing: an entry starts at
+// feature_bias with an empty snapshot, so the first hit diffs into a full
+// rebuild by construction. Every bug that can live in this change -- a missing
+// `entry.bb` writeback, a sign flip on the removed set, a dimension dropped
+// from the cell index -- only shows up on a WARM entry, which is why the corpus
+// runs twice through the same table and the second pass is the one that counts.
+// With the snapshot never written back, pass one passes and pass two is wrong
+// by exactly one position's worth of features.
+//
+// The corpus is left interleaved rather than grouped by cell, so consecutive
+// hits on the same entry carry genuinely different piece sets instead of
+// nearly-identical ones.
+#[test]
+fn finny_refresh_matches_full_refresh() {
+    let mut finny = FinnyTable::new(&NETWORK);
+
+    let corpus: Vec<&str> = UPDATE_FENS
+        .iter()
+        .copied()
+        .chain(HM_PAIRS.iter().flat_map(|&(a, b)| [a, b]))
+        .chain([STARTPOS])
+        .collect();
+
+    // Which cells the corpus actually reached. Both extra dimensions of the
+    // table are load-bearing and neither is checked by equality alone: collapse
+    // `mirror` and two kings on opposite wings share an entry whose every index
+    // is file-flipped against the snapshot; collapse `perspective` and White
+    // and Black share one, which is wrong because feature_index applies both
+    // relative_to and the 384 us/them offset. A corpus that only ever lands in
+    // one cell would pass this test with either dimension deleted.
+    let mut seen = [[[false; BUCKET_COUNT]; 2]; 2];
+
+    for pass in 0..2 {
+        for &fen in &corpus {
+            let board = Board::from_fen(fen).expect(fen);
+
+            for color in Color::ALL {
+                let (mirror, bucket) = king_context(&board, color);
+                seen[color][mirror as usize][bucket] = true;
+
+                assert!(
+                    finny.refresh(&NETWORK, &board, color, mirror, bucket)
+                        == refresh(&NETWORK, &board, color),
+                    "{fen}: pass {pass}: finny refresh != full refresh, {color} perspective",
+                );
+            }
+        }
+    }
+
+    let cells = seen.iter().flatten().flatten().filter(|&&hit| hit).count();
+    let mirrors = [false, true].map(|m| seen.iter().any(|p| p[m as usize].iter().any(|&hit| hit)));
+    let perspectives = Color::ALL.map(|c| seen[c].iter().flatten().any(|&hit| hit));
+
+    println!("finny cells exercised: {cells} of {}", 2 * 2 * BUCKET_COUNT);
+    assert!(mirrors == [true, true], "the corpus never reached both mirror halves");
+    assert!(perspectives == [true, true], "the corpus never reached both perspectives");
+    assert!(cells > 2, "the corpus only reached {cells} cells -- warm reuse is not being tested");
+}
+
 // Reading an accumulator must not change it. This pins the early return in
 // `materialize`: without it a second call walks back past an already-computed
 // entry and replays deltas that are already folded in.
@@ -620,7 +692,7 @@ fn materialize_is_idempotent() {
 
     let delta = Delta::new(&board, mv);
     board.make_move(mv);
-    push(&NETWORK, &board, &mut stack[1], &delta);
+    push(&NETWORK, &board, &mut stack[1], &delta, &mut FinnyTable::new(&NETWORK));
 
     for color in Color::ALL {
         materialize(&NETWORK, &mut stack, 1, color);
@@ -652,7 +724,7 @@ fn empty_delta_copies_the_parent() {
 
     let delta = Delta::new(&board, mv);
     board.make_move(mv);
-    push(&NETWORK, &board, &mut stack[1], &delta);
+    push(&NETWORK, &board, &mut stack[1], &delta, &mut FinnyTable::new(&NETWORK));
 
     // ply 2: the null move, built the way search.rs builds it.
     stack[2].delta = Delta::empty();

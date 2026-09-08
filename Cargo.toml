@@ -12,6 +12,10 @@ path = "src/libs.rs"
 name = "mythos"
 path = "src/main.rs"
 
+[features]
+# Refresh-path instrumentation, off by default. See src/nnue/stats.rs.
+nnue-stats = []
+
 [dependencies]
 log = "0.4.33"
 

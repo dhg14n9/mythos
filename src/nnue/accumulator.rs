@@ -1,7 +1,8 @@
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use crate::board::board::Board;
-use crate::nnue::{BUCKET_SIZE, HL, KING_LAYOUT};
-use crate::types::{Color, Move, Piece, PieceType, Square};
+use crate::nnue::{BUCKET_COUNT, BUCKET_SIZE, HL, KING_LAYOUT};
+use crate::nnue::network::Network;
+use crate::types::{Bitboard, Color, Move, Piece, PieceType, Square};
 
 #[repr(C, align(64))]
 #[derive(Copy, Clone, PartialEq)]
@@ -225,3 +226,85 @@ impl Delta {
         &self.subs[..self.num_sub]
     }
 }
+
+
+pub struct FinnyEntry {
+    acc: Accumulator,
+    bb: [Bitboard; Piece::NUM],
+}
+
+impl FinnyEntry {
+    pub fn new(net: &Network) -> Self {
+        Self {
+            acc: net.feature_bias(),
+            bb: [Bitboard::EMPTY; Piece::NUM]
+        }
+    }
+}
+
+pub struct FinnyTable([[[FinnyEntry; BUCKET_COUNT]; 2 /*mirror*/]; 2 /*perspective*/]);
+
+impl FinnyTable {
+    pub fn new(net: &Network) -> Self {
+        use std::array::from_fn;
+        Self (
+            from_fn( |_|
+                from_fn( |_|
+                    from_fn( |_|
+                        FinnyEntry::new(net)
+                    )
+                )
+            )
+        )
+    }
+
+    pub fn entry_mut(&mut self, perspective: Color, mirror: bool, bucket: usize) -> &mut FinnyEntry {
+        &mut self.0[perspective][mirror as usize][bucket]
+    }
+
+    // `mirror` and `bucket` are passed in rather than looked up here: both
+    // callers have already computed them, and routing every refresh through the
+    // one `king_context` call keeps this from becoming a second place that can
+    // disagree about which cell a position belongs to.
+    pub fn refresh(&mut self, net: &Network, board: &Board, perspective: Color, mirror: bool, bucket: usize) -> Accumulator {
+        let entry = self.entry_mut(perspective, mirror, bucket);
+
+        // Counted only under `--features nnue-stats`; both are compiled away
+        // otherwise, along with the `record_refresh` call at the bottom.
+        #[cfg(feature = "nnue-stats")]
+        let (mut diff, mut stale) = (0u64, 0u64);
+
+        for i in 0..Piece::NUM {
+            let piece = Piece::from_value(i as u8);
+            let curr = board.piece_bb(piece);
+            let old = entry.bb[piece];
+
+            let added = curr & !old;
+            let removed = old & !curr;
+
+            #[cfg(feature = "nnue-stats")]
+            {
+                diff += (added.pop_count() + removed.pop_count()) as u64;
+                stale += old.pop_count() as u64;
+            }
+
+            for sq in added {
+                entry.acc += net.feature_weights()[feature_index(perspective, piece, sq, mirror, bucket)];
+            }
+            for sq in removed {
+                entry.acc -= net.feature_weights()[feature_index(perspective, piece, sq, mirror, bucket)];
+            }
+
+            entry.bb[piece] = curr
+        }
+
+        // A cell is cold when its snapshot held nothing at all, which is the
+        // only state `FinnyEntry::new` produces and one no real position can
+        // reach -- both kings are always on the board.
+        #[cfg(feature = "nnue-stats")]
+        crate::nnue::stats::record_refresh(diff, board.occ().pop_count() as u64, stale == 0);
+
+        entry.acc
+    }
+}
+
