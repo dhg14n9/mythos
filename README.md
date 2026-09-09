@@ -25,58 +25,6 @@ By default the build targets your local CPU (`target-cpu=native` in
 `.cargo/config.toml`), which enables the faster PEXT move-generation path on CPUs
 with BMI2.
 
-## Features
-
-### Board & move generation
-- [x] Bitboard board representation
-- [x] Magic bitboards for sliders, with a PEXT path on BMI2 CPUs
-- [x] Fully legal move generation
-- [x] Incremental Zobrist hashing 
-- [x] Fifty-move and repetition draw detection
-
-### Search
-- [x] Fail-soft negamax with alpha-beta
-- [x] Iterative deepening
-- [x] Aspiration windows with progressive widening
-- [x] Principal variation search (zero-window + re-search)
-- [x] Transposition table
-- [x] Quiescence search
-- [x] Null-move pruning
-- [x] Reverse futility pruning
-- [x] Late move reductions
-- [x] Mate scoring, distance-to-mate adjustment
-- [x] Late move, futility, SEE, history pruning 
-
-### Move ordering
-- [x] TT move first
-- [x] Static exchange evaluation, threshold-based
-- [x] Good/bad noisy split by SEE
-- [x] Killer moves (two per ply)
-- [x] Butterfly and Continuation history 
-- [x] MVV-LVA
-
-### Evaluation
-- [x] Tapered evaluation by game phase
-- [x] Material and PeSTO piece-square tables
-- [x] Piece mobility (knight, bishop, rook, queen)
-- [x] King safety via attacker count and weight
-- [x] Pawn structure — passed, isolated, doubled
-- [x] Bishop pair and tempo bonuses
-- [x] Gradient-descent (Texel) tuner with Adam, memory-mapped datasets,
-  K fitting, train/validation split and early stopping
-- [x] NNUE evaluation with incremental accumulator updates
-- [x] Nets trained in [bullet](https://github.com/jw1912/bullet) on self-play
-  data 
-
-### Tooling & testing
-- [x] `cargo xtask` as a single entry point 
-- [x] Perft suites
-- [x] TT-accelerated perft and `divide` for bisecting move-generation bugs
-- [x] Fixed-depth search benchmark as a functional fingerprint of the search
-- [x] Automated SPRT against any git ref
-- [x] Self-play data generation for NNUE training
-
-
 ## Thanks
 
 Mythos leans heavily on the work and generosity of the computer-chess community:
@@ -94,6 +42,8 @@ Mythos leans heavily on the work and generosity of the computer-chess community:
   used for sprt, SPSA tuning
 - **[bullet](https://github.com/jw1912/bullet)** by jw1912 — NNUE trainer,
   and bulletformat for the training-data format.
+- **[Leela Chess Zero](https://lczero.org/)** and everyone who contributes games
+  to it — the T91 run's data is what the current net is pretrained on
 
 
 ## License
