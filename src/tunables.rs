@@ -112,8 +112,9 @@ tunables! {
     tm_stab_min            =     100,    100,    150,    2.5;
     tm_stab_min_depth      =       8,      4,     14,    0.5;
 
-    // singular extension
+    // singular / double extension
     se_margin             =       32,      8,    100,    4.0;
+    se_double_margin      =      24,      4,    120,    5.0;
 }
 
 pub fn print_options() {

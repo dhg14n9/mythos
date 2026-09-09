@@ -372,6 +372,7 @@ impl Search {
                 let s_beta = tt_score - (se_margin() * depth as i32) / 16;
                 let s_depth = (depth - 1) / 2;
 
+
                 self.excluded[ply] = mv;
                 let score = self.negamax::<false, false>(board, s_depth, s_beta - 1, s_beta, ply, false);
                 self.excluded[ply] = Move::NULL;
@@ -380,6 +381,13 @@ impl Search {
 
                 if score < s_beta {
                     extension = 1;
+                    if !PV && score < s_beta - se_double_margin() {
+                        extension = 2;
+                    }
+                } else if s_beta >= beta && !PV {
+                    return s_beta
+                } else if tt_score > beta {
+                    extension = -2;
                 }
 
             }
