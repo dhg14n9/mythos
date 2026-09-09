@@ -247,6 +247,10 @@ impl Search {
         self.nodes += 1;
         self.pv_table.clear(ply);
 
+        if ply >= MAX_PLY - 1 {
+            return nnue::eval(board, &mut self.accumulator_stack, ply);
+        }
+
         if ROOT {
             self.root_best_move = Move::NULL;
         }
@@ -384,7 +388,7 @@ impl Search {
 
             let mut extension = 0;
             // temporarily scrap this check extension
-            // if board.is_check() && ply < self.root_depth / 2 {
+            // if give_check && ply < self.root_depth / 2 {
             //     extension += 1;
             // }
             let new_depth = depth - 1 + extension;
@@ -591,6 +595,10 @@ impl Search {
             board.make_move(mv);
         }
 
+        if board.is_draw() {
+            return;
+        }
+
         // A TT walk will happily hand back a cycle, so remember where we have been.
         let mut seen: Vec<u64> = Vec::with_capacity(PV_CAP);
 
@@ -609,6 +617,10 @@ impl Search {
 
             board.make_move(mv);
             pv.push(mv);
+
+            if board.is_draw() {
+                break;
+            }
         }
     }
 
