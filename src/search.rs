@@ -388,9 +388,9 @@ impl Search {
 
             let mut extension = 0;
             // temporarily scrap this check extension
-            if give_check && ply < self.root_depth / 2 {
-                extension += 1;
-            }
+            // if give_check && ply < self.root_depth / 2 {
+            //     extension += 1;
+            // }
             let new_depth = depth - 1 + extension;
 
             let mut score;
