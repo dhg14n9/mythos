@@ -113,9 +113,10 @@ pub struct Search {
     pub root_depth: usize,
     pub pv_table: PvTable,
     pub cont_stack: Box<[Option<ContKey>; MAX_PLY]>,
-    root_best_move: Move,
-    accumulator_stack: Box<[AccState; MAX_PLY]>,
-    finny_table: FinnyTable
+    pub root_best_move: Move,
+    pub accumulator_stack: Box<[AccState; MAX_PLY]>,
+    pub finny_table: FinnyTable,
+    pub excluded: Box<[Move; MAX_PLY]>
 }
 
 impl Search {
@@ -133,6 +134,7 @@ impl Search {
             root_best_move: Move::NULL,
             accumulator_stack: Box::from([AccState::empty(); MAX_PLY]),
             finny_table: FinnyTable::new(&NETWORK),
+            excluded: Box::from([Move::NULL; MAX_PLY])
         }
     }
 
@@ -271,21 +273,26 @@ impl Search {
             }
         }
 
+        let excluded_move = self.excluded[ply];
+
         let tt_entry = self.trans_table.probe(board.hash());
         let mut tt_move = Move::NULL;
+        let mut tt_score = Score::NONE;
+        let mut tt_depth = 0;
         let mut tt_bound = BoundType::Upper;
-        if let Some((tt_score, best, entry_depth, bound)) = tt_entry {
+        if let Some((score, best, entry_depth, bound)) = tt_entry {
             tt_move = best;
+            tt_score = Score::from_tt(score, ply);
+            tt_depth = entry_depth;
             tt_bound = bound;
-            if entry_depth >= depth && !PV {
-                let score = Score::from_tt(tt_score, ply);
+            if entry_depth >= depth && !PV && excluded_move.is_null() {
                 let cut = match bound {
                     BoundType::Exact => true,
-                    BoundType::Lower => score >= beta,
-                    BoundType::Upper => score <= alpha
+                    BoundType::Lower => tt_score >= beta,
+                    BoundType::Upper => tt_score <= alpha
                 };
                 if cut {
-                    return score;
+                    return tt_score;
                 }
             }
         }
@@ -350,6 +357,33 @@ impl Search {
 
         while let Some(mv) = move_picker.next(board) {
 
+            if mv == excluded_move { continue; }
+
+            let mut extension: i32 = 0;
+
+            if !ROOT
+                && excluded_move.is_null()
+                && mv == tt_move
+                && depth >= 8
+                && tt_depth + 3 >= depth
+                && tt_bound != BoundType::Upper
+                && !Score::is_mate(tt_score)
+            {
+                let s_beta = tt_score - (se_margin() * depth as i32) / 16;
+                let s_depth = (depth - 1) / 2;
+
+                self.excluded[ply] = mv;
+                let score = self.negamax::<false, false>(board, s_depth, s_beta - 1, s_beta, ply, false);
+                self.excluded[ply] = Move::NULL;
+
+                self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() });
+
+                if score < s_beta {
+                    extension = 1;
+                }
+
+            }
+
             let moved = board.piece_at(mv.from());
             self.cont_stack[ply] = Some(ContKey { piece: moved, square: mv.to() });
 
@@ -386,12 +420,11 @@ impl Search {
 
             let give_check = board.is_check();
 
-            let mut extension = 0;
             // temporarily scrap this check extension
             // if give_check && ply < self.root_depth / 2 {
             //     extension += 1;
             // }
-            let new_depth = depth - 1 + extension;
+            let new_depth = (depth as i32 - 1 + extension).max(0) as usize;
 
             let mut score;
 
@@ -486,8 +519,9 @@ impl Search {
         else if best >= beta  { BoundType::Lower }
         else                  { BoundType::Exact };
 
-        self.trans_table.store(board.hash(), Score::to_tt(best, ply), best_move, depth, bound);
-
+        if excluded_move.is_null() {
+            self.trans_table.store(board.hash(), Score::to_tt(best, ply), best_move, depth, bound);
+        }
         best
     }
 
