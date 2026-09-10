@@ -1,7 +1,10 @@
+#[cfg(feature = "tunables")]
 use std::sync::atomic::{AtomicI32, Ordering};
 
+#[cfg(feature = "tunables")]
 const R_END: f64 = 0.002;
 
+#[cfg(feature = "tunables")]
 pub struct Spec {
     pub name: &'static str,
     pub value: &'static AtomicI32,
@@ -13,17 +16,24 @@ pub struct Spec {
 macro_rules! tunables {
     ($($name:ident = $default:expr, $min:expr, $max:expr, $c_end:expr;)*) => {
         $(
+            #[cfg(feature = "tunables")]
             mod $name {
                 pub static VALUE: std::sync::atomic::AtomicI32 =
                     std::sync::atomic::AtomicI32::new($default);
             }
 
+            #[cfg(feature = "tunables")]
             #[inline(always)]
             pub fn $name() -> i32 {
                 $name::VALUE.load(std::sync::atomic::Ordering::Relaxed)
             }
+
+            #[cfg(not(feature = "tunables"))]
+            #[inline(always)]
+            pub const fn $name() -> i32 { $default }
         )*
 
+        #[cfg(feature = "tunables")]
         pub const SPECS: &[Spec] = &[
             $(Spec {
                 name: stringify!($name),
@@ -35,6 +45,7 @@ macro_rules! tunables {
         ];
     };
 }
+
 
 //        name                default   min     max    c_end
 tunables! {
@@ -117,6 +128,7 @@ tunables! {
     se_double_margin      =      24,      4,    120,    5.0;
 }
 
+#[cfg(feature = "tunables")]
 pub fn print_options() {
     for spec in SPECS {
         println!(
@@ -129,6 +141,7 @@ pub fn print_options() {
     }
 }
 
+#[cfg(feature = "tunables")]
 pub fn set(name: &str, value: &str) -> bool {
     let Some(spec) = SPECS.iter().find(|s| s.name.eq_ignore_ascii_case(name)) else {
         return false;
@@ -142,6 +155,7 @@ pub fn set(name: &str, value: &str) -> bool {
 }
 
 
+#[cfg(feature = "tunables")]
 pub fn print_spsa() {
     for spec in SPECS {
         println!(
@@ -154,4 +168,15 @@ pub fn print_spsa() {
             R_END
         );
     }
+}
+
+#[cfg(not(feature = "tunables"))]
+pub fn print_options() {}
+
+#[cfg(not(feature = "tunables"))]
+pub fn set(_name: &str, _value: &str) -> bool { false }
+
+#[cfg(not(feature = "tunables"))]
+pub fn print_spsa() {
+    println!("info string built without the tunables feature; rebuild with --features tunables");
 }

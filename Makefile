@@ -11,6 +11,13 @@
 
 EXE ?= mythos
 
+# SPSA workloads need the tunables exposed as UCI options, which normal builds
+# compile in as constants. `make TUNE=1` (or a TUNE=1 in the OpenBench engine's
+# make command) flips the cargo feature on.
+ifdef TUNE
+FEATURES := --features tunables
+endif
+
 # --bin mythos keeps the workspace's tuner/ and xtask/ members out of the build;
 # an OpenBench worker has no reason to compile the dev tooling.
 #
@@ -20,7 +27,7 @@ EXE ?= mythos
 # clients on different CPUs still agree on the node count OpenBench verifies.
 .PHONY: all
 all:
-	cargo build --release --bin mythos
+	cargo build --release --bin mythos $(FEATURES)
 	cp target/release/mythos $(EXE)
 
 # Only removes the copied binary. Deliberately not `cargo clean`: target/ also
