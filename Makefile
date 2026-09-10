@@ -15,7 +15,20 @@ EXE ?= mythos
 # compile in as constants. `make TUNE=1` (or a TUNE=1 in the OpenBench engine's
 # make command) flips the cargo feature on.
 ifdef TUNE
-FEATURES := --features tunables
+FEATURE_LIST += tunables
+endif
+
+# Datagen workloads harvest search scores from `info string pgncomment` lines,
+# which normal builds don't emit. `make DATAGEN=1` turns them back on.
+ifdef DATAGEN
+FEATURE_LIST += datagen
+endif
+
+# Join with commas: `cargo --features` wants `a,b`, but `+=` builds a space list.
+comma := ,
+space := $() $()
+ifneq ($(strip $(FEATURE_LIST)),)
+FEATURES := --features $(subst $(space),$(comma),$(strip $(FEATURE_LIST)))
 endif
 
 # --bin mythos keeps the workspace's tuner/ and xtask/ members out of the build;

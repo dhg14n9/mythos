@@ -16,6 +16,7 @@ path = "src/main.rs"
 # Refresh-path instrumentation, off by default. See src/nnue/stats.rs.
 nnue-stats = []
 tunables = []
+datagen = []
 
 [dependencies]
 log = "0.4.33"

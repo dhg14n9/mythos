@@ -331,6 +331,8 @@ fn go(
         // where fastchess stops reading. The score is raw internal units (cp, from
         // the side to move's perspective); mate scores are left as-is so the
         // converter can filter them with the same |s| > 40000 bound as Score::is_mate.
+
+        #[cfg(feature = "datagen")]
         println!("info string pgncomment {}", best.1);
         println!("bestmove {}", best.0);
 
