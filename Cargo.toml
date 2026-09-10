@@ -1,6 +1,6 @@
 [package]
 name = "mythos"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 
 # The library root is src/libs.rs (Cargo only auto-detects src/lib.rs).
