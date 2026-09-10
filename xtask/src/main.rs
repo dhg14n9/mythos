@@ -1,4 +1,5 @@
 mod menu;
+mod release;
 mod sprt;
 mod sprt_report;
 mod tasks;
@@ -47,6 +48,7 @@ fn dispatch(args: &[String]) -> Result<()> {
             let (gitref, depth) = parse_vs_args(&pos)?;
             vs_bench::vs_search_bench(gitref, depth, hash)
         }
+        "release" => release::release(parse_release_flags(rest)?),
         "sprt" => sprt::sprt(&parse_sprt_flags(rest)?),
         "sprt-report" => match rest {
             [dir] => sprt_report::report_cmd(dir),
@@ -73,6 +75,17 @@ fn parse_vs_args<'a>(args: &[&'a str]) -> Result<(&'a str, &'a str)> {
         }
     }
     Ok((gitref, depth))
+}
+
+fn parse_release_flags(args: &[String]) -> Result<bool> {
+    let mut nopext = false;
+    for a in args {
+        match a.as_str() {
+            "--nopext" => nopext = true,
+            other => return Err(format!("unknown release flag: {other}")),
+        }
+    }
+    Ok(nopext)
 }
 
 fn parse_sprt_flags(args: &[String]) -> Result<SprtConfig> {
@@ -128,6 +141,15 @@ Run with no command for an interactive menu, or call a command directly:
                      HEAD) and diff per-position node counts and best moves.
                      --hash is passed to both binaries, so the base ref must
                      be new enough to understand the flag
+
+  release [--nopext]
+                     build the shippable binary matrix (x86-64 v1/v2/v3 for
+                     Linux and Windows) into target/release-artifacts/, then
+                     verify every binary reports the Cargo.toml version, that
+                     all baselines agree on the bench node count, and that the
+                     .exe files pull in no DLLs beyond the Windows defaults.
+                     --nopext adds a v3 built without BMI2, whose PEXT movegen
+                     is very slow on Zen 1/2
 
   sprt [--ref REF] [--elo0 E] [--elo1 E] [--tc TC]
        [--concurrency N] [--rounds N] [--book PATH] [--affinity CPUS]

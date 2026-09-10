@@ -80,6 +80,9 @@ tunables! {
     // History pruning
     hist_prune_margin     =     1142,    200,   3000,  140.0;
 
+    // Internal iterative reduction: min depth to reduce a node with no TT move
+    iir_min_depth         =        4,      2,      8,    0.5;
+
     // Aspiration windows
     asp_window            =       22,      8,     60,    2.5;
 
@@ -125,7 +128,7 @@ tunables! {
 
     // singular / double extension
     se_margin             =       32,      8,    100,    4.0;
-    se_double_margin      =      24,      4,    120,    5.0;
+    se_double_margin      =       24,      4,    120,    5.0;
 }
 
 #[cfg(feature = "tunables")]
