@@ -81,7 +81,7 @@ tunables! {
     hist_prune_margin     =     1142,    200,   3000,  140.0;
 
     // Internal iterative reduction: min depth to reduce a node with no TT move
-    iir_min_depth         =        4,      2,      8,    0.5;
+    iir_min_depth         =        5,      2,      8,    0.5;
 
     // Aspiration windows
     asp_window            =       22,      8,     60,    2.5;

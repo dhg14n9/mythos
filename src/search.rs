@@ -735,7 +735,7 @@ impl Search {
     }
 
     fn should_iir(root: bool, depth: usize, tt_move: Move) -> bool {
-        !root && (depth > iir_min_depth() as usize) && tt_move.is_null()
+        !root && (depth >= iir_min_depth() as usize) && tt_move.is_null()
     }
 
 
