@@ -343,6 +343,9 @@ impl Search {
         let mut failure: [Move; 32] = [Move::NULL; 32];
         let mut n_failed: usize = 0;
 
+        let mut noisy_failure: [Move; 32] = [Move::NULL; 32];
+        let mut n_noisy_failed: usize = 0;
+
         let mut move_picker = MovePicker::new(tt_move);
         move_picker.gen_move(board, false);
 
@@ -512,23 +515,28 @@ impl Search {
                     }
                 } else {
                     let noisy_bonus = (hist_noisy_bonus_mult() * depth as i32).min(hist_noisy_bonus_max()) - hist_noisy_bonus_off();
-                    self.thread_data.capture.update(board.piece_at(mv.from()), mv.capture_square(), board.piece_at(mv.capture_square()), noisy_bonus);
+                    self.thread_data.capture.update(moved, mv.capture_square(), board.piece_at(mv.capture_square()).piece_type(), noisy_bonus);
                 }
-                let noisy_malus = (hist_noisy_malus_mult() * depth as i32).min(hist_noisy_malus_max()) - hist_noisy_malus_off() - hist_noisy_malus_decay() * n_failed as i32;
 
-                for mv in failure {
-                    if mv.is_noisy() {
-                        let noisy_malus = (hist_noisy_malus_mult() * depth as i32).min(hist_noisy_malus_max()) - hist_noisy_malus_off() - hist_noisy_malus_decay() * n_failed as i32;
-                        self.thread_data.capture.update(board.piece_at(mv.from()), mv.capture_square(), board.piece_at(mv.capture_square()), noisy_malus);
-                    }
+                let noisy_malus = (hist_noisy_malus_mult() * depth as i32).min(hist_noisy_malus_max()) - hist_noisy_malus_off() - hist_noisy_malus_decay() * n_noisy_failed as i32;
+
+                for j in 0..n_noisy_failed {
+                    let failed = noisy_failure[j];
+                    let captured = board.piece_at(failed.capture_square()).piece_type();
+                    self.thread_data.capture.update(board.piece_at(failed.from()), failed.capture_square(), captured, -noisy_malus);
                 }
 
                 break;
             };
 
-            if n_failed != 32 && mv.is_quiet() {
-                failure[n_failed] = mv;
-                n_failed += 1;
+            if mv.is_quiet() {
+                if n_failed != 32 {
+                    failure[n_failed] = mv;
+                    n_failed += 1;
+                }
+            } else if n_noisy_failed != 32 {
+                noisy_failure[n_noisy_failed] = mv;
+                n_noisy_failed += 1;
             }
 
         }

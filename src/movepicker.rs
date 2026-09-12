@@ -1,5 +1,6 @@
 use crate::board::board::Board;
 use crate::tables::{ContKey, ThreadData, CONT_LEN};
+use crate::tunables::noisy_mvv_mult;
 use crate::types::{Bitboard, Color, MAX_LIST_LENGTH, Move, MoveList, Piece, PieceType, Square};
 
 const KILLER1_SCORE: i32 = 1_000_000;
@@ -57,18 +58,18 @@ impl MovePicker {
         for i in 0..self.list.noisy_end() {
             let mv = self.list.get(i);
 
-            let bonus = if mv.is_promotion() && mv.promo_piece() == PieceType::Queen {
+            let captured = board.piece_at(mv.capture_square()).piece_type();
+
+            let promo = if mv.is_promotion() && mv.promo_piece() == PieceType::Queen {
                 PieceType::Queen.value()
             } else {
                 0
             };
+            
+            let material = (captured.value() + promo) * noisy_mvv_mult();
+            let hist = thread_data.capture.probe(board.piece_at(mv.from()), mv.capture_square(), captured);
 
-            let piece = board.piece_at(mv.from());
-            let cap_piece = board.piece_at(mv.capture_square());
-
-            let cap_history = thread_data.capture.probe(piece, mv.capture_square(), cap_piece) as i32;
-
-            self.list.score(i, mvv_lva(mv, board) + bonus + cap_history)
+            self.list.score(i, material + hist)
         }
     }
 
@@ -225,10 +226,6 @@ fn inner_see(board: &Board, square: Square, stm: Color, occ: &mut Bitboard, occu
     (occupier - inner_see(board, square, !stm, occ, piece_type.value())).max(0)
 }
 
-
-fn mvv_lva(mv: Move, board: &Board) -> i32 {
-    board.piece_at(mv.capture_square()).value() - board.piece_at(mv.from()).value()
-}
 
 #[cfg(test)]
 mod tests {

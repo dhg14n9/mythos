@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::atomic::Ordering::Relaxed;
-use crate::types::{Color, Move, Piece, Square};
+use crate::types::{Color, Move, Piece, PieceType, Square};
 
 // trans table
 #[derive(Default, Copy, Clone, PartialEq, Debug)]
@@ -238,12 +238,12 @@ impl Capture {
         }
     }
 
-    pub fn probe(&self, piece: Piece, to_square: Square, cap_piece: Piece) -> i16 {
-        self.array[piece][to_square][cap_piece.piece_type()]
+    pub fn probe(&self, piece: Piece, to_square: Square, captured: PieceType) -> i32 {
+        self.array[piece][to_square][captured] as i32
     }
 
-    pub fn update(&mut self, piece: Piece, to_square: Square, cap_piece: Piece, bonus: i32) {
-        let entry = &mut self.array[piece][to_square][cap_piece.piece_type()];
+    pub fn update(&mut self, piece: Piece, to_square: Square, captured: PieceType, bonus: i32) {
+        let entry = &mut self.array[piece][to_square][captured];
         let mut value = *entry as i32;
         apply::<MAX_CAPTURE>(&mut value, bonus);
         *entry = value as i16;
