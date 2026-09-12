@@ -145,8 +145,15 @@ tunables! {
     tm_stab_min_depth      =       8,      4,     14,    0.5;
 
     // singular / double extension
-    se_margin             =       32,      8,    100,    4.0;
-    se_double_margin      =       24,      4,    120,    5.0;
+    se_margin              =      32,      8,    100,    4.0;
+    se_double_margin       =      24,      4,    120,    5.0;
+
+    // improvement
+    improvement_max        =     200,     50,    400,   17.5;
+    rfp_improvement_mult   =      25,      0,    100,    5.0;
+    lmp_improving_mult     =     150,    100,    250,    7.5;
+    lmp_not_improving_mult =      75,     40,    150,    5.5;
+
 }
 
 #[cfg(feature = "tunables")]

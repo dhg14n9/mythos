@@ -309,6 +309,17 @@ impl Search {
 
         self.eval_ply[ply] = static_eval;
 
+        let improvement = if in_check
+        { 0 }
+        else if ply >= 2 && self.eval_ply[ply - 2] != -Score::INF {
+            static_eval - self.eval_ply[ply - 2]
+        } else if ply >= 4 && self.eval_ply[ply - 4] != -Score::INF {
+            static_eval - self.eval_ply[ply - 4]
+        } else { 0 };
+
+        let improvement = improvement.clamp(-improvement_max(), improvement_max());
+        let improving = !in_check && improvement >= 0;
+
         let depth = if Self::should_iir(ROOT, depth, tt_move) {
             depth - Self::iir_reduction(depth)
         } else { depth };
@@ -336,7 +347,7 @@ impl Search {
             }
         }
 
-        if !ROOT && self.should_rfp(board, beta, depth) && static_eval > beta + Self::rfp_margin(depth) {
+        if !ROOT && self.should_rfp(board, beta, depth) && static_eval > beta + Self::rfp_margin(depth, improvement) {
             return static_eval
         }
 
@@ -420,7 +431,7 @@ impl Search {
                     continue;
                 }
 
-                if mv.is_quiet() && (Self::should_lmp(depth, i) || Self::should_futility(depth, static_eval, alpha))
+                if mv.is_quiet() && (Self::should_lmp(depth, i, improving) || Self::should_futility(depth, static_eval, alpha))
                 {
                     move_picker.skip_quiets();
                     continue;
@@ -732,8 +743,9 @@ impl Search {
         true
     }
 
-    fn should_lmp(depth: usize, i: usize) -> bool {
-        (depth <= lmp_max_depth() as usize) && (i >= ((lmp_base() as usize + depth * depth) * 3 / 2))
+    fn should_lmp(depth: usize, i: usize, improving: bool) -> bool {
+        let mult = if improving { lmp_improving_mult() } else { lmp_not_improving_mult() } as usize;
+        (depth <= lmp_max_depth() as usize) && (i >= ((lmp_base() as usize + depth * depth) * mult / 100))
     }
 
     fn should_futility(depth: usize, static_eval: i32, alpha: i32) -> bool {
@@ -773,8 +785,8 @@ impl Search {
         nmp_base() as usize + depth / nmp_depth_div() as usize
     }
 
-    fn rfp_margin(depth: usize) -> i32 {
-        rfp_margin_mult() * depth as i32
+    fn rfp_margin(depth: usize, improvement: i32) -> i32 {
+        rfp_margin_mult() * depth as i32 - improvement * rfp_improvement_mult() / 100
     }
 
     fn see_threshold(depth: usize, mv: Move) -> i32 {
