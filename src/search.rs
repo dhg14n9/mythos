@@ -136,7 +136,7 @@ impl Search {
             accumulator_stack: Box::from([AccState::empty(); MAX_PLY]),
             finny_table: FinnyTable::new(&NETWORK),
             excluded: Box::from([Move::NULL; MAX_PLY]),
-            eval_ply: Box::from([-Score::NONE; MAX_PLY])
+            eval_ply: Box::from([Score::NONE; MAX_PLY])
         }
     }
 
@@ -307,14 +307,14 @@ impl Search {
         let in_check = board.is_check();
         let static_eval = if in_check { -Score::INF } else { nnue::eval(board, &mut self.accumulator_stack, ply) };
 
-        self.eval_ply[ply] = static_eval;
+        self.eval_ply[ply] = if in_check { Score::NONE } else { static_eval };
 
         let improvement = if in_check
         { 0 }
-        else if ply >= 2 && self.eval_ply[ply - 2] != -Score::INF {
+        else if ply >= 2 && self.eval_ply[ply - 2] != Score::NONE {
             static_eval - self.eval_ply[ply - 2]
-        } else if ply >= 4 && self.eval_ply[ply - 4] != -Score::INF {
-            (static_eval - self.eval_ply[ply - 4]) / 2
+        } else if ply >= 4 && self.eval_ply[ply - 4] != Score::NONE {
+            (static_eval - self.eval_ply[ply - 4]) * 2 / 3
         } else { 0 };
 
         let improvement = improvement.clamp(-improvement_max(), improvement_max());
