@@ -136,7 +136,7 @@ impl Search {
             accumulator_stack: Box::from([AccState::empty(); MAX_PLY]),
             finny_table: FinnyTable::new(&NETWORK),
             excluded: Box::from([Move::NULL; MAX_PLY]),
-            eval_ply: Box::from([Score::NONE; MAX_PLY])
+            eval_ply: Box::from([-Score::NONE; MAX_PLY])
         }
     }
 
@@ -314,7 +314,7 @@ impl Search {
         else if ply >= 2 && self.eval_ply[ply - 2] != -Score::INF {
             static_eval - self.eval_ply[ply - 2]
         } else if ply >= 4 && self.eval_ply[ply - 4] != -Score::INF {
-            static_eval - self.eval_ply[ply - 4]
+            (static_eval - self.eval_ply[ply - 4]) / 2
         } else { 0 };
 
         let improvement = improvement.clamp(-improvement_max(), improvement_max());
@@ -786,7 +786,7 @@ impl Search {
     }
 
     fn rfp_margin(depth: usize, improvement: i32) -> i32 {
-        rfp_margin_mult() * depth as i32 - improvement * rfp_improvement_mult() / 100
+        (rfp_margin_mult() * depth as i32 - improvement * rfp_improvement_mult() / 100).max(rfp_margin_mult() / 2)
     }
 
     fn see_threshold(depth: usize, mv: Move) -> i32 {
