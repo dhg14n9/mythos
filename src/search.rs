@@ -116,7 +116,8 @@ pub struct Search {
     pub root_best_move: Move,
     pub accumulator_stack: Box<[AccState; MAX_PLY]>,
     pub finny_table: FinnyTable,
-    pub excluded: Box<[Move; MAX_PLY]>
+    pub excluded: Box<[Move; MAX_PLY]>,
+    pub eval_ply: Box<[i32; MAX_PLY]>,
 }
 
 impl Search {
@@ -134,7 +135,8 @@ impl Search {
             root_best_move: Move::NULL,
             accumulator_stack: Box::from([AccState::empty(); MAX_PLY]),
             finny_table: FinnyTable::new(&NETWORK),
-            excluded: Box::from([Move::NULL; MAX_PLY])
+            excluded: Box::from([Move::NULL; MAX_PLY]),
+            eval_ply: Box::from([Score::NONE; MAX_PLY])
         }
     }
 
@@ -304,6 +306,8 @@ impl Search {
         let stm = board.stm();
         let in_check = board.is_check();
         let static_eval = if in_check { -Score::INF } else { nnue::eval(board, &mut self.accumulator_stack, ply) };
+
+        self.eval_ply[ply] = static_eval;
 
         let depth = if Self::should_iir(ROOT, depth, tt_move) {
             depth - Self::iir_reduction(depth)
