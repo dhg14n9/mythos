@@ -1,5 +1,6 @@
 use inquire::{Confirm, InquireError, Select, Text};
 
+use crate::release;
 use crate::sprt::{self, SprtConfig};
 use crate::sprt_report;
 use crate::tasks;
@@ -16,6 +17,7 @@ const ITEMS: &[&str] = &[
     "bench — make/unmake micro-benchmark",
     "search-bench — fixed-depth search node-count fingerprint",
     "vs-search-bench — diff search-bench of working tree vs a git ref",
+    "release — build + verify the shippable binary matrix",
     "sprt — SPRT match vs a git ref",
     "sprt-report — regenerate the report for a past SPRT run",
     "quit",
@@ -45,6 +47,7 @@ pub fn menu() -> Result<()> {
             "bench" => tasks::bench(),
             "search-bench" => prompt_search_bench(),
             "vs-search-bench" => prompt_vs_search_bench(),
+            "release" => prompt_release(),
             "sprt" => prompt_sprt(),
             "sprt-report" => prompt_sprt_report(),
             _ => unreachable!(),
@@ -141,6 +144,13 @@ fn pick_run(rel: &str, empty_msg: &str) -> Result<String> {
         }
         Err(e) => Err(e.to_string()),
     }
+}
+
+fn prompt_release() -> Result<()> {
+    let nopext = ask_confirm(
+        Confirm::new("also build a v3 without BMI2 (for Zen 1/2)?").with_default(false),
+    )?;
+    release::release(nopext)
 }
 
 fn prompt_sprt() -> Result<()> {

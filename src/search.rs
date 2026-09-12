@@ -305,6 +305,10 @@ impl Search {
         let in_check = board.is_check();
         let static_eval = if in_check { -Score::INF } else { nnue::eval(board, &mut self.accumulator_stack, ply) };
 
+        let depth = if Self::should_iir(ROOT, depth, tt_move) {
+            depth - Self::iir_reduction(depth)
+        } else { depth };
+
         // temporary, havent sprt-ed
         // if Self::should_razor(PV, in_check, static_eval, alpha, depth, tt_move, tt_bound) {
         //     return self.qsearch::<false>(board, alpha, beta, ply);
@@ -730,6 +734,10 @@ impl Search {
         && depth < 6
     }
 
+    fn should_iir(root: bool, depth: usize, tt_move: Move) -> bool {
+        !root && (depth >= iir_min_depth() as usize) && tt_move.is_null()
+    }
+
 
     fn lmr_reduction(depth: usize, i: usize, hist: i32) -> i32 {
         let base = (lmr_base() as f64 / 100.0)
@@ -747,6 +755,10 @@ impl Search {
 
     fn see_threshold(depth: usize, mv: Move) -> i32 {
         (depth as i32) * if mv.is_quiet() { see_quiet_margin() } else { see_noisy_margin() }
+    }
+
+    fn iir_reduction(depth: usize) -> usize {
+        if depth > 15 { 2 } else { 1 }
     }
 
     // index i of the result is the move played CONT_OFFSET[i] plies back, or None when that
