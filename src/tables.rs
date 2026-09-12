@@ -225,6 +225,31 @@ impl Continuation {
 
 }
 
+const MAX_CAPTURE: i32 = 16384;
+
+pub struct Capture {
+    array: Box<[[[i16; 7]; Square::NUM]; Piece::NUM]>
+}
+
+impl Capture {
+    pub fn new() -> Self {
+        Self {
+            array: Box::try_from(vec![[[0; 7]; Square::NUM]; Piece::NUM].into_boxed_slice()).unwrap()
+        }
+    }
+
+    pub fn probe(&self, piece: Piece, to_square: Square, cap_piece: Piece) -> i16 {
+        self.array[piece][to_square][cap_piece.piece_type()]
+    }
+
+    pub fn update(&mut self, piece: Piece, to_square: Square, cap_piece: Piece, bonus: i32) {
+        let entry = &mut self.array[piece][to_square][cap_piece.piece_type()];
+        let mut value = *entry as i32;
+        apply::<MAX_CAPTURE>(&mut value, bonus);
+        *entry = value as i16;
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct ContKey {
     pub(crate) piece: Piece,
@@ -234,7 +259,8 @@ pub struct ContKey {
 pub struct ThreadData {
     pub butterfly: Butterfly,
     pub killer: Killer,
-    pub continuation: Continuation
+    pub continuation: Continuation,
+    pub capture: Capture
 }
 
 impl ThreadData {
@@ -243,6 +269,7 @@ impl ThreadData {
             butterfly: Butterfly::new(),
             killer: Killer::new(),
             continuation: Continuation::new(),
+            capture: Capture::new()
         }
     }
 

@@ -53,7 +53,7 @@ impl MovePicker {
         }
     }
     
-    pub fn score_noisy(&mut self, board: &Board) {
+    pub fn score_noisy(&mut self, board: &Board, thread_data: &ThreadData) {
         for i in 0..self.list.noisy_end() {
             let mv = self.list.get(i);
 
@@ -62,7 +62,13 @@ impl MovePicker {
             } else {
                 0
             };
-            self.list.score(i, mvv_lva(mv, board) + bonus)
+
+            let piece = board.piece_at(mv.from());
+            let cap_piece = board.piece_at(mv.capture_square());
+
+            let cap_history = thread_data.capture.probe(piece, mv.capture_square(), cap_piece) as i32;
+
+            self.list.score(i, mvv_lva(mv, board) + bonus + cap_history)
         }
     }
 

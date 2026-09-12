@@ -193,7 +193,7 @@ impl Search {
             let prev = self.cont_keys(ply);
             move_picker.score_quiet(&board, &self.thread_data, ply, prev);
         }
-        move_picker.score_noisy(board);
+        move_picker.score_noisy(board, &self.thread_data);
 
         if in_check && move_picker.terminal() {
             return Score::mated_in(ply);
@@ -348,7 +348,7 @@ impl Search {
 
         let prev_keys: [Option<ContKey>; CONT_LEN] = self.cont_keys(ply);
         move_picker.score_quiet(&board, &self.thread_data, ply, prev_keys);
-        move_picker.score_noisy(board);
+        move_picker.score_noisy(board, &self.thread_data);
 
         if move_picker.terminal() {
             return if in_check { Score::mated_in(ply) } else { Score::ZERO };
@@ -510,7 +510,19 @@ impl Search {
                             }
                         }
                     }
+                } else {
+                    let noisy_bonus = (hist_noisy_bonus_mult() * depth as i32).min(hist_noisy_bonus_max()) - hist_noisy_bonus_off();
+                    self.thread_data.capture.update(board.piece_at(mv.from()), mv.capture_square(), board.piece_at(mv.capture_square()), noisy_bonus);
                 }
+                let noisy_malus = (hist_noisy_malus_mult() * depth as i32).min(hist_noisy_malus_max()) - hist_noisy_malus_off() - hist_noisy_malus_decay() * n_failed as i32;
+
+                for mv in failure {
+                    if mv.is_noisy() {
+                        let noisy_malus = (hist_noisy_malus_mult() * depth as i32).min(hist_noisy_malus_max()) - hist_noisy_malus_off() - hist_noisy_malus_decay() * n_failed as i32;
+                        self.thread_data.capture.update(board.piece_at(mv.from()), mv.capture_square(), board.piece_at(mv.capture_square()), noisy_malus);
+                    }
+                }
+
                 break;
             };
 

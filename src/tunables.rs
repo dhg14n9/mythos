@@ -87,10 +87,10 @@ tunables! {
     asp_window            =       22,      8,     60,    2.5;
 
     // History bonus/malus, all of the form (mult * depth).min(max) - offset,
-    // with the malus terms additionally decaying by `decay` per quiet move that
-    // already failed to cut off. The caps stay well under MAX_BUTTERFLY (8192)
-    // and MAX_CONTINUATION (15000) so the gravity formula in tables.rs does not
-    // overshoot.
+    // with the malus terms additionally decaying by `decay` per move of the same
+    // kind that already failed to cut off. The caps stay well under
+    // MAX_BUTTERFLY (8192), MAX_CONTINUATION (15000) and MAX_CAPTURE (16384) so
+    // the gravity formula in tables.rs does not overshoot.
     hist_quiet_bonus_mult  =     144,     60,    400,   17.0;
     hist_quiet_bonus_max   =    1617,    600,   3000,  120.0;
     hist_quiet_bonus_off   =      70,      0,    300,   15.0;
@@ -108,6 +108,24 @@ tunables! {
     hist_cont_malus_max    =     729,    300,   2000,   85.0;
     hist_cont_malus_off    =      25,      0,    300,   15.0;
     hist_cont_malus_decay  =      24,      0,    100,    5.0;
+
+    // Capture history, applied to noisy moves. Defaults are copied from the
+    // quiet terms above and are untuned -- they want an SPSA pass once the
+    // feature has passed SPRT. Unlike the quiet malus, this one is handed out
+    // even when a *quiet* move causes the cutoff: the noisy moves searched
+    // before it still failed.
+    hist_noisy_bonus_mult  =     144,     60,    400,   17.0;
+    hist_noisy_bonus_max   =    1617,    600,   3000,  120.0;
+    hist_noisy_bonus_off   =      70,      0,    300,   15.0;
+
+    hist_noisy_malus_mult  =     232,     60,    400,   17.0;
+    hist_noisy_malus_max   =     900,    400,   2400,  100.0;
+    hist_noisy_malus_off   =      21,      0,    300,   15.0;
+    hist_noisy_malus_decay =      18,      0,    100,    5.0;
+
+    // Scales the captured piece value in score_noisy so material still dominates
+    // the noisy ordering once capture history (+/- MAX_CAPTURE) has warmed up.
+    noisy_mvv_mult         =      16,      4,     64,    3.0;
 
     // Falloff of the malus *scale* across successive failed quiets, distinct
     // from the decay terms above: it divides the malus rather than subtracting
