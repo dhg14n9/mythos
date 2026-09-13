@@ -318,7 +318,7 @@ impl Search {
         } else { 0 };
 
         let improvement = improvement.clamp(-improvement_max(), improvement_max());
-        let improving = !in_check && improvement >= 0;
+        let improving = !in_check && improvement >= -improving_threshold();
 
         let depth = if Self::should_iir(ROOT, depth, tt_move) {
             depth - Self::iir_reduction(depth)
