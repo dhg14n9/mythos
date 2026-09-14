@@ -150,10 +150,10 @@ tunables! {
 
     // improvement
     improvement_max        =     150,     50,    600,   27.5;
-    improving_threshold    =     120,      0,    240,   12.0;
-    rfp_improvement_mult   =      45,      0,    100,    5.0;
-    lmp_improving_mult     =     135,    100,    250,    7.5;
-    lmp_not_improving_mult =     100,     40,    150,    5.5;
+    improving_threshold    =     140,      0,    240,   12.0;
+    rfp_improvement_mult   =      58,      0,    100,    5.0;
+    lmp_improving_mult     =     190,    100,    250,    7.5;
+    lmp_not_improving_mult =      70,     40,    150,    5.5;
 
 }
 
