@@ -347,7 +347,7 @@ impl Search {
             }
         }
 
-        if !ROOT && self.should_rfp(board, beta, depth) && static_eval > beta + Self::rfp_margin(depth, improvement) {
+        if !ROOT && self.should_rfp(board, beta, depth) && static_eval > beta + Self::old_rfp_margin(depth) {
             return static_eval
         }
 
@@ -816,6 +816,14 @@ impl Search {
         }
         self.accumulator_stack[ply].computed = [true; 2];
 
+    }
+
+    fn old_rfp_margin(depth: usize) -> i32 {
+        rfp_margin_mult() * depth as i32
+    }
+
+    fn old_should_lmp(depth: usize, i: usize) -> bool {
+        (depth <= lmp_max_depth() as usize) && (i >= ((lmp_base() as usize + depth * depth) * 3 / 2))
     }
 }
 
