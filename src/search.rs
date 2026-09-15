@@ -12,8 +12,8 @@ use crate::tunables::*;
 use crate::types::{Color, Move, MoveList, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
-const IMPROVING_RFP: bool = true;
-const IMPROVING_LMP: bool = false;
+const IMPROVING_RFP: bool = false;
+const IMPROVING_LMP: bool = true;
 
 // track stable best move
 struct StableTracker {
