@@ -347,7 +347,7 @@ impl Search {
             }
         }
 
-        if !ROOT && self.should_rfp(board, beta, depth) && static_eval > beta + Self::old_rfp_margin(depth) {
+        if !ROOT && self.should_rfp(board, beta, depth) && static_eval > beta + Self::rfp_margin(depth, improvement) {
             return static_eval
         }
 
@@ -431,7 +431,7 @@ impl Search {
                     continue;
                 }
 
-                if mv.is_quiet() && (Self::should_lmp(depth, i, improving) || Self::should_futility(depth, static_eval, alpha))
+                if mv.is_quiet() && (Self::old_should_lmp(depth, i) || Self::should_futility(depth, static_eval, alpha))
                 {
                     move_picker.skip_quiets();
                     continue;
