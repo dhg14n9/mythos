@@ -12,6 +12,8 @@ use crate::tunables::*;
 use crate::types::{Color, Move, MoveList, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
+const IMPROVING_RFP: bool = true;
+const IMPROVING_LMP: bool = false;
 
 // track stable best move
 struct StableTracker {
@@ -318,7 +320,7 @@ impl Search {
         } else { 0 };
 
         let improvement = improvement.clamp(-improvement_max(), improvement_max());
-        let improving = !in_check && improvement >= -improving_threshold();
+        let improving = !in_check && improvement >= improving_threshold();
 
         let depth = if Self::should_iir(ROOT, depth, tt_move) {
             depth - Self::iir_reduction(depth)
@@ -347,7 +349,9 @@ impl Search {
             }
         }
 
-        if !ROOT && self.should_rfp(board, beta, depth) && static_eval > beta + Self::rfp_margin(depth, improvement) {
+        let rfp_margin = if IMPROVING_RFP { Self::rfp_margin(depth, improving) } else { Self::old_rfp_margin(depth) };
+
+        if !ROOT && self.should_rfp(board, beta, depth) && static_eval > beta + rfp_margin {
             return static_eval
         }
 
@@ -431,7 +435,9 @@ impl Search {
                     continue;
                 }
 
-                if mv.is_quiet() && (Self::old_should_lmp(depth, i) || Self::should_futility(depth, static_eval, alpha))
+                let lmp = if IMPROVING_LMP { Self::should_lmp(depth, i, improving) } else { Self::old_should_lmp(depth, i) };
+
+                if mv.is_quiet() && (lmp || Self::should_futility(depth, static_eval, alpha))
                 {
                     move_picker.skip_quiets();
                     continue;
@@ -785,8 +791,8 @@ impl Search {
         nmp_base() as usize + depth / nmp_depth_div() as usize
     }
 
-    fn rfp_margin(depth: usize, improvement: i32) -> i32 {
-        (rfp_margin_mult() * depth as i32 - improvement * rfp_improvement_mult() / 100).max(rfp_margin_mult() / 2)
+    fn rfp_margin(depth: usize, improving: bool) -> i32 {
+        rfp_margin_mult() * depth as i32 - (improving as i32) * rfp_margin_mult() * rfp_improvement_mult() / 100
     }
 
     fn see_threshold(depth: usize, mv: Move) -> i32 {

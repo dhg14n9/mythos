@@ -149,11 +149,11 @@ tunables! {
     se_double_margin       =      24,      4,    120,    5.0;
 
     // improvement
-    improvement_max        =     150,     50,    600,   27.5;
-    improving_threshold    =     140,      0,    240,   12.0;
-    rfp_improvement_mult   =      58,      0,    100,    5.0;
-    lmp_improving_mult     =     190,    100,    250,    7.5;
-    lmp_not_improving_mult =      70,     40,    150,    5.5;
+    improvement_max        =     100,     50,    600,   27.5;
+    improving_threshold    =       0,      0,    240,   12.0;
+    rfp_improvement_mult   =     100,      0,    200,   10.0;
+    lmp_improving_mult     =     250,    100,    250,    7.5;
+    lmp_not_improving_mult =     100,     40,    150,    5.5;
 
 }
 
