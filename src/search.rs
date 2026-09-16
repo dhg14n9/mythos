@@ -13,7 +13,9 @@ use crate::types::{Color, Move, MoveList, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
 const IMPROVING_RFP: bool = false;
-const IMPROVING_LMP: bool = true;
+const IMPROVING_LMP: bool = false;
+const IMPROVING_NMP: bool = true;
+const IMPROVING_LMR: bool = false;
 
 // track stable best move
 struct StableTracker {
@@ -341,7 +343,7 @@ impl Search {
             self.accumulator_stack[ply + 1].bucket = self.accumulator_stack[ply].bucket;
 
 
-            let score = -self.negamax::<false, false>(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth)), -beta, -beta + 1, ply + 1, false);
+            let score = -self.negamax::<false, false>(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth, improvement)), -beta, -beta + 1, ply + 1, false);
             board.unmake_null_move();
 
             if score >= beta {
@@ -468,7 +470,7 @@ impl Search {
                 score = -self.negamax::<false, PV>(board, new_depth, -beta, -alpha, ply + 1, true);
             } else {
                 let r = if !ROOT && self.should_lmr(i, depth, mv, give_check, in_check, killers) {
-                    Self::lmr_reduction(depth, i, hist)
+                    Self::lmr_reduction(depth, i, hist, improving)
                 } else { 0 };
                 let r = r.min(new_depth.saturating_sub(1) as i32).max(0);
                 let reduced_depth = new_depth - r as usize;
@@ -780,15 +782,22 @@ impl Search {
         !root && (depth >= iir_min_depth() as usize) && tt_move.is_null()
     }
 
-
-    fn lmr_reduction(depth: usize, i: usize, hist: i32) -> i32 {
+    fn lmr_reduction(depth: usize, i: usize, hist: i32, improving: bool) -> i32 {
         let base = (lmr_base() as f64 / 100.0)
             + (depth as f64).ln() * (i as f64).ln() / (lmr_div() as f64 / 100.0);
         (base - (hist as f64) / (lmr_hist_div() as f64)) as i32
+            + if IMPROVING_LMR { !improving as i32 } else { 0 }
     }
 
-    fn nmp_reduction(depth: usize) -> usize {
-        nmp_base() as usize + depth / nmp_depth_div() as usize
+    fn nmp_reduction(depth: usize, improvement: i32) -> usize {
+        let mut result = nmp_base() + (depth / nmp_depth_div() as usize) as i32;
+        if IMPROVING_NMP {
+            // Stays in i32 on purpose: improvement is signed (+/- improvement_max),
+            // and `improvement as usize` on a negative value wraps to ~1.8e19.
+            result += improvement / nmp_improvement_div();
+        }
+
+        result.max(0) as usize
     }
 
     fn rfp_margin(depth: usize, improving: bool) -> i32 {

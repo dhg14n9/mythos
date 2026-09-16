@@ -155,6 +155,12 @@ tunables! {
     lmp_improving_mult     =     250,    100,    250,    7.5;
     lmp_not_improving_mult =     100,     40,    150,    5.5;
 
+    // Scales the signed improvement delta into extra NMP reduction plies. The
+    // delta is clamped to +/- improvement_max, so at the default divisor the
+    // term spans +/- 2 plies: reduce more when the eval is climbing, less when
+    // it is falling.
+    nmp_improvement_div    =      50,     10,    200,    9.0;
+
 }
 
 #[cfg(feature = "tunables")]
