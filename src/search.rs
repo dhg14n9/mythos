@@ -116,7 +116,8 @@ pub struct Search {
     pub root_best_move: Move,
     pub accumulator_stack: Box<[AccState; MAX_PLY]>,
     pub finny_table: FinnyTable,
-    pub excluded: Box<[Move; MAX_PLY]>
+    pub excluded: Box<[Move; MAX_PLY]>,
+    pub eval_ply: Box<[i32; MAX_PLY]>,
 }
 
 impl Search {
@@ -134,7 +135,8 @@ impl Search {
             root_best_move: Move::NULL,
             accumulator_stack: Box::from([AccState::empty(); MAX_PLY]),
             finny_table: FinnyTable::new(&NETWORK),
-            excluded: Box::from([Move::NULL; MAX_PLY])
+            excluded: Box::from([Move::NULL; MAX_PLY]),
+            eval_ply: Box::from([Score::NONE; MAX_PLY])
         }
     }
 
@@ -305,6 +307,18 @@ impl Search {
         let in_check = board.is_check();
         let static_eval = if in_check { -Score::INF } else { nnue::eval(board, &mut self.accumulator_stack, ply) };
 
+        self.eval_ply[ply] = if in_check { Score::NONE } else { static_eval };
+
+        let improvement = if in_check
+        { 0 }
+        else if ply >= 2 && self.eval_ply[ply - 2] != Score::NONE {
+            static_eval - self.eval_ply[ply - 2]
+        } else if ply >= 4 && self.eval_ply[ply - 4] != Score::NONE {
+            (static_eval - self.eval_ply[ply - 4]) * 2 / 3
+        } else { 0 };
+
+        let improving = !in_check && improvement >= improving_threshold();
+
         let depth = if Self::should_iir(ROOT, depth, tt_move) {
             depth - Self::iir_reduction(depth)
         } else { depth };
@@ -332,7 +346,9 @@ impl Search {
             }
         }
 
-        if !ROOT && self.should_rfp(board, beta, depth) && static_eval > beta + Self::rfp_margin(depth) {
+        let rfp_margin = Self::rfp_margin(depth, improving);
+
+        if !ROOT && self.should_rfp(board, beta, depth) && static_eval > beta + rfp_margin {
             return static_eval
         }
 
@@ -769,8 +785,8 @@ impl Search {
         nmp_base() as usize + depth / nmp_depth_div() as usize
     }
 
-    fn rfp_margin(depth: usize) -> i32 {
-        rfp_margin_mult() * depth as i32
+    fn rfp_margin(depth: usize, improving: bool) -> i32 {
+        rfp_margin_mult() * depth as i32 - (improving as i32) * rfp_margin_mult() * rfp_improvement_mult() / 100
     }
 
     fn see_threshold(depth: usize, mv: Move) -> i32 {
@@ -781,8 +797,6 @@ impl Search {
         if depth > 15 { 2 } else { 1 }
     }
 
-    // index i of the result is the move played CONT_OFFSET[i] plies back, or None when that
-    // reaches past the root (or lands on a null move, which stores None)
     fn cont_keys(&self, ply: usize) -> [Option<ContKey>; CONT_LEN] {
         std::array::from_fn(|i| {
             let off = CONT_OFFSET[i];
