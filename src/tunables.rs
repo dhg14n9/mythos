@@ -58,6 +58,14 @@ tunables! {
     nmp_base              =        2,      2,      5,    0.5;
     nmp_depth_div         =        4,      2,      6,    0.5;
 
+    // Extra null-move reduction for how far the static eval sits above beta.
+    // should_nmp already gates on static_eval >= beta, so this is one-sided by
+    // construction. It replaces an earlier attempt to drive the reduction from
+    // the ply-2 improvement delta, which on that pre-filtered population was a
+    // near-constant +2 rather than a signal.
+    nmp_eval_div          =      200,     80,    400,   16.0;
+    nmp_eval_max          =        3,      1,      6,    0.5;
+
     // Late move reductions. lmr_base and lmr_div are scaled by 100.
     lmr_min_moves         =        3,      2,      6,    0.5;
     lmr_min_depth         =        3,      2,      5,    0.5;
@@ -148,18 +156,10 @@ tunables! {
     se_margin              =      32,      8,    100,    4.0;
     se_double_margin       =      24,      4,    120,    5.0;
 
-    // improvement
-    improvement_max        =     100,     50,    600,   27.5;
-    improving_threshold    =       0,      0,    240,   12.0;
+    improving_threshold    =      60,      0,    120,    6.0;
     rfp_improvement_mult   =     100,      0,    200,   10.0;
-    lmp_improving_mult     =     250,    100,    250,    7.5;
-    lmp_not_improving_mult =     100,     40,    150,    5.5;
-
-    // Scales the signed improvement delta into extra NMP reduction plies. The
-    // delta is clamped to +/- improvement_max, so at the default divisor the
-    // term spans +/- 2 plies: reduce more when the eval is climbing, less when
-    // it is falling.
-    nmp_improvement_div    =      50,     10,    200,    9.0;
+    lmp_improving_mult     =     250,    120,    400,   10.0;
+    lmp_not_improving_mult =     150,     60,    200,    6.0;
 
 }
 

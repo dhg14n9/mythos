@@ -12,10 +12,12 @@ use crate::tunables::*;
 use crate::types::{Color, Move, MoveList, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
+const NO_DATA_IMPROVEMENT: i32 = i32::MAX;
+
 const IMPROVING_RFP: bool = true;
-const IMPROVING_LMP: bool = true;
-const IMPROVING_NMP: bool = true;
-const IMPROVING_LMR: bool = true;
+const IMPROVING_LMP: bool = false;
+const IMPROVING_NMP: bool = false;
+const IMPROVING_LMR: bool = false;
 
 // track stable best move
 struct StableTracker {
@@ -314,14 +316,13 @@ impl Search {
         self.eval_ply[ply] = if in_check { Score::NONE } else { static_eval };
 
         let improvement = if in_check
-        { 0 }
+        { NO_DATA_IMPROVEMENT }
         else if ply >= 2 && self.eval_ply[ply - 2] != Score::NONE {
             static_eval - self.eval_ply[ply - 2]
         } else if ply >= 4 && self.eval_ply[ply - 4] != Score::NONE {
             (static_eval - self.eval_ply[ply - 4]) * 2 / 3
-        } else { 0 };
+        } else { NO_DATA_IMPROVEMENT };
 
-        let improvement = improvement.clamp(-improvement_max(), improvement_max());
         let improving = !in_check && improvement >= improving_threshold();
 
         let depth = if Self::should_iir(ROOT, depth, tt_move) {
@@ -343,7 +344,8 @@ impl Search {
             self.accumulator_stack[ply + 1].bucket = self.accumulator_stack[ply].bucket;
 
 
-            let score = -self.negamax::<false, false>(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth, improvement)), -beta, -beta + 1, ply + 1, false);
+            let r = Self::nmp_reduction(depth, static_eval, beta);
+            let score = -self.negamax::<false, false>(board, (depth - 1).saturating_sub(r), -beta, -beta + 1, ply + 1, false);
             board.unmake_null_move();
 
             if score >= beta {
@@ -789,12 +791,10 @@ impl Search {
             + if IMPROVING_LMR { !improving as i32 } else { 0 }
     }
 
-    fn nmp_reduction(depth: usize, improvement: i32) -> usize {
+    fn nmp_reduction(depth: usize, static_eval: i32, beta: i32) -> usize {
         let mut result = nmp_base() + (depth / nmp_depth_div() as usize) as i32;
         if IMPROVING_NMP {
-            // Stays in i32 on purpose: improvement is signed (+/- improvement_max),
-            // and `improvement as usize` on a negative value wraps to ~1.8e19.
-            result += improvement / nmp_improvement_div();
+            result += ((static_eval - beta) / nmp_eval_div()).clamp(0, nmp_eval_max());
         }
 
         result.max(0) as usize
