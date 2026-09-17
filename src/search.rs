@@ -14,8 +14,8 @@ use crate::types::{Color, Move, MoveList, PieceType, Score};
 const TC_NODE_CHECK: u64 = 2048;
 const NO_DATA_IMPROVEMENT: i32 = i32::MAX;
 
-const IMPROVING_RFP: bool = true;
-const IMPROVING_LMP: bool = false;
+const IMPROVING_RFP: bool = false;
+const IMPROVING_LMP: bool = true;
 const IMPROVING_NMP: bool = false;
 const IMPROVING_LMR: bool = false;
 
