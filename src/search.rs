@@ -16,8 +16,8 @@ const NO_DATA_IMPROVEMENT: i32 = i32::MAX;
 
 const IMPROVING_RFP: bool = false;
 const IMPROVING_LMP: bool = false;
-const IMPROVING_NMP: bool = true;
-const IMPROVING_LMR: bool = false;
+const IMPROVING_NMP: bool = false;
+const IMPROVING_LMR: bool = true;
 
 // track stable best move
 struct StableTracker {
