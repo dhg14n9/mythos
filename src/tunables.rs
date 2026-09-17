@@ -58,14 +58,6 @@ tunables! {
     nmp_base              =        2,      2,      5,    0.5;
     nmp_depth_div         =        4,      2,      6,    0.5;
 
-    // Extra null-move reduction for how far the static eval sits above beta.
-    // should_nmp already gates on static_eval >= beta, so this is one-sided by
-    // construction. It replaces an earlier attempt to drive the reduction from
-    // the ply-2 improvement delta, which on that pre-filtered population was a
-    // near-constant +2 rather than a signal.
-    nmp_eval_div          =      200,     80,    400,   16.0;
-    nmp_eval_max          =        3,      1,      6,    0.5;
-
     // Late move reductions. lmr_base and lmr_div are scaled by 100.
     lmr_min_moves         =        3,      2,      6,    0.5;
     lmr_min_depth         =        3,      2,      5,    0.5;
@@ -94,11 +86,7 @@ tunables! {
     // Aspiration windows
     asp_window            =       22,      8,     60,    2.5;
 
-    // History bonus/malus, all of the form (mult * depth).min(max) - offset,
-    // with the malus terms additionally decaying by `decay` per move of the same
-    // kind that already failed to cut off. The caps stay well under
-    // MAX_BUTTERFLY (8192), MAX_CONTINUATION (15000) and MAX_CAPTURE (16384) so
-    // the gravity formula in tables.rs does not overshoot.
+    // History bonus/malus
     hist_quiet_bonus_mult  =     144,     60,    400,   17.0;
     hist_quiet_bonus_max   =    1617,    600,   3000,  120.0;
     hist_quiet_bonus_off   =      70,      0,    300,   15.0;
@@ -117,11 +105,7 @@ tunables! {
     hist_cont_malus_off    =      25,      0,    300,   15.0;
     hist_cont_malus_decay  =      24,      0,    100,    5.0;
 
-    // Capture history, applied to noisy moves. Defaults are copied from the
-    // quiet terms above and are untuned -- they want an SPSA pass once the
-    // feature has passed SPRT. Unlike the quiet malus, this one is handed out
-    // even when a *quiet* move causes the cutoff: the noisy moves searched
-    // before it still failed.
+    // Capture history applied to noisy moves.
     hist_noisy_bonus_mult  =     144,     60,    400,   17.0;
     hist_noisy_bonus_max   =    1617,    600,   3000,  120.0;
     hist_noisy_bonus_off   =      70,      0,    300,   15.0;
@@ -131,22 +115,10 @@ tunables! {
     hist_noisy_malus_off   =      21,      0,    300,   15.0;
     hist_noisy_malus_decay =      18,      0,    100,    5.0;
 
-    // Scales the captured piece value in score_noisy so material still dominates
-    // the noisy ordering once capture history (+/- MAX_CAPTURE) has warmed up.
     noisy_mvv_mult         =      16,      4,     64,    3.0;
-
-    // Falloff of the malus *scale* across successive failed quiets, distinct
-    // from the decay terms above: it divides the malus rather than subtracting
-    // from it. 0 disables the falloff (the denominator stays at 1024, so the
-    // scale stays at 1024/1024 = 1) rather than dividing by zero.
     hist_malus_scale_decay =      22,      0,    150,    7.0;
 
-    // Time management: how far the soft limit is stretched while the root best
-    // move keeps changing. The extension is a clamped line in the number of
-    // stable iterations, max(min, base - step * stable), all scaled by 100.
-    // tm_stab_min bottoms out at 100 so the extension can never shrink the soft
-    // limit below its base; dropping under that is a behaviour change, not a
-    // tuning range. Only applies from tm_stab_min_depth upwards.
+    // Time management
     tm_stab_base           =     300,    150,    500,   17.0;
     tm_stab_step           =      25,      0,     80,    4.0;
     tm_stab_min            =     100,    100,    150,    2.5;
@@ -156,10 +128,9 @@ tunables! {
     se_margin              =      32,      8,    100,    4.0;
     se_double_margin       =      24,      4,    120,    5.0;
 
-    improving_threshold    =      60,      0,    120,    6.0;
+    // improving. Only rfp for now
+    improving_threshold    =       0,      0,    240,   12.0;
     rfp_improvement_mult   =     100,      0,    200,   10.0;
-    lmp_improving_mult     =     250,    120,    400,   10.0;
-    lmp_not_improving_mult =     150,     60,    200,    6.0;
 
 }
 

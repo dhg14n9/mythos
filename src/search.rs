@@ -12,12 +12,6 @@ use crate::tunables::*;
 use crate::types::{Color, Move, MoveList, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
-const NO_DATA_IMPROVEMENT: i32 = i32::MAX;
-
-const IMPROVING_RFP: bool = false;
-const IMPROVING_LMP: bool = false;
-const IMPROVING_NMP: bool = false;
-const IMPROVING_LMR: bool = true;
 
 // track stable best move
 struct StableTracker {
@@ -316,12 +310,12 @@ impl Search {
         self.eval_ply[ply] = if in_check { Score::NONE } else { static_eval };
 
         let improvement = if in_check
-        { NO_DATA_IMPROVEMENT }
+        { 0 }
         else if ply >= 2 && self.eval_ply[ply - 2] != Score::NONE {
             static_eval - self.eval_ply[ply - 2]
         } else if ply >= 4 && self.eval_ply[ply - 4] != Score::NONE {
             (static_eval - self.eval_ply[ply - 4]) * 2 / 3
-        } else { NO_DATA_IMPROVEMENT };
+        } else { 0 };
 
         let improving = !in_check && improvement >= improving_threshold();
 
@@ -344,8 +338,7 @@ impl Search {
             self.accumulator_stack[ply + 1].bucket = self.accumulator_stack[ply].bucket;
 
 
-            let r = Self::nmp_reduction(depth, static_eval, beta);
-            let score = -self.negamax::<false, false>(board, (depth - 1).saturating_sub(r), -beta, -beta + 1, ply + 1, false);
+            let score = -self.negamax::<false, false>(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth)), -beta, -beta + 1, ply + 1, false);
             board.unmake_null_move();
 
             if score >= beta {
@@ -353,7 +346,7 @@ impl Search {
             }
         }
 
-        let rfp_margin = if IMPROVING_RFP { Self::rfp_margin(depth, improving) } else { Self::old_rfp_margin(depth) };
+        let rfp_margin = Self::rfp_margin(depth, improving);
 
         if !ROOT && self.should_rfp(board, beta, depth) && static_eval > beta + rfp_margin {
             return static_eval
@@ -439,9 +432,7 @@ impl Search {
                     continue;
                 }
 
-                let lmp = if IMPROVING_LMP { Self::should_lmp(depth, i, improving) } else { Self::old_should_lmp(depth, i) };
-
-                if mv.is_quiet() && (lmp || Self::should_futility(depth, static_eval, alpha))
+                if mv.is_quiet() && (Self::should_lmp(depth, i) || Self::should_futility(depth, static_eval, alpha))
                 {
                     move_picker.skip_quiets();
                     continue;
@@ -472,7 +463,7 @@ impl Search {
                 score = -self.negamax::<false, PV>(board, new_depth, -beta, -alpha, ply + 1, true);
             } else {
                 let r = if !ROOT && self.should_lmr(i, depth, mv, give_check, in_check, killers) {
-                    Self::lmr_reduction(depth, i, hist, improving)
+                    Self::lmr_reduction(depth, i, hist)
                 } else { 0 };
                 let r = r.min(new_depth.saturating_sub(1) as i32).max(0);
                 let reduced_depth = new_depth - r as usize;
@@ -753,9 +744,8 @@ impl Search {
         true
     }
 
-    fn should_lmp(depth: usize, i: usize, improving: bool) -> bool {
-        let mult = if improving { lmp_improving_mult() } else { lmp_not_improving_mult() } as usize;
-        (depth <= lmp_max_depth() as usize) && (i >= ((lmp_base() as usize + depth * depth) * mult / 100))
+    fn should_lmp(depth: usize, i: usize) -> bool {
+        (depth <= lmp_max_depth() as usize) && (i >= ((lmp_base() as usize + depth * depth) * 3 / 2))
     }
 
     fn should_futility(depth: usize, static_eval: i32, alpha: i32) -> bool {
@@ -784,20 +774,15 @@ impl Search {
         !root && (depth >= iir_min_depth() as usize) && tt_move.is_null()
     }
 
-    fn lmr_reduction(depth: usize, i: usize, hist: i32, improving: bool) -> i32 {
+
+    fn lmr_reduction(depth: usize, i: usize, hist: i32) -> i32 {
         let base = (lmr_base() as f64 / 100.0)
             + (depth as f64).ln() * (i as f64).ln() / (lmr_div() as f64 / 100.0);
         (base - (hist as f64) / (lmr_hist_div() as f64)) as i32
-            + if IMPROVING_LMR { !improving as i32 } else { 0 }
     }
 
-    fn nmp_reduction(depth: usize, static_eval: i32, beta: i32) -> usize {
-        let mut result = nmp_base() + (depth / nmp_depth_div() as usize) as i32;
-        if IMPROVING_NMP {
-            result += ((static_eval - beta) / nmp_eval_div()).clamp(0, nmp_eval_max());
-        }
-
-        result.max(0) as usize
+    fn nmp_reduction(depth: usize) -> usize {
+        nmp_base() as usize + depth / nmp_depth_div() as usize
     }
 
     fn rfp_margin(depth: usize, improving: bool) -> i32 {
@@ -812,8 +797,6 @@ impl Search {
         if depth > 15 { 2 } else { 1 }
     }
 
-    // index i of the result is the move played CONT_OFFSET[i] plies back, or None when that
-    // reaches past the root (or lands on a null move, which stores None)
     fn cont_keys(&self, ply: usize) -> [Option<ContKey>; CONT_LEN] {
         std::array::from_fn(|i| {
             let off = CONT_OFFSET[i];
@@ -831,14 +814,6 @@ impl Search {
         }
         self.accumulator_stack[ply].computed = [true; 2];
 
-    }
-
-    fn old_rfp_margin(depth: usize) -> i32 {
-        rfp_margin_mult() * depth as i32
-    }
-
-    fn old_should_lmp(depth: usize, i: usize) -> bool {
-        (depth <= lmp_max_depth() as usize) && (i >= ((lmp_base() as usize + depth * depth) * 3 / 2))
     }
 }
 
