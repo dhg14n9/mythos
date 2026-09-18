@@ -6,7 +6,6 @@ use crate::types::{Bitboard, Color, MAX_LIST_LENGTH, Move, MoveList, Piece, Piec
 const KILLER1_SCORE: i32 = 1_000_000;
 const KILLER2_SCORE: i32 = 900_000;
 
-// yield order
 #[derive(Copy, Clone, PartialEq)]
 enum Stage {
     TtMove,
@@ -20,7 +19,7 @@ pub struct MovePicker {
     list: MoveList,
     tt_move: Move,
     stage: Stage,
-    // next slot to fill in the range the current stage is draining
+    // next slot in the range the current stage is draining
     cur: usize,
     good_end: usize,
     // skip_quiets: bool
@@ -117,7 +116,7 @@ impl MovePicker {
         }
     }
 
-    // Selection sort step: move the best scoring entry in [cur, end) to `cur` and consume it.
+    // selection sort step
     fn pick(&mut self, end: usize) -> Option<Move> {
         if let Some(best) = self.select_best(end) {
             self.list.swap(best, self.cur);
@@ -184,7 +183,6 @@ impl MovePicker {
     }
 }
 
-// SEE move ordering
 pub(crate) fn see(board: &Board, mv: Move, threshold: i32) -> bool {
     let balance = board.piece_at(mv.capture_square()).value() - threshold;
     if balance < 0 {
@@ -264,9 +262,6 @@ mod tests {
         moves
     }
 
-    // The whole risk of the double ended layout is a move getting lost in the SEE partition,
-    // yielded twice, or the tt move being yielded again from its slot. Node counts cannot see
-    // any of those; comparing the drained multiset against raw movegen can.
     #[test]
     fn picker_yields_every_generated_move_exactly_once() {
         for &fen in FENS {
@@ -280,8 +275,7 @@ mod tests {
                 got.sort();
                 assert_eq!(got, expected, "moves, no tt move, {fen}");
 
-                // every generated move in turn as the tt move: it must come out first, and
-                // exactly once.
+                // every generated move in turn as the tt move: first, exactly once
                 for &raw in &expected {
                     let tt_move = Move::from_raw(raw);
                     let got_tt = drained_moves(&board, noisy_only, tt_move);
@@ -303,8 +297,6 @@ mod tests {
         }
     }
 
-    // The two regions must stay disjoint, and quiets must read back in the order they were
-    // pushed (an increment-then-write bug in push_back drops the first quiet silently).
     #[test]
     fn list_regions_are_disjoint_and_complete() {
         for &fen in FENS {

@@ -18,8 +18,7 @@ pub fn cargo() -> Command {
     cmd
 }
 
-/// Removes a temporary git worktree when dropped, so it is cleaned up
-/// on the error path (including Ctrl-C, which unwinds via a failed wait).
+/// Removes a temporary git worktree when dropped, so the error path cleans up (including Ctrl-C, which unwinds via a failed wait).
 pub struct WorktreeGuard {
     pub dir: PathBuf,
 }
@@ -39,7 +38,7 @@ pub fn git() -> Command {
     cmd
 }
 
-/// Run a command to completion, inheriting stdio; non-zero exit becomes Err.
+/// Inherits stdio; a non-zero exit becomes Err.
 pub fn run(cmd: &mut Command) -> Result<()> {
     let program = cmd.get_program().to_string_lossy().into_owned();
     let status = cmd
@@ -52,7 +51,7 @@ pub fn run(cmd: &mut Command) -> Result<()> {
     }
 }
 
-/// Run a command and capture stdout as a trimmed string; non-zero exit becomes Err.
+/// Captures trimmed stdout; a non-zero exit becomes Err.
 pub fn run_capture(cmd: &mut Command) -> Result<String> {
     let program = cmd.get_program().to_string_lossy().into_owned();
     let out = cmd

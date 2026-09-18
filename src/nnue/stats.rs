@@ -1,30 +1,14 @@
-// Instrumentation for the accumulator refresh path. Off by default and
-// compiled to nothing: without `--features nnue-stats` every entry point below
-// is an empty inline fn, so the shipped binary and every SPRT build carry no
-// counters and no atomics.
+// Accumulator refresh instrumentation. Compiled to nothing without `--features nnue-stats`.
 //
 //     cargo build --release --features nnue-stats
 //     taskset -c 0 ./target/release/mythos bench
 //
-// Never measure NPS with it enabled -- the atomics are relaxed and cheap, but
-// they are not free and they sit in the refresh path.
+// Never measure NPS with it on -- the atomics sit in the refresh path.
 //
-// What the four numbers are for:
-//
-//   refreshes per node       how often the expensive path fires at all. This is
-//                            the figure a wider KING_LAYOUT raises, and the
-//                            reason to read it before widening one.
+//   refreshes per node       how often the expensive path fires; a wider KING_LAYOUT raises this.
 //   features per refresh     the diff the Finny table actually applied.
-//   full-rebuild equivalent  what that same refresh would have cost starting
-//                            from feature_bias -- the piece count. The ratio of
-//                            these two is the entire value of the table, and it
-//                            is the honest measure of this change in a way that
-//                            an NPS delta is not: NPS also carries whatever
-//                            else moved in the same window.
-//   cold refreshes           first hit on a cell, where the diff degenerates to
-//                            a full rebuild. Negligible today; it grows with the
-//                            number of cells, which is the second thing a wider
-//                            layout costs and the one that is easy to forget.
+//   full-rebuild equivalent  the piece count; its ratio to the above is the whole value of the table.
+//   cold refreshes           first hit on a cell, where the diff degenerates to a full rebuild.
 
 #[cfg(feature = "nnue-stats")]
 mod imp {
@@ -37,10 +21,7 @@ mod imp {
     static DIFF_FEATURES: AtomicU64 = AtomicU64::new(0);
     static FULL_FEATURES: AtomicU64 = AtomicU64::new(0);
 
-    // `diff` is the number of weight vectors this refresh added or subtracted;
-    // `full` is how many a from-scratch rebuild would have touched, i.e. the
-    // piece count. `cold` marks an entry whose snapshot was still empty, in
-    // which case the two are equal by construction.
+    // `diff`: weight vectors this refresh touched. `full`: what a from-scratch rebuild would have, i.e. the piece count.
     pub fn record_refresh(diff: u64, full: u64, cold: bool) {
         REFRESHES.fetch_add(1, Relaxed);
         DIFF_FEATURES.fetch_add(diff, Relaxed);

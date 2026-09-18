@@ -1,17 +1,13 @@
 // PGN -> NNUE training data.
-//
-// Reads OpenBench DATAGEN PGNs on stdin and writes bulletformat's chess text
-// format on stdout: one `<FEN> | <score> | <result>` line per training position.
+// Reads OpenBench DATAGEN PGNs on stdin, writes bulletformat's chess text format on stdout: one `<FEN> | <score> | <result>` per position.
 //
 //     bzcat 8.15.*.pgn.bz2 | datagen --out data.txt
 //
-// Turn that into the binary bullet trains on with bulletformat's own converter,
-// which is the reason nothing here packs bytes:
+// Turn that into the binary bullet trains on with bulletformat's own converter, which is why nothing here packs bytes:
 //
 //     bulletformat::convert_from_text::<ChessBoard>("data.txt", "data.bin")
 //
-// Exits non-zero if any game failed to replay — a drop means the converter did
-// not understand the input, which is never something to discover later.
+// Exits non-zero if any game failed to replay.
 
 mod convert;
 mod pgn;
@@ -97,8 +93,7 @@ fn run() -> Result<ExitCode, String> {
             }
             Err(reason) => {
                 stats.dropped += 1;
-                // Enough to diagnose a systematic failure, not enough to bury the
-                // summary if the input is wholly wrong.
+                // Enough to diagnose a systematic failure, not enough to bury the summary.
                 if stats.dropped <= 20 {
                     eprintln!("dropped game {}: {reason}", stats.games);
                 }

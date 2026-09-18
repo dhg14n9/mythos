@@ -74,8 +74,7 @@ impl Session {
                 let (depth, hash) = crate::bench::parse_bench_args(args);
                 crate::bench::search_bench(depth, hash);
             }
-            // Non-standard: dumps the block to paste into an OpenBench SPSA
-            // workload, so the parameter list is never transcribed by hand.
+            // Non-standard: dumps the OpenBench SPSA block
             "spsa" => crate::tunables::print_spsa(),
             // Non-standard: OpenBench DATAGEN opening generation.
             "genfens" => genfens(args),
@@ -229,7 +228,7 @@ fn set_option(args: &[&str], hash_mb: &mut usize) -> bool {
                 None => println!("info string invalid value for Threads"),
             }
         }
-        // Every search tunable lands here; see tunables.rs.
+        // see tunables.rs
         Some(n) => {
             if !crate::tunables::set(n, value.copied().unwrap_or("")) {
                 println!("info string unknown option: {n}")
@@ -325,12 +324,7 @@ fn go(
         };
         let mut search = Search::new(time_control, tt, td);
         let best = search.iterative(&mut board, max_depth);
-        // Non-standard: OpenBench DATAGEN runs fastchess with
-        // match_line='^info string pgncomment .*', which attaches the payload to
-        // this move in the PGN. Must be printed before `bestmove`, since that is
-        // where fastchess stops reading. The score is raw internal units (cp, from
-        // the side to move's perspective); mate scores are left as-is so the
-        // converter can filter them with the same |s| > 40000 bound as Score::is_mate.
+        // Non-standard: OpenBench DATAGEN scrapes this from the PGN; must come before `bestmove`, where fastchess stops reading.
 
         #[cfg(feature = "datagen")]
         println!("info string pgncomment {}", best.1);

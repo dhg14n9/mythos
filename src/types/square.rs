@@ -181,8 +181,6 @@ impl Square {
     }
 
     pub fn parse(value: &str) -> Result<Self, &'static str> {
-        // algebraic notation to Square
-
         match value.as_bytes() {
             [file @ b'a'..=b'h', rank @ b'1'..=b'8'] => {
                 let rank = rank - b'1';

@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::atomic::Ordering::Relaxed;
 use crate::types::{Color, Move, Piece, PieceType, Square};
 
-// trans table
 #[derive(Default, Copy, Clone, PartialEq, Debug)]
 #[repr(u8)]
 pub enum BoundType {
@@ -100,12 +99,8 @@ impl TransTable {
     //   63            46 45      32 31       26 25        10 9       2 1   0
     //  [ score: 18 sgn ][ free: 14 ][ age: 6  ] [ move: 16 ] [depth: 8] [bnd]
     //
-    // score sits at the top so unpack recovers its sign with a single arithmetic
-    // shift (`data as i64 >> SCORE_SHIFT`) rather than masking and sign-extending
-    // by hand -- a logical shift here silently turns every negative score into a
-    // large positive one. age is the generation that wrote the entry, 6 bits so it
-    // wraps every 64 searches (hence the wrapping_sub in store). Bits 32..45 are
-    // free -- wide enough for a static eval, the usual next tenant.
+    // score sits at the top so unpack sign-extends with one arithmetic shift.
+    // age wraps every 64 searches, hence the wrapping_sub in store.
     fn pack(score: i32, best: Move, depth: usize, bound_type: BoundType, age: u8) -> u64 {
         debug_assert!(
             (-(1 << 17)..(1 << 17)).contains(&score),
@@ -139,7 +134,6 @@ impl TransTable {
 
 }
 
-// killer heuristics
 pub const MAX_PLY: usize = 256;
 
 pub struct Killer {
@@ -160,14 +154,12 @@ impl Killer {
         }
     }
 
-    // return NULL if there isn't a
     pub fn probe(&self, ply: usize) -> (Move, Move) {
         self.array[ply].into()
     }
 
 }
 
-// Butterfly history heuristic
 const MAX_BUTTERFLY: i32 = 8192;
 
 fn apply<const MAX: i32>(entry: &mut i32, bonus: i32) {

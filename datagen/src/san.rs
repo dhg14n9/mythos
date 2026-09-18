@@ -1,11 +1,6 @@
 // SAN -> Move.
-//
-// No SAN parser is written here in the sense of rebuilding the notation: the SAN
-// is decomposed into constraints (piece, destination, promotion, and whichever
-// half of the origin square was given) and applied as a filter over the legal
-// move list, the same trick `find_move` in src/uci.rs uses for UCI strings.
-// Exactly one survivor is required — zero or two is an error, never a guess,
-// because a wrong move here silently corrupts every position after it.
+// The SAN is decomposed into constraints (piece, destination, promotion, and whichever half of the origin square was
+// given) and applied as a filter over the legal move list, like `find_move` in src/uci.rs. Exactly one survivor is required.
 
 use mythos::board::board::Board;
 use mythos::types::{File, Move, MoveKind, MoveList, PieceType, Rank, Square};
@@ -56,8 +51,7 @@ pub fn find_move(board: &Board, san: &str) -> Result<Move, SanError> {
         None => (core, None),
     };
 
-    // A leading uppercase letter names the piece; anything else is a pawn move.
-    // Note `b` is a file, `B` is a bishop.
+        // A leading uppercase letter names the piece; note `b` is a file, `B` is a bishop.
     let (piece, rest) = match core.as_bytes().first() {
         Some(b'N') => (PieceType::Knight, &core[1..]),
         Some(b'B') => (PieceType::Bishop, &core[1..]),
@@ -90,8 +84,7 @@ pub fn find_move(board: &Board, san: &str) -> Result<Move, SanError> {
     for i in 0..list.len() {
         let mv = list.get_nth(i);
 
-        // A castling move is a king move to g1/c1 and would otherwise answer to
-        // `Kg1`; only the O-O forms above may select one.
+        // Castling is a king move to g1/c1 and would otherwise answer to `Kg1`; only the O-O forms may select one.
         if mv.is_castling() || mv.to() != dest {
             continue;
         }

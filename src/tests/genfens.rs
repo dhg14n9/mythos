@@ -9,8 +9,7 @@ fn generate(count: usize, seed: u64) -> Vec<String> {
     fens
 }
 
-// The client feeds these straight back to fastchess as opening positions, so a
-// FEN that does not parse, or that is already over, poisons a whole workload.
+// A FEN that does not parse, or is already over, poisons a whole workload.
 fn check_playable(fens: &[String]) {
     for fen in fens {
         let board = Board::from_fen(fen).unwrap_or_else(|e| panic!("bad FEN {fen}: {e}"));
@@ -29,8 +28,7 @@ fn openings_are_playable() {
     check_playable(&fens);
 }
 
-// The client varies only the seed across threads and relies on that for
-// variety, so the seed has to be the single source of randomness.
+// The client varies only the seed across threads, so it must be the single source of randomness.
 #[test]
 fn same_seed_is_reproducible() {
     assert_eq!(generate(8, 1234), generate(8, 1234));
@@ -41,8 +39,8 @@ fn different_seeds_differ() {
     assert_ne!(generate(8, 1), generate(8, 2));
 }
 
-// The volume a real workload asks for. Too slow for a debug build to run on
-// every `cargo test`: reach it with `cargo test --release -- --ignored`.
+// The volume a real workload asks for. Run with:
+//     cargo test --release -- --ignored
 #[test]
 #[ignore]
 fn bulk_openings_are_playable() {

@@ -16,7 +16,6 @@ impl<T: Copy, const N: usize> UninitArray<T, N> {
         }
     }
 
-    // is `index` inside one of the two written regions?
     fn written(&self, index: usize) -> bool {
         index < self.length || index >= self.back
     }
@@ -60,17 +59,15 @@ impl<T: Copy, const N: usize> UninitArray<T, N> {
         self.array.swap(i, j);
     }
 
-    // number of values at the front
     pub fn len(&self) -> usize {
         self.length
     }
 
-    // index of the first value at the back; N when the back region is empty
+    // index of the first value at the back; N when empty
     pub fn back(&self) -> usize {
         self.back
     }
 
-    // number of values at the back
     pub fn back_len(&self) -> usize {
         N - self.back
     }

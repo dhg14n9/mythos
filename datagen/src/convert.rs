@@ -1,13 +1,7 @@
 // Replay one game, emit one text line per surviving position.
-//
-// Output is bulletformat's chess text format (see its README):
-//
-//     <FEN> | <score> | <result>
-//
-// with the score in WHITE RELATIVE centipawns and the result WHITE RELATIVE as
-// 1.0 / 0.5 / 0.0. The `line=` payload in the PGN is side-to-move relative, so it
-// is negated on Black's moves. That negation is the single highest-stakes line in
-// this file: an inverted eval trains perfectly well and loses every game.
+// Output is bulletformat's chess text format (see its README): `<FEN> | <score> | <result>`, score in WHITE RELATIVE
+// centipawns and result WHITE RELATIVE as 1.0 / 0.5 / 0.0. The `line=` payload is side-to-move relative, so it is
+// negated on Black's moves: an inverted eval trains perfectly well and loses every game.
 
 use std::fmt::Write as _;
 
@@ -17,12 +11,10 @@ use mythos::types::Color;
 use crate::pgn::{self, Game};
 use crate::san;
 
-// Above this the score is a mate score, not centipawns — the same bound
-// Score::is_mate uses in src/types/score.rs.
+// Above this the score is a mate score -- the same bound Score::is_mate uses.
 const MATE_BOUND: i32 = 40_000;
 
-// Board::state_history is a fixed 1024 entries. The longest game in workload #8
-// is 600 plies; bail out rather than overrun it on some future corpus.
+// Board::state_history is a fixed 1024 entries; bail out rather than overrun it.
 const MAX_PLIES: usize = 1000;
 
 pub struct Filters {
@@ -68,9 +60,7 @@ impl Stats {
     }
 }
 
-// Writes the game's lines into `out`, which is cleared first. On Err nothing in
-// `out` should be used: a game that does not replay cleanly is dropped whole,
-// because every position after the failure would be from the wrong game.
+// Writes the game's lines into `out`, cleared first. A game that does not replay cleanly is dropped whole, so on Err nothing in `out` may be used.
 pub fn convert_game(game: &Game, filters: &Filters, out: &mut String) -> Result<Counts, String> {
     out.clear();
 
@@ -90,15 +80,13 @@ pub fn convert_game(game: &Game, filters: &Filters, out: &mut String) -> Result<
 
         counts.positions += 1;
 
-        // The comment is attached to the move, but describes the position the
-        // move is played *from* — the one the board is standing on right now.
+        // The comment is attached to the move but describes the position it is played *from* -- the one the board is on now.
         match pgn::comment_score(comment) {
             None => counts.no_score += 1,
             Some(raw) if raw.abs() > MATE_BOUND => counts.mate += 1,
             Some(raw) if raw.abs() > filters.max_score => counts.big_score += 1,
             Some(_) if ply < filters.min_ply => counts.early += 1,
-            // A static eval of a position with a hanging piece is noise; that is
-            // what qsearch is for.
+            // A static eval of a position with a hanging piece is noise.
             Some(_) if mv.is_capture() || mv.is_promotion() => counts.noisy += 1,
             Some(_) if board.is_check() => counts.in_check += 1,
             Some(raw) => {

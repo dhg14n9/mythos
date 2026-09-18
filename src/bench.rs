@@ -12,9 +12,7 @@ const EPD: &str = include_str!("tests/perft_bench.epd");
 pub const BENCH_DEPTH: usize = 13;
 pub const BENCH_HASH_MB: usize = 16;
 
-// `bench [depth] [--hash MB]`, shared by the `bench` binary subcommand and the
-// UCI `bench` command. `--hash` consumes its value so it is never mistaken for
-// the positional depth.
+// `bench [depth] [--hash MB]`, shared by the `bench` subcommand and UCI `bench`.
 pub fn parse_bench_args<S: AsRef<str>>(args: &[S]) -> (usize, usize) {
     let mut depth = BENCH_DEPTH;
     let mut hash = BENCH_HASH_MB;
@@ -75,10 +73,7 @@ pub fn group_digits(n: u64) -> String {
     out
 }
 
-// Search bench: run the real search to a fixed depth over a spread of suite
-// positions and report the node count. The total is a functional fingerprint
-// of the search — a patch that shouldn't change search behavior must not
-// change it.
+// Search bench: fixed-depth search over a spread of suite positions; the total node count fingerprints the search.
 pub fn search_bench(depth: usize, hash_mb: usize) {
     crate::nnue::stats::reset();
 
@@ -134,7 +129,6 @@ pub fn search_bench(depth: usize, hash_mb: usize) {
     println!("{total_nodes} nodes {} nps", nps as u64);
 }
 
-// Transposition Table
 #[derive(Clone, Copy, Default)]
 struct PerftEntry {
     key: u64,

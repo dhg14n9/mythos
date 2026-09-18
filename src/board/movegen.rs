@@ -100,7 +100,6 @@ impl Board {
         let occ = self.occ();
         let king_square = self.piece_bb(Piece::new(us, PieceType::King)).lsb();
 
-        // king moves
         let king_target = king_attack(king_square) & !us_bb & !threats;
         let king_capture_target = king_target & them_bb;
         for to in king_capture_target {
@@ -112,7 +111,6 @@ impl Board {
             }
         }
 
-        // castling
         if checker.is_empty() && !noisy_only {
             let back_rank = king_square.rank();
             for (i, &kind) in CastlingKind::KINDS[us].iter().enumerate() {
@@ -158,7 +156,6 @@ impl Board {
             pinned |= BETWEEN[sniper][king_square] & us_bb
         }
 
-        // rook
         for from in self.piece_bb(Piece::new(us, PieceType::Rook)) {
             let mut restriction = check_mask;
             if pinned.contains(from) {
@@ -177,7 +174,6 @@ impl Board {
             }
         }
 
-        // bishop
         for from in self.piece_bb(Piece::new(us, PieceType::Bishop)) {
             let mut restriction = check_mask;
             if pinned.contains(from) {
@@ -196,7 +192,6 @@ impl Board {
             }
         }
 
-        // queen
         for from in self.piece_bb(Piece::new(us, PieceType::Queen)) {
             let mut restriction = check_mask;
             if pinned.contains(from) {
@@ -215,7 +210,6 @@ impl Board {
             }
         }
 
-        // knight
         for from in self.piece_bb(Piece::new(us, PieceType::Knight)) {
             let mut restriction = check_mask;
             if pinned.contains(from) {
@@ -234,7 +228,6 @@ impl Board {
             }
         }
 
-        // pawn
         let forward: i8 = if us == Color::White { 8 } else { -8 };
         let promo_rank = Rank::PRE_PROMOTION_RANK[us];
         let start_rank = Rank::PAWN_START_RANK[us];
@@ -245,7 +238,6 @@ impl Board {
                 restriction &= RAY[king_square][from]
             }
 
-            // capture (no enpassant)
             let target = pawn_attack(us, from) & them_bb & restriction;
             for to in target {
                 if from.rank() == promo_rank {
@@ -258,7 +250,6 @@ impl Board {
                 }
             }
 
-            // en passant
             if !self.en_passant.is_none() {
                 let ep = self.en_passant;
                 if pawn_attack(us, from).contains(ep) {
@@ -266,8 +257,7 @@ impl Board {
                     let on_pin_ray = !pinned.contains(from) || RAY[king_square][from].contains(ep);
                     let resolves_check = check_mask.contains(ep) || check_mask.contains(cap);
                     if on_pin_ray && resolves_check {
-                        // because a snipper can pin a king through 2 pawns in an enpassant so this
-                        // has to be checked separately
+                        // a sniper can pin the king through both pawns, so check separately
                         let occ_after =
                             occ ^ Bitboard::from_square(from) ^ Bitboard::from_square(cap);
                         let king_vision = rook_attack(occ_after, king_square)
@@ -283,7 +273,6 @@ impl Board {
                 }
             }
 
-            // pawn push
             let to = from.offset(forward);
             if !occ.contains(to) {
                 if restriction.contains(to) {

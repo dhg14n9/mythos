@@ -39,12 +39,10 @@ impl MoveList {
         self.array.clear();
     }
 
-    // one past the last noisy move
     pub fn noisy_end(&self) -> usize {
         self.array.len()
     }
 
-    // index of the first quiet move
     pub fn quiet_start(&self) -> usize {
         self.array.back()
     }
@@ -77,8 +75,7 @@ impl MoveList {
         self.array.swap(i1, i2);
     }
 
-    // The two regions are not contiguous, so callers that just want to walk every move (perft,
-    // UCI move lookup) index by position in 0..len() instead of by slot.
+    // Regions are not contiguous: index by position in 0..len(), not by slot.
     pub fn get_nth(&self, n: usize) -> Move {
         debug_assert!(n < self.len());
 

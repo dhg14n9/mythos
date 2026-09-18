@@ -1,16 +1,6 @@
-//! Post-run analysis for SPRT matches.
-//!
-//! fastchess prints LLR/Elo/nElo only to the terminal; the `config.json` it
-//! writes into each run directory has the raw pentanomial tallies but none of
-//! the derived statistics. This module recomputes them from `config.json` and
-//! renders `report.md` — a self-contained account of the run that also
-//! explains every concept and value to a reader new to engine testing.
-//!
-//! The math is a faithful port of fastchess's `model=normalized` pentanomial
-//! implementation (`sprt.cpp`, `elo_pentanomial.cpp`), which follows Michel
-//! Van den Bergh's write-ups (cantate.be/Fishtest). The closed-form LLR
-//! approximation is deliberately NOT used: it disagrees with the exact GSPRT
-//! MLE by ~25% on real data, so the full MLE + ITP root finder is ported.
+//! Recomputes LLR/Elo/nElo from the `config.json` fastchess leaves in a run directory, and renders `report.md`.
+//! Ports fastchess's `model=normalized` pentanomial math (`sprt.cpp`, `elo_pentanomial.cpp`). The closed-form LLR
+//! approximation is deliberately NOT used: it disagrees with the exact GSPRT MLE by ~25% on real data.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -21,12 +11,9 @@ use crate::util::{Result, run_capture, workspace_root};
 
 const REPORT_FILE: &str = "report.md";
 
-/// The normalized-Elo scale factor 800/ln(10).
 const NELO_SCALE: f64 = 800.0 / std::f64::consts::LN_10;
-/// Two-sided 95% normal quantile (fastchess's CI95ZSCORE).
 const Z95: f64 = 1.959_963_984_540_054;
-/// Pair-score support, in category order [LL, LD, WL+DD, WD, WW]:
-/// a pair is two games, scored 0, 0.5, 1, 1.5 or 2 points, divided by 2.
+/// Pair-score support in category order [LL, LD, WL+DD, WD, WW]: two games scored 0..2 points, halved.
 const PAIR_SCORES: [f64; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
 
 #[derive(Clone, Copy, Debug)]
@@ -45,7 +32,6 @@ impl Penta {
     }
 }
 
-/// Everything the report needs, all parsed from `config.json`.
 #[derive(Debug)]
 struct RunData {
     run_name: String,
@@ -79,8 +65,7 @@ struct Analysis {
     games: u64,
     points: f64,
     score_pct: f64,
-    // Display uses score_pct; tests assert this directly as the input that
-    // var/Elo/nElo are derived from.
+    // Not displayed (score_pct is); tests assert it as the input var/Elo/nElo derive from.
     #[allow(dead_code)]
     pair_score: f64,
     pair_var: f64,
@@ -99,8 +84,6 @@ struct Analysis {
     verdict: Verdict,
 }
 
-/// Generate `report.md` for a run directory containing a fastchess
-/// `config.json`; prints a short terminal summary and returns the report path.
 pub fn generate(run_dir: &Path) -> Result<PathBuf> {
     let config_path = run_dir.join("config.json");
     let text = std::fs::read_to_string(&config_path)
@@ -140,9 +123,6 @@ pub fn report_cmd(arg: &str) -> Result<()> {
     println!("[sprt] report: {}", path.display());
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// config.json parsing
 
 fn parse_config(text: &str, run_name: &str) -> Result<RunData> {
     let v: Value = serde_json::from_str(text).map_err(|e| format!("config.json: {e}"))?;
@@ -220,8 +200,7 @@ fn num_u64(v: &Value, key: &str, ctx: &str) -> Result<u64> {
         .ok_or_else(|| format!("config.json: missing or non-numeric {ctx}.{key}"))
 }
 
-/// The baseline sha, from the base engine's binary name `mythos-base-<sha>`,
-/// falling back to the `<stamp>-vs-<sha>` run-directory name.
+/// Baseline sha from the base binary name `mythos-base-<sha>`, else the `<stamp>-vs-<sha>` run directory.
 fn base_sha(v: &Value, run_name: &str) -> String {
     v.get("engines")
         .and_then(Value::as_array)
@@ -240,8 +219,7 @@ fn base_sha(v: &Value, run_name: &str) -> String {
         .unwrap_or_else(|| "?".into())
 }
 
-/// Reconstruct the `8+0.08` time-control string from the first engine's
-/// limits (both engines get the same `-each tc=`).
+/// Rebuilds the `8+0.08` time-control string from the first engine's limits (both get the same `-each tc=`).
 fn fmt_tc(v: &Value) -> Option<String> {
     let tc = v.get("engines")?.get(0)?.get("limit")?.get("tc")?;
     let ms = |key: &str| tc.get(key).and_then(Value::as_f64);
@@ -280,9 +258,6 @@ fn adjudication_summary(v: &Value) -> String {
     }
     if parts.is_empty() { "none".into() } else { parts.join("; ") }
 }
-
-// ---------------------------------------------------------------------------
-// statistics (ported from fastchess: elo_pentanomial.cpp, sprt.cpp)
 
 fn analyze(d: &RunData) -> Result<Analysis> {
     if d.model != "normalized" {
@@ -348,13 +323,11 @@ fn analyze(d: &RunData) -> Result<Analysis> {
     })
 }
 
-/// Logistic Elo difference for a score in (0, 1).
 fn score_to_elo(score: f64) -> f64 {
     -400.0 * (1.0 / score - 1.0).log10()
 }
 
-/// Normalized Elo difference: score offset in units of the per-game
-/// standard deviation (pair variance × 2), on the 800/ln(10) scale.
+/// Normalized Elo: score offset in per-game standard deviations (pair variance x 2), on the 800/ln(10) scale.
 fn score_to_nelo(score: f64, var: f64) -> f64 {
     (score - 0.5) / (2.0 * var).sqrt() * NELO_SCALE
 }
@@ -487,8 +460,7 @@ fn itp(
     (a + b) / 2.0
 }
 
-/// Error function, Abramowitz–Stegun 7.1.26 (max abs error 1.5e-7 —
-/// invisible at the 2 decimals LOS is displayed with). Rust std has no erf.
+/// Error function, Abramowitz-Stegun 7.1.26 (max abs error 1.5e-7). Rust std has no erf.
 fn erf(x: f64) -> f64 {
     let t = 1.0 / (1.0 + 0.327_591_1 * x.abs());
     let poly = t
@@ -497,9 +469,6 @@ fn erf(x: f64) -> f64 {
     let y = 1.0 - poly * (-x * x).exp();
     if x < 0.0 { -y } else { y }
 }
-
-// ---------------------------------------------------------------------------
-// rendering
 
 /// `{:.2}` for finite values, `n/a` (or `inf` for ratios) otherwise.
 fn f2(x: f64) -> String {
@@ -593,7 +562,6 @@ fn render(d: &RunData, a: &Analysis, generated: &str) -> String {
     let mut r = String::new();
     let out = &mut r;
 
-    // -- header -------------------------------------------------------------
     out.push_str(&format!(
         "# SPRT report — {run}\n\n\
          **{pair}**: `dev` is the working tree, `base` is commit `{sha}`.\n\
@@ -604,14 +572,12 @@ fn render(d: &RunData, a: &Analysis, generated: &str) -> String {
         sha = d.base_sha,
     ));
 
-    // -- verdict ------------------------------------------------------------
     out.push_str(&format!(
         "## Verdict: {}\n\n{}\n\n",
         verdict_headline(a.verdict),
         verdict_paragraph(d, a),
     ));
 
-    // -- the test at a glance -----------------------------------------------
     out.push_str(&format!(
         "## The test at a glance\n\n\
          | | |\n\
@@ -638,7 +604,6 @@ fn render(d: &RunData, a: &Analysis, generated: &str) -> String {
         adj = d.adjudication,
     ));
 
-    // -- result -------------------------------------------------------------
     out.push_str(&format!(
         "## Result\n\n\
          ```\n\
@@ -674,7 +639,6 @@ fn render(d: &RunData, a: &Analysis, generated: &str) -> String {
         wldd = ratio2(a.wl_dd),
     ));
 
-    // -- what each value means ----------------------------------------------
     let elo_meaning = if a.elo.is_finite() {
         format!(
             "Best estimate of the strength difference on the familiar rating scale; \
@@ -742,7 +706,6 @@ fn render(d: &RunData, a: &Analysis, generated: &str) -> String {
         wldd = ratio2(a.wl_dd),
     ));
 
-    // -- fine print ----------------------------------------------------------
     out.push_str(
         "## Fine print\n\n\
          All numbers are recomputed from the final tallies in `config.json` using the \
@@ -752,15 +715,12 @@ fn render(d: &RunData, a: &Analysis, generated: &str) -> String {
          included here. An LOS of 100.00% is rounding — it is never literally 1.\n\n",
     );
 
-    // -- glossary ------------------------------------------------------------
     out.push_str(&glossary(d, a));
     r
 }
 
-/// The educational section. Static prose with the run's own numbers woven in.
 fn glossary(d: &RunData, a: &Analysis) -> String {
-    // Near equality, 1 nElo corresponds to 2·sqrt(2·var) logistic Elo at this
-    // run's draw rate — lets the reader translate the bounds into familiar units.
+    // Near equality, 1 nElo is 2*sqrt(2*var) logistic Elo at this run's draw rate.
     let elo_per_nelo = 2.0 * (2.0 * a.pair_var).sqrt();
     let bounds_in_elo = if elo_per_nelo.is_finite() && elo_per_nelo > 0.0 {
         format!(

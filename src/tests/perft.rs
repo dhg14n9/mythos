@@ -1,9 +1,6 @@
 use crate::board::board::Board;
 
-// The plain perft implementation lives on Board (src/board/movegen.rs) so the
-// UCI `go perft` command shares it; only the TT-assisted variant is test-local.
-
-// ----- perft suite -----
+// Plain perft lives on Board (src/board/movegen.rs) so UCI `go perft` shares it; only the TT variant is test-local.
 
 // Each entry is (FEN, leaf counts) where counts[i] is the perft value at depth i+1.
 // Source: https://www.chessprogramming.org/Perft_Results
@@ -32,9 +29,7 @@ const SUITE: &[(&str, &[u64])] = &[
      &[46, 2079, 89890, 3894594, 164075551, 6923051137, 287188994746]),
 ];
 
-// Run every suite position to the deepest depth whose expected leaf count stays
-// within `max_nodes`. Counts grow monotonically with depth, so once one is over
-// budget the rest are too and we stop.
+// Deepest depth whose expected leaf count stays within `max_nodes`; counts grow monotonically.
 fn run_suite(max_nodes: u64) {
     for &(fen, counts) in SUITE {
         let mut board = Board::from_fen(fen).unwrap_or_else(|e| panic!("bad FEN {fen}: {e}"));
@@ -52,32 +47,22 @@ fn run_suite(max_nodes: u64) {
     }
 }
 
-// Fast pass, part of the default suite. Runs each position to the deepest depth
-// under ~5M leaf nodes (~17M nodes total).
+// Fast pass, part of the default suite: each position to the deepest depth under ~5M leaf nodes (~17M total).
 #[test]
 fn perft_suite() {
     run_suite(5_000_000);
 }
 
-// Thorough pass, ~800M nodes total. Ignored by default; run with:
-//     cargo test perft_suite_deep -- --ignored --nocapture
+// Thorough pass, ~800M nodes: cargo test perft_suite_deep -- --ignored --nocapture
 #[test]
 #[ignore]
 fn perft_suite_deep() {
     run_suite(200_000_000);
 }
 
-// A per-root-move divide is available through the UCI loop (`go perft <depth>`),
-// which is the standard way to bisect a discrepancy against a reference engine:
-//     echo "position fen <fen>\ngo perft 3" | cargo run --release
-
-// ----- benchmark -----
-
-// The transposition-table perft (PerftTable / perft_tt) lives in crate::bench
-// alongside the suite runner, so the `mythos bench tt` CLI command shares it.
+// The TT perft (PerftTable / perft_tt) lives in crate::bench so the `mythos bench tt` CLI shares it.
 use crate::bench::{PerftTable, group_digits, perft_tt};
 
-// Whether the PERFT_TT env var opts into the transposition table.
 fn tt_enabled() -> bool {
     std::env::var("PERFT_TT")
         .map(|v| matches!(v.as_str(), "1" | "true" | "on" | "yes"))
@@ -88,7 +73,6 @@ fn tt_enabled() -> bool {
 //   PERFT_FEN    position to search      (start position by default)
 //   PERFT_DEPTH  depth in plies          (6 by default — ~119M nodes)
 //   PERFT_TT     1/true/on to enable the transposition table (off by default)
-// Run with:
 //     PERFT_DEPTH=7 PERFT_TT=1 cargo test perft_bench -- --ignored --nocapture
 #[test]
 #[ignore]
@@ -105,13 +89,10 @@ fn perft_bench() {
 
     let mut board = Board::from_fen(&fen).expect("PERFT_FEN is not a valid FEN");
 
-    // Touch the hot paths once so the timed run reflects steady-state throughput
-    // (I-cache / branch predictor warmed) rather than first-call effects.
+    // Warm the hot paths so the timed run reflects steady-state throughput.
     let _ = board.perft(2.min(depth));
 
-    // With the TT on, `nodes` is still the true leaf count, so `speed` is the
-    // *effective* throughput (full node count / reduced time) — the number to
-    // compare against the TT-off run.
+    // With the TT on, `nodes` is still the true leaf count, so `speed` is comparable to the TT-off run.
     let (nodes, elapsed, tt_stats) = if use_tt {
         let mut tt = PerftTable::with_pow2_size(22); // 2^22 entries, ~96 MB
         let start = Instant::now();
@@ -156,10 +137,7 @@ fn perft_bench() {
     println!();
 }
 
-// Andrew Wagner's verified suite (127 positions, ~4.7B nodes), shared with the
-// `mythos bench` CLI command. Prints per-position nodes/time/NPS and overall
-// totals; the assert makes any count mismatch fail the test.
-// The transposition table is toggled with PERFT_TT (off by default). Run with:
+// Andrew Wagner's verified suite (127 positions, ~4.7B nodes), shared with `mythos bench`. Toggle the TT with PERFT_TT:
 //     PERFT_TT=1 cargo test perft_bench_suite -- --ignored --nocapture
 #[test]
 #[ignore]

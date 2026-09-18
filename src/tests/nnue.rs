@@ -17,11 +17,6 @@ fn black(pt: PieceType) -> Piece {
     Piece::new(Color::Black, pt)
 }
 
-// ---------------------------------------------------------------- feature_index
-
-// The four hand-computed cases. Between them they pin every term of the
-// formula: the 64 * piece_type stride, the "us"/"them" 384 offset, and the
-// vertical flip applied for a black perspective.
 #[test]
 fn feature_index_hand_computed() {
     // "us", no mirror: 0 * 64 + 8 + 0
@@ -36,30 +31,17 @@ fn feature_index_hand_computed() {
     // pins the piece_type stride at King = 5: 5 * 64 + 4 + 0
     assert_eq!(feature_index(Color::White, white(PieceType::King), Square::E1, false, 0), 324);
 
-    // The same king, mirrored: 5 * 64 + (4 ^ 7) + 0. E1 is on the kingside, so
-    // it is E1 that gets folded, and it lands on D1 -- this is the assertion
-    // that says which direction flip_file goes.
+    // mirrored: 5 * 64 + (4 ^ 7); E1 is kingside, so it folds onto D1
     assert_eq!(feature_index(Color::White, white(PieceType::King), Square::E1, true, 0), 323);
 
-    // The flip applies to the "them" half too, not just to our own pieces:
-    // 0 * 64 + (48 ^ 7) + 384, i.e. a black pawn on A7 folds onto H7.
+    // 0 * 64 + (48 ^ 7) + 384: the flip applies to the "them" half too
     assert_eq!(feature_index(Color::White, black(PieceType::Pawn), Square::A7, true, 0), 439);
 
-    // The king-bucket stride: a bucket is a whole 768-input block, so the same
-    // feature in bucket k sits exactly k * 768 further along. The engine's
-    // block ordering has to match bullet's, which lays the buckets out
-    // contiguously and repeats the factoriser across them on save.
+    // bucket k shifts the same feature by k * 768
     assert_eq!(feature_index(Color::White, white(PieceType::Pawn), Square::A2, false, 1), 768 + 8);
     assert_eq!(feature_index(Color::White, white(PieceType::King), Square::E1, true, 9), 9 * 768 + 323);
 }
 
-// "A white piece on square s, seen by Black" and "a black piece of the same
-// type on the mirrored square, seen by White" are the SAME situation, so they
-// must map to the same input. This holds only if both flips -- the colour
-// offset and the rank mirror -- are right; breaking either one breaks it.
-//
-// Run for both mirror settings: the file flip and the colour/rank flip touch
-// disjoint bits, so horizontal mirroring must leave this property untouched.
 #[test]
 fn feature_index_is_colour_mirror_symmetric() {
     for bucket in 0..BUCKET_COUNT {
@@ -80,9 +62,6 @@ fn feature_index_is_colour_mirror_symmetric() {
     }
 }
 
-// Every (perspective, piece, square) must land inside the 768 inputs, and no
-// two distinct (piece, square) pairs may collide from one perspective -- a
-// collision would silently merge two features into one.
 #[test]
 fn feature_index_is_in_range_and_injective() {
     for mirror in [false, true] {
@@ -96,8 +75,6 @@ fn feature_index_is_in_range_and_injective() {
                             let idx = feature_index(perspective, Piece::new(colour, pt), Square::new(sq), mirror, bucket);
 
                             assert!(idx < INPUT, "index {idx} out of range");
-                            // Pins the stride: a bucket's features must stay
-                            // inside that bucket's own block of weights.
                             assert_eq!(idx / BUCKET_SIZE, bucket, "index {idx} escaped bucket {bucket}");
                             assert!(!seen[idx], "index {idx} collided");
                             seen[idx] = true;
@@ -106,24 +83,12 @@ fn feature_index_is_in_range_and_injective() {
                 }
             }
 
-            // 2 colours * 6 types * 64 squares == 768 per bucket, so every input
-            // is claimed. flip_file is a bijection on squares, so this must hold
-            // mirrored too.
             assert!(seen.iter().all(|&s| s), "some inputs were never produced");
         }
     }
 }
 
-// ---------------------------------------------------------------- king buckets
-
-// The anchors that fix the ORIENTATION of KING_LAYOUT, hand-computed from the
-// trainer's array. Nothing else can catch a layout read from the wrong end: a
-// rank order that is upside down, or a fold that runs the wrong way, is wrong
-// identically for both perspectives, so every symmetry property below still
-// holds and only the strength is quietly gone.
-//
-// KING_LAYOUT is four entries per rank, starting from the king's OWN back rank,
-// files a-d, with e-h folded onto d-a.
+// KING_LAYOUT: four entries per rank from the king's own back rank, files a-d, e-h folded onto d-a.
 #[test]
 fn king_bucket_hand_computed() {
     let cases = [
@@ -149,8 +114,6 @@ fn king_bucket_hand_computed() {
     }
 }
 
-// A position and its colour-mirror must pick the same bucket, or the two
-// perspectives are reading different halves of the layout.
 #[test]
 fn king_bucket_is_perspective_symmetric() {
     for sq in 0..64u8 {
@@ -165,9 +128,6 @@ fn king_bucket_is_perspective_symmetric() {
     }
 }
 
-// Horizontal mirroring happens before the layout lookup, so a square and its
-// file-mirror are the same bucket. This is what makes the bucket safe to leave
-// out of the HM equivalence test below.
 #[test]
 fn king_bucket_folds_across_the_file() {
     for perspective in Color::ALL {
@@ -184,10 +144,6 @@ fn king_bucket_folds_across_the_file() {
     }
 }
 
-// king_context is the single lookup that push, refresh and the root all go
-// through. It must agree with the two functions it replaced -- and in
-// particular it must read each colour's OWN king, which is the mistake the
-// helper exists to make impossible.
 #[test]
 fn king_context_agrees_with_its_parts() {
     for &fen in UPDATE_FENS {
@@ -203,8 +159,6 @@ fn king_context_agrees_with_its_parts() {
     }
 }
 
-// ---------------------------------------------------------------- forward pass
-
 // The net is gitignored, so skip rather than fail on a fresh clone.
 fn net_available() -> bool {
     if Path::new(NET).exists() {
@@ -214,9 +168,7 @@ fn net_available() -> bool {
     false
 }
 
-// Mostly a "does a number come out" test -- with random weights the value is
-// meaningless. What it really proves is that nothing overflows: `cargo test`
-// builds in debug, where i16 overflow in `refresh` panics rather than wrapping.
+// Proves nothing overflows: debug builds panic on i16 overflow in `refresh`.
 #[test]
 fn forward_pass_produces_a_score() {
     if !net_available() {
@@ -232,21 +184,11 @@ fn forward_pass_produces_a_score() {
     let score = evaluate(&net, &us, &them, 0);
     println!("startpos raw nnue output: {score}");
 
-    // Sanity bound only. A score outside this means the quantisation arithmetic
-    // is wrong, not that the (random) net has an opinion.
+    // Sanity bound only; a random net has no opinion.
     assert!(score.abs() < 100_000, "implausible score {score}");
 }
 
-// The strongest test here. These two positions are the same position mirrored:
-// ranks flipped and colours swapped, so the side to move sees an identical
-// board. The network's inputs must therefore be identical, and the evals equal.
-//
-//   A: white pawn e2, white king e1, black king h1, white to move
-//   B: black pawn e7, black king e8, white king h8, black to move
-//
-// This exercises feature_index, both perspectives, and refresh end to end. A
-// bug in either flip breaks it, while a symmetric position like startpos would
-// not notice.
+// The same position mirrored: ranks flipped and colours swapped, so the side to move sees an identical board.
 #[test]
 fn mirrored_positions_evaluate_identically() {
     if !net_available() {
@@ -274,37 +216,19 @@ fn mirrored_positions_evaluate_identically() {
     assert_eq!(score_a, score_b, "mirrored positions disagreed");
 }
 
-// The strongest check on horizontal mirroring, because it tests a *property*
-// rather than a hand-computed constant: with pure HM and no other asymmetry in
-// the feature set, a position and its file-mirror produce byte-identical
-// accumulators, so their evals must be exactly equal.
-//
-// Uses NETWORK rather than load_net: the property holds for any weights at all,
-// so there is nothing to skip on and no reason to guard.
-//
-// Castling rights and en passant are '-' in every pair. Neither is an input
-// feature, and mirroring the board swaps which rook is which, so carrying them
-// would only invite a pointless argument about the FEN.
+// With pure HM a position and its file-mirror give byte-identical accumulators, so evals must be exactly equal.
 const HM_PAIRS: &[(&str, &str)] = &[
-    // Startpos and its mirror: kings on e1/e8 (kingside, so BOTH perspectives
-    // fold) against kings on d1/d8 (queenside, so NEITHER does). A full board of
-    // material, and the two positions sit on opposite sides of the flag.
+    // kings on e1/e8 (both fold) against d1/d8 (neither does)
     (
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1",
         "rnbkqbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBKQBNR w - - 0 1",
     ),
-    // THE ONE THAT MATTERS. White is castled kingside (Kg1, folds) while Black
-    // sits queenside (Kc8, does not) -- one accumulator mirrored and the other
-    // not, in the same position. In the mirror the roles swap. This is what
-    // catches the most likely bug in the whole change: deciding both
-    // perspectives' flip from one shared king instead of each from its own.
+    // White castled kingside (folds), Black queenside (does not): catches deciding both flips from one king
     (
         "2k4r/ppp5/8/8/8/8/5PPP/5RK1 w - - 0 1",
         "r4k2/5ppp/8/8/8/8/PPP5/1KR5 w - - 0 1",
     ),
-    // Kiwipete mirrored: dense, asymmetric, every piece type on the board, so a
-    // flip that is right for kings and pawns but wrong for some other stride
-    // has nowhere to hide.
+    // Kiwipete mirrored: dense, asymmetric, every piece type on the board.
     (
         "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w - - 0 1",
         "r2k3r/1bpqpp1p/1pnp2nb/3NP3/3P2p1/p1Q2N2/PPPBBPPP/R2K3R w - - 0 1",
@@ -334,9 +258,6 @@ fn horizontally_mirrored_positions_evaluate_identically() {
     }
 }
 
-// Swapping which accumulator is "us" must change the answer. If it does not,
-// the two halves of output_weights are being read as one, and the perspective
-// split -- the whole point of the architecture -- is not happening.
 #[test]
 fn perspective_order_matters() {
     if !net_available() {
@@ -356,11 +277,7 @@ fn perspective_order_matters() {
     );
 }
 
-// ---------------------------------------------------------------- incremental update
-
-// Chosen so that a two-ply walk hits every Delta shape there is: quiet moves,
-// captures, en passant, castling both sides, plain promotions and
-// capture-promotions.
+// Chosen so a two-ply walk hits every Delta shape: quiets, captures, en passant, both castles, promotions and capture-promotions.
 const UPDATE_FENS: &[&str] = &[
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
     "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
@@ -368,24 +285,14 @@ const UPDATE_FENS: &[&str] = &[
     "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
     "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
     "n1n5/PPPk4/8/8/8/8/4Kppp/5N1N b - - 0 1",
-    // Both kings on the d-file with material either side of them, so at depth 2
-    // each colour crosses d->e (queenside to kingside) in several ways. The
-    // Kiwipete entry above only ever crosses in the other direction, and a sign
-    // error in the comparison would pass one and fail the other.
+    // Both kings on the d-file, so at depth 2 each colour crosses d->e; kiwipete only crosses the other way.
     "r5r1/2pk1p2/8/8/8/8/2PK1P2/R5R1 w - - 0 1",
-    // A refresh that is also a capture: Kd1xe2 leaves a delta with one add and
-    // two subs, so it checks that the refresh replaces the set_add_sub2 shape
-    // and not just the plain one.
+    // A refresh that is also a capture: Kd1xe2 gives one add and two subs.
     "4k3/pp6/8/8/8/8/4n1PP/3K4 w - - 0 1",
 ];
 
-// Why a `push` refreshed, recomputed here from the king's old and new squares
-// rather than by asking `needs_refresh`. The point is to have a second,
-// independent derivation of the same fact: the walk asserts the two agree, so
-// the counting below cannot drift into merely restating the implementation.
-//
-// `board` is the position AFTER the move. Returns None when the move did not
-// touch this colour's king, in which case no refresh may happen at all.
+// Independent derivation from the king's old and new squares rather than `needs_refresh`.
+// `board` is the position AFTER the move; None when this colour's king never moved.
 fn refresh_reason(board: &Board, delta: &Delta, color: Color) -> Option<(bool, bool)> {
     let king = Piece::new(color, PieceType::King);
     let from = delta.subs().iter().find(|&&(piece, _)| piece == king).map(|&(_, square)| square)?;
@@ -396,10 +303,6 @@ fn refresh_reason(board: &Board, delta: &Delta, color: Color) -> Option<(bool, b
     Some((old_mirror != new_mirror, king_bucket(color, from, old_mirror) != new_bucket))
 }
 
-// The two refresh triggers, counted separately. They are genuinely independent:
-// Ke1-d1 flips the mirror while staying in bucket 3, and Kd1-c1 changes bucket
-// with no flip, so an implementation that checks only one of the two conditions
-// passes half these counters and fails the other half.
 #[derive(Default)]
 struct Refreshes {
     mirror_only: usize,
@@ -407,15 +310,10 @@ struct Refreshes {
     both: usize,
 }
 
-// How deep the walks go. Chains of deferred entries are exactly this long in
-// the lazy walk, so raising it widens the replay coverage -- at roughly a 30x
-// cost per ply, which is why it is not higher.
+// Chain length in the lazy walk; roughly 30x the nodes per extra ply.
 const WALK_DEPTH: usize = 2;
 
-// The root of a walk, built the way `Search::refresh_accumulators` builds ply 0:
-// both perspectives from scratch and marked computed. That flag is what
-// terminates every walk back, so a test stack without it would either panic in
-// debug or index wildly in release.
+// Ply-0 root, built the way `Search::refresh_accumulators` does: both perspectives from scratch, marked computed.
 fn root_state(board: &Board) -> AccState {
     let mut state = AccState::empty();
 
@@ -432,8 +330,6 @@ fn root_state(board: &Board) -> AccState {
     state
 }
 
-// Materialise both perspectives at `ply` and compare against a from-scratch
-// refresh of the position the board is actually in.
 fn check_against_refresh(board: &Board, stack: &mut [AccState], ply: usize, fen: &str, mode: &str) {
     for color in Color::ALL {
         materialize(&NETWORK, stack, ply, color);
@@ -449,21 +345,11 @@ fn check_against_refresh(board: &Board, stack: &mut [AccState], ply: usize, fen:
     }
 }
 
-// Mark plies 1..=ply deferred again, without touching their deltas.
-//
-// Only used by the lazy walk, and only to preserve its coverage: materialising
-// at a leaf marks every entry in that chain computed, so the *next* sibling
-// leaf would walk back only one ply and the long-chain case would be tested
-// once per subtree instead of once per leaf. Re-deferring restores the state
-// the line was in before anything read it, which is a state the real search is
-// in constantly.
+// Re-defer plies 1..=ply so the next sibling leaf walks the full chain.
 fn defer_line(stack: &mut [AccState], ply: usize) {
     for entry in stack[1..=ply].iter_mut() {
         for color in Color::ALL {
-            // Only re-defer what `push` would have deferred. An entry it
-            // refreshed must stay computed: its delta moved the king to a
-            // different weight block, which is precisely the delta that must
-            // never be replayed incrementally.
+            // A refreshed entry stays computed: its delta crossed weight blocks and must never be replayed.
             if !needs_refresh(&entry.delta, color, entry.mirror[color], entry.bucket[color]) {
                 entry.computed[color] = false;
             }
@@ -471,31 +357,8 @@ fn defer_line(stack: &mut [AccState], ply: usize) {
     }
 }
 
-// The incremental path has to land on exactly what a from-scratch refresh
-// would. Its failure mode is not a crash: it is an eval that is quietly wrong
-// in whichever rare position the broken shape occurs in, which just bleeds Elo.
-//
-// Both perspectives are checked every time, because a mistake in the "them"
-// (+384) half of feature_index shows up on one side only.
-//
-// `lazy` picks which half of the deferred-update contract is under test:
-//
-//   false -- materialise immediately after every push, so every chain is one
-//            entry long. This is the old eager `update` path and it isolates
-//            the delta shapes and the mirroring flag.
-//   true  -- push all the way down and materialise only at the leaf, so the
-//            chain is WALK_DEPTH entries long. This is the only mode that
-//            exercises the walk back, the replay order, and a refresh sitting
-//            in the middle of a chain.
-//
-// The lazy mode also covers the stale-slot family of bugs for free: siblings at
-// one ply share a slot, so a `push` that failed to overwrite `delta` or
-// `computed` is caught the moment the second sibling materialises.
-//
-// `refreshes` counts how many times each refresh trigger actually fired, so the
-// caller can assert the corpus reaches all of them. Without that the whole test
-// can quietly stop covering a trigger -- reorder a FEN or change the depth and
-// the king moves that reach it vanish while the suite stays green.
+// lazy = false: materialise after every push, so every chain is one entry long.
+// lazy = true: materialise only at the leaf, which exercises the walk back, the replay order and a mid-chain refresh.
 fn walk_and_check(
     board: &mut Board,
     stack: &mut [AccState],
@@ -520,9 +383,7 @@ fn walk_and_check(
     for i in 0..list.len() {
         let mv = list.get_nth(i);
 
-        // Delta reads the piece layout as it stands *before* the move is played,
-        // but `push` wants the position *after* it -- the mirroring flag and
-        // the bucket are both read off the new king square.
+        // Delta reads the layout *before* the move; `push` wants the position after.
         let delta = Delta::new(board, mv);
 
         board.make_move(mv);
@@ -566,12 +427,7 @@ fn walk_and_check(
 fn run_walk(lazy: bool) -> Refreshes {
     let mut refreshes = Refreshes::default();
 
-    // One table for the whole run, deliberately. A fresh table would make every
-    // refresh a cold one -- an empty snapshot diffs into a full rebuild, which
-    // is right by construction and tests nothing. Reusing it across the corpus
-    // means the walk hits warm entries with hundreds of different positions,
-    // and `check_against_refresh` is already comparing against the from-scratch
-    // oracle at every leaf.
+    // One table for the whole run: a fresh one makes every refresh cold, which tests nothing.
     let mut finny = FinnyTable::new(&NETWORK);
 
     for &fen in UPDATE_FENS {
@@ -582,10 +438,6 @@ fn run_walk(lazy: bool) -> Refreshes {
         walk_and_check(&mut board, &mut stack, 0, WALK_DEPTH, fen, &mut refreshes, lazy, &mut finny);
     }
 
-    // The assertion inside the walk is vacuous for the refresh path unless the
-    // walk actually reaches it, and reaching it by one trigger says nothing
-    // about the other. Pin all three shapes, and print them so a drop is
-    // visible when the corpus changes.
     println!(
         "refreshes exercised: mirror only {}, bucket only {}, both {}",
         refreshes.mirror_only, refreshes.bucket_only, refreshes.both,
@@ -602,33 +454,14 @@ fn incremental_update_matches_refresh() {
     run_walk(false);
 }
 
-// The deferred half. A refresh landing mid-chain is the case that decides
-// whether the walk back is right: `push` refreshes that entry on the spot and
-// marks it computed, so `materialize` must stop there rather than replaying the
-// king move as an ordinary delta on top of it. Get that wrong and the result is
-// not a panic, it is a plausible-looking wrong accumulator -- which is why this
-// test asserts the corpus reaches a refresh rather than trusting it to.
+// A refresh landing mid-chain: `push` marks that entry computed, so `materialize` must stop there.
 #[test]
 fn deferred_chain_matches_refresh() {
     run_walk(true);
 }
 
-// ---------------------------------------------------------------- finny tables
-
-// A cached refresh has to land on exactly what a from-scratch one produces.
-//
-// The cold case is trivially right and proves nothing: an entry starts at
-// feature_bias with an empty snapshot, so the first hit diffs into a full
-// rebuild by construction. Every bug that can live in this change -- a missing
-// `entry.bb` writeback, a sign flip on the removed set, a dimension dropped
-// from the cell index -- only shows up on a WARM entry, which is why the corpus
-// runs twice through the same table and the second pass is the one that counts.
-// With the snapshot never written back, pass one passes and pass two is wrong
-// by exactly one position's worth of features.
-//
-// The corpus is left interleaved rather than grouped by cell, so consecutive
-// hits on the same entry carry genuinely different piece sets instead of
-// nearly-identical ones.
+// Only a WARM entry catches the bugs that live here -- a missing `entry.bb` writeback, a sign flip on the removed
+// set, a dropped cell dimension -- so the second of the two passes is the one that counts.
 #[test]
 fn finny_refresh_matches_full_refresh() {
     let mut finny = FinnyTable::new(&NETWORK);
@@ -640,13 +473,7 @@ fn finny_refresh_matches_full_refresh() {
         .chain([STARTPOS])
         .collect();
 
-    // Which cells the corpus actually reached. Both extra dimensions of the
-    // table are load-bearing and neither is checked by equality alone: collapse
-    // `mirror` and two kings on opposite wings share an entry whose every index
-    // is file-flipped against the snapshot; collapse `perspective` and White
-    // and Black share one, which is wrong because feature_index applies both
-    // relative_to and the 384 us/them offset. A corpus that only ever lands in
-    // one cell would pass this test with either dimension deleted.
+    // Which cells the corpus reached; a single-cell corpus would pass with either dimension deleted.
     let mut seen = [[[false; BUCKET_COUNT]; 2]; 2];
 
     for pass in 0..2 {
@@ -676,9 +503,7 @@ fn finny_refresh_matches_full_refresh() {
     assert!(cells > 2, "the corpus only reached {cells} cells -- warm reuse is not being tested");
 }
 
-// Reading an accumulator must not change it. This pins the early return in
-// `materialize`: without it a second call walks back past an already-computed
-// entry and replays deltas that are already folded in.
+// Pins the early return in `materialize`, without which a second call replays deltas already folded in.
 #[test]
 fn materialize_is_idempotent() {
     let fen = UPDATE_FENS[1];
@@ -706,10 +531,7 @@ fn materialize_is_idempotent() {
     }
 }
 
-// The null-move shape: an entry whose delta is empty, so its accumulator is its
-// parent's unchanged. Move generation never produces it, so the `([], [])` arm
-// and the null-move path in `negamax` are untested unless it is built by hand --
-// which is exactly how the search builds it.
+// An empty delta: move generation never produces it, but `negamax` does.
 #[test]
 fn empty_delta_copies_the_parent() {
     let fen = UPDATE_FENS[1];
@@ -732,17 +554,11 @@ fn empty_delta_copies_the_parent() {
     stack[2].mirror = stack[1].mirror;
     stack[2].bucket = stack[1].bucket;
 
-    // A null move leaves the piece layout alone, so the board is still the
-    // position at ply 1 and a refresh of it is what ply 2 must equal.
+    // A null move leaves the piece layout alone, so ply 2 must equal a refresh at ply 1.
     check_against_refresh(&board, &mut stack, 2, fen, "null move");
 }
 
-// ---------------------------------------------------------------- simd forward pass
-
-// The AVX2 forward pass reassociates screlu(x) * w into x * (x * w) and holds
-// the middle term in an i16. That is only valid while QA * max|w| fits, so pin
-// the invariant against the net that is actually compiled in -- a retrain with
-// different quantisation is exactly the change that would silently break it.
+// AVX2 reassociates screlu(x) * w into x * (x * w) with the middle term in i16, valid only while QA * max|w| fits.
 #[test]
 fn output_weights_fit_in_i16() {
     let worst = (0..OUTPUT_BUCKETS)
@@ -760,10 +576,7 @@ fn output_weights_fit_in_i16() {
     );
 }
 
-// The SIMD path has to be bit-exact against the scalar one, not merely close:
-// a mismatch of one in the raw sum can cross a quantisation boundary and change
-// the search tree. Runs over every FEN in this file so the accumulators carry
-// realistic, and in places extreme, values.
+// Must be bit-exact, not close: a mismatch of one can cross a quantisation boundary.
 #[test]
 fn simd_forward_matches_scalar() {
     let fens = UPDATE_FENS

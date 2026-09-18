@@ -1,11 +1,8 @@
 use crate::tables::{BoundType, TransTable};
 use crate::types::{Move, Score};
 
-// A single u64 carries score, move, depth and bound, so nothing in the type
-// system notices when a field is shifted or masked wrong. The only guard is
-// that every value survives a store/probe round trip. Negative scores are the
-// case that matters: recovering them needs an arithmetic shift, and a logical
-// one turns them into large positives -- which the search happily believes.
+// A single u64 carries score, move, depth and bound, so only a store/probe round trip catches a wrong shift or mask.
+// Negative scores matter most: they need an arithmetic shift, and a logical one turns them into large positives.
 #[test]
 fn store_probe_round_trip() {
     let tt = TransTable::new(1);
@@ -21,10 +18,7 @@ fn store_probe_round_trip() {
     let depths = [0usize, 1, 7, 254, 255];
     let bounds = [BoundType::Exact, BoundType::Lower, BoundType::Upper];
 
-    // store is depth-preferred, so a write can be *rejected* when two keys collide
-    // in the same slot. Walking depth ascending on the outside guarantees any entry
-    // already sitting there is no deeper than the one going in, so every store wins
-    // and a missing probe still means a genuine packing bug.
+// store is depth-preferred, so walking depth ascending guarantees every store wins and a missing probe is a real bug.
     let mut key = 0x9e37_79b9_7f4a_7c15u64;
     for &depth in &depths {
         for &score in &scores {
@@ -48,8 +42,7 @@ fn store_probe_round_trip() {
     }
 }
 
-// The table is lockless: the slot holds `key ^ data`, so a torn or unrelated
-// entry fails the XOR check instead of being handed back as this position's.
+// The table is lockless: the slot holds `key ^ data`, so a torn or unrelated entry fails the XOR check.
 #[test]
 fn probe_rejects_wrong_key() {
     let tt = TransTable::new(1);
@@ -62,9 +55,7 @@ fn probe_rejects_wrong_key() {
     assert!(tt.probe(!key).is_none(), "nor an unrelated one");
 }
 
-// hashfull is what tells us whether a bench run is actually stressing the
-// table, so it has to read 0 when empty and near-full when saturated -- a gauge
-// stuck at either end would quietly invalidate every replacement measurement.
+// hashfull has to read 0 when empty and near-full when saturated.
 #[test]
 fn hashfull_tracks_occupancy() {
     let tt = TransTable::new(1); // 1 MiB / 16 B = 65536 slots

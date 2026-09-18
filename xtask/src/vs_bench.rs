@@ -73,8 +73,7 @@ fn run_bench(bin: &Path, depth: &str, hash: Option<&str>, label: &str) -> Result
     Ok(rows)
 }
 
-/// Build the engine at `gitref` in a throwaway worktree, caching the binary
-/// per commit under target/vsbench/.
+/// Build the engine at `gitref` in a throwaway worktree, caching the binary per commit under target/vsbench/.
 fn build_ref_binary(gitref: &str) -> Result<(PathBuf, String)> {
     let root = workspace_root();
     let sha = run_capture(git().args(["rev-parse", "--short=12", gitref]))
@@ -110,8 +109,7 @@ fn build_ref_binary(gitref: &str) -> Result<(PathBuf, String)> {
     Ok((bin, sha))
 }
 
-/// Run `searchbench` on the working tree and on a git ref, and diff the
-/// per-position node counts and best moves.
+/// Diffs per-position node counts and best moves between the working tree and a git ref.
 pub fn vs_search_bench(gitref: &str, depth: &str, hash: Option<&str>) -> Result<()> {
     let root = workspace_root();
 

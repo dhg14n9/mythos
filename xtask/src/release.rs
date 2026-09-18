@@ -5,11 +5,7 @@ use std::process::{Command, Stdio};
 use crate::util::{Result, cargo, git, run, run_capture, workspace_root};
 
 /// One binary we ship: a CPU baseline plus the rustc flags that pin it.
-///
-/// The engine has no runtime CPU dispatch — every SIMD path is selected at
-/// compile time by `cfg(target_feature = ...)` (src/nnue/network.rs for AVX2,
-/// src/board/lookup.rs for the PEXT movegen) — so the only way to cover a
-/// range of testers' machines is to ship one binary per baseline.
+/// No runtime CPU dispatch -- every SIMD path is picked by `cfg(target_feature)` -- so covering testers' machines means one binary per baseline.
 struct Variant {
     /// Goes in the filename: `v3` in `mythos-1.0.0-linux-x86-64-v3`.
     name: &'static str,
@@ -24,18 +20,10 @@ const VARIANTS: &[Variant] = &[
     Variant { name: "v3", target_cpu: "x86-64-v3", extra: &[] },
 ];
 
-// x86-64-v4 is deliberately absent. Nothing in the engine uses AVX-512 — the
-// widest intrinsics are the AVX2 ones in src/nnue/network.rs — so a v4 build
-// is a binary that gains nothing and that most dev machines cannot even run
-// to verify. Shipping an untested binary is how you collect crash reports.
+// x86-64-v4 is deliberately absent: nothing uses AVX-512, and most dev machines cannot verify a v4 binary.
 
-/// v3 with the PEXT movegen path compiled out.
-///
-/// `-C target-cpu=x86-64-v3` implies BMI2, and src/board/lookup.rs switches to
-/// `_pext_u64` whenever `target_feature = "bmi2"` is set. On Zen 1 and Zen 2
-/// PEXT is microcoded and takes ~18 cycles, so a v3 binary can land *slower*
-/// than v2 on those chips. This variant keeps AVX2 for the NNUE forward pass
-/// but takes the magic-bitboard fallback instead.
+/// v3 with the PEXT movegen path compiled out: `-C target-cpu=x86-64-v3` implies BMI2, and lookup.rs then uses
+/// `_pext_u64`, which is microcoded on Zen 1/2 (~18 cycles) and can land slower than v2. Keeps AVX2.
 const V3_NOPEXT: Variant = Variant {
     name: "v3-nopext",
     target_cpu: "x86-64-v3",
@@ -43,7 +31,6 @@ const V3_NOPEXT: Variant = Variant {
 };
 
 struct Platform {
-    /// Goes in the filename.
     name: &'static str,
     /// `None` builds for the host; `Some` passes `--target`.
     triple: Option<&'static str>,
@@ -58,7 +45,6 @@ const PLATFORMS: &[Platform] = &[
 const OUT_DIR: &str = "target/release-artifacts";
 const BUILD_DIR: &str = "target/release-build";
 
-/// A built artifact, carried into the verification pass.
 struct Artifact {
     path: PathBuf,
     variant: &'static str,
@@ -75,8 +61,7 @@ pub fn release(nopext: bool) -> Result<()> {
         .unwrap_or_else(|_| "unknown".into());
     println!("[release] mythos {version} at {describe}");
 
-    // Untracked files can't end up in a tag, so --untracked-files=no keeps the
-    // warning about things that would actually change the built binary.
+    // Untracked files can't end up in a tag, so --untracked-files=no only warns about what would change the binary.
     let dirty = !run_capture(git().args(["status", "--porcelain", "--untracked-files=no"]))?
         .is_empty();
     if dirty {
@@ -114,19 +99,14 @@ fn build(
     let label = format!("{}-{}", platform.name, variant.name);
     println!("[release] building {label}");
 
-    // An env RUSTFLAGS *replaces* the [build] rustflags in .cargo/config.toml
-    // rather than appending to it, which is exactly what we want: the repo
-    // default is target-cpu=native, which would produce binaries that fault on
-    // a tester's older CPU.
+    // An env RUSTFLAGS *replaces* [build] rustflags in .cargo/config.toml, which is what we want: the repo default is target-cpu=native.
     let mut rustflags = format!("-C target-cpu={}", variant.target_cpu);
     for flag in variant.extra {
         rustflags.push(' ');
         rustflags.push_str(flag);
     }
 
-    // Cargo does not key its build cache on RUSTFLAGS, so sharing one
-    // target dir across variants means each build overwrites the last and a
-    // no-op build would silently hand us the previous variant's binary.
+    // Cargo does not key its build cache on RUSTFLAGS, so variants sharing one target dir would overwrite each other.
     let target_dir = root.join(BUILD_DIR).join(&label);
 
     let mut cmd = cargo();
@@ -168,9 +148,6 @@ fn build(
     })
 }
 
-/// Three checks: every binary reports the version we think we're releasing,
-/// every binary searches the same tree, and the Windows ones don't drag in
-/// DLLs a tester won't have.
 fn verify(artifacts: &mut [Artifact], version: &str) -> Result<()> {
     println!("[release] verifying");
 
@@ -183,11 +160,8 @@ fn verify(artifacts: &mut [Artifact], version: &str) -> Result<()> {
         art.bench = Some(bench(&art.path)?);
     }
 
-    // The node count is a functional fingerprint of the search. Identical
-    // counts across baselines are the proof that the PEXT and fallback movegen
-    // agree on every attack set, and that the AVX2 and scalar NNUE forward
-    // passes agree on every eval. A mismatch is a bug in a cfg-gated path, not
-    // a rounding difference, and that binary must not ship.
+    // The node count is a functional fingerprint: identical counts across baselines prove the PEXT and fallback movegen
+    // agree, and that the AVX2 and scalar forward passes do. A mismatch must not ship.
     let mut counts: Vec<(&str, u64)> = artifacts
         .iter()
         .filter_map(|a| a.bench.map(|(nodes, _)| (a.variant, nodes)))
@@ -209,8 +183,7 @@ fn verify(artifacts: &mut [Artifact], version: &str) -> Result<()> {
 }
 
 fn check_version(bin: &Path, version: &str) -> Result<()> {
-    // `mythos uci` runs `uci` as a command before falling through to the stdin
-    // loop, and a null stdin ends that loop immediately.
+    // `mythos uci` runs `uci` before falling through to the stdin loop, and a null stdin ends that loop immediately.
     let out = run_capture(
         Command::new(bin)
             .arg("uci")
@@ -265,16 +238,13 @@ fn parse_bench(output: &str) -> Option<(u64, u64)> {
     None
 }
 
-/// A mingw build that links libgcc or libwinpthread dynamically greets the
-/// tester with a missing-DLL dialog instead of an engine. Everything below is
-/// present on a stock Windows 10 or later.
+/// A mingw build linking libgcc or libwinpthread dynamically greets the tester with a missing-DLL dialog.
 fn check_windows_imports(exe: &Path) -> Result<()> {
     const OBJDUMP: &str = "x86_64-w64-mingw32-objdump";
 
     let out = match Command::new(OBJDUMP).arg("-p").arg(exe).output() {
         Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).into_owned(),
-        // Not having the toolchain is not a build failure — the .exe is fine,
-        // we just could not inspect it. Say so rather than failing the release.
+        // Missing toolchain is not a build failure; say so rather than failing.
         _ => {
             println!(
                 "[release] WARNING: {OBJDUMP} unavailable — could not check {} for stray DLLs",

@@ -11,10 +11,10 @@ pub struct Bitboard(pub u64);
 impl Bitboard {
     pub const FULL: Self = Self(u64::MAX);
     pub const EMPTY: Self = Self(0);
-    pub const PAWN_START: [Self; 2] = [Self(0xff00), Self(0xff000000000000)]; // pawn starting row
-    pub const FIRST_ROWS: [Self; 2] = [Self(0xff), Self(0xff00000000000000)]; // piece starting row
-    pub const THIRD_ROWS: [Self; 2] = [Self(0xff0000), Self(0xff0000000000)]; // row next to pawn
-    pub const EN_PASSANT_ROWS: [Self; 2] = [Self(0xff00000000), Self(0xff000000)]; // row a pawn needs to be on when able to take en passant
+    pub const PAWN_START: [Self; 2] = [Self(0xff00), Self(0xff000000000000)];
+    pub const FIRST_ROWS: [Self; 2] = [Self(0xff), Self(0xff00000000000000)];
+    pub const THIRD_ROWS: [Self; 2] = [Self(0xff0000), Self(0xff0000000000)];
+    pub const EN_PASSANT_ROWS: [Self; 2] = [Self(0xff00000000), Self(0xff000000)]; // rank a pawn must be on to capture en passant
     pub const NOT_FILE_A: Self = Self(0xfefefefefefefefe);
     pub const NOT_FILE_H: Self = Self(0x7f7f7f7f7f7f7f7f);
 
@@ -72,7 +72,7 @@ impl Bitboard {
         self.0.count_ones() as usize
     }
 
-    // mask for assisted shifting to avoid bit-jumping
+    // avoids wrapping across files
     const SHIFT_MASK: [Self; 8] = [
         Self(0xffffffffffffff),
         Self(0xffffffffffffff00),
@@ -85,7 +85,6 @@ impl Bitboard {
     ];
     const SHIFT_NUMBER: [i8; 8] = [8, -8, -1, 1, 7, 9, -9, -7];
 
-    // assisted shifting
     pub fn shift(&mut self, direction: Direction) {
         *self &= Self::SHIFT_MASK[direction];
         self.offset(Self::SHIFT_NUMBER[direction])
@@ -98,7 +97,6 @@ impl Bitboard {
         result
     }
 
-    // pawn eval helper
     pub const fn north_fill(self) -> Self {
         let mut result = self.0;
         result |= result << 8;
@@ -219,7 +217,6 @@ impl ShrAssign<u32> for Bitboard {
     }
 }
 
-// between and ray bitboards
 const fn build_between() -> [[Bitboard; 64]; 64] {
     let mut result = [[Bitboard::EMPTY; 64]; 64];
     let mut sq1: i32 = 0;

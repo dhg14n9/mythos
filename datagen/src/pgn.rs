@@ -1,9 +1,6 @@
 // PGN reading, cut down to exactly what the OpenBench DATAGEN output contains.
-//
-// The upload path rewrites every comment (Client/pgn_util.py), so what arrives is
-// COMPACT: the FEN/Result headers, no move numbers, and one comment per move of
-// the form `{+0.87/4, line=87}`. `line=` is the engine's own score, printed by the
-// `info string pgncomment` in uci.rs.
+// The upload path rewrites every comment (Client/pgn_util.py), so what arrives is COMPACT: the FEN/Result headers,
+// no move numbers, and one `{+0.87/4, line=87}` comment per move -- `line=` comes from `info string pgncomment`.
 
 use std::io::{self, BufRead};
 
@@ -21,8 +18,7 @@ pub fn games<R: BufRead>(reader: R) -> Games<R> {
 pub struct Games<R> {
     reader: R,
     line: String,
-    // A header line already read that belongs to the *next* game. Only reachable
-    // when a game has no blank line between its movetext and the next header.
+    // A header line already read that belongs to the *next* game.
     pending: Option<String>,
     eof: bool,
 }
@@ -47,8 +43,7 @@ impl Partial {
         }
     }
 
-    // A game is only worth emitting once it has movetext; header-only blocks are
-    // not games.
+    // A game is only worth emitting once it has movetext.
     fn finish(self) -> Option<Game> {
         if self.movetext.trim().is_empty() {
             return None;
@@ -93,8 +88,7 @@ impl<R: BufRead> Iterator for Games<R> {
             let line = self.line.trim();
 
             if line.is_empty() {
-                // In PGN a blank line terminates the movetext section. Blank lines
-                // before the movetext just separate it from the headers.
+                // A blank line terminates the movetext; before it, it only separates the headers.
                 if !game.movetext.is_empty() {
                     if let Some(g) = game.finish() {
                         return Some(Ok(g));
@@ -105,9 +99,7 @@ impl<R: BufRead> Iterator for Games<R> {
             }
 
             if line.starts_with('[') {
-                // A header while we already hold movetext means the previous game
-                // was not blank-line terminated. Stash it rather than merging the
-                // two games silently.
+                // A header while we already hold movetext means the previous game was not blank-line terminated.
                 if !game.movetext.is_empty() {
                     self.pending = Some(self.line.clone());
                     if let Some(g) = game.finish() {
@@ -146,10 +138,8 @@ pub fn move_tokens(movetext: &str) -> MoveTokens<'_> {
     MoveTokens { rest: movetext }
 }
 
-// Yields (SAN, comment body without the braces). The comment is "" when a move
-// carries none. Move numbers, NAGs and the result token are skipped; anything
-// else is handed on as a SAN so that an unrecognised token fails loudly in the
-// move matcher instead of being quietly dropped.
+// Yields (SAN, comment body without the braces), "" when a move carries none. Move numbers, NAGs and the result
+// token are skipped; anything else is handed on as a SAN, so an unrecognised token fails loudly.
 pub struct MoveTokens<'a> {
     rest: &'a str,
 }
@@ -164,8 +154,7 @@ impl<'a> Iterator for MoveTokens<'a> {
                 return None;
             }
 
-            // A comment with no move in front of it (fastchess does not emit one,
-            // but PGN allows it).
+            // A comment with no move in front of it; fastchess does not emit one.
             if self.rest.starts_with('{') {
                 let (_, tail) = split_comment(self.rest);
                 self.rest = tail;
@@ -215,8 +204,7 @@ fn is_move(token: &str) -> bool {
     !token.chars().all(|c| c.is_ascii_digit() || c == '.')
 }
 
-// Pulls the engine score out of `+0.87/4, line=87`. None when the comment has no
-// payload at all — the 23 literal `{unknown}` comments in workload #8.
+// Pulls the engine score out of `+0.87/4, line=87`. None when there is no payload, e.g. the `{unknown}` of workload #8.
 pub fn comment_score(comment: &str) -> Option<i32> {
     let start = comment.find("line=")? + "line=".len();
     let rest = &comment[start..];

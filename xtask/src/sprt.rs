@@ -14,9 +14,8 @@ pub struct SprtConfig {
     pub concurrency: String,
     pub rounds: String,
     pub book: Option<PathBuf>,
-    /// CPU pinning via fastchess `-use-affinity`: `None` leaves scheduling
-    /// to the OS, `"auto"` lets fastchess pick cores, anything else is a
-    /// CPU list like `0-7` or `3,5,7-11`.
+    /// CPU pinning via fastchess `-use-affinity`: `None` leaves scheduling to the OS, `"auto"` lets fastchess
+    /// pick cores, anything else is a CPU list like `0-7` or `3,5,7-11`.
     pub affinity: Option<String>,
 }
 
@@ -76,9 +75,7 @@ pub fn sprt(cfg: &SprtConfig) -> Result<()> {
     let sprt_dir = root.join("target/sprt");
     std::fs::create_dir_all(&sprt_dir).map_err(|e| format!("cannot create target/sprt: {e}"))?;
 
-    // Binaries are cached in target/sprt and shared across runs; the per-run
-    // outputs (config, PGN) live in their own timestamped folder so runs don't
-    // clobber each other.
+    // Binaries are cached in target/sprt and shared; per-run outputs live in their own timestamped folder.
     let stamp = run_capture(Command::new("date").arg("+%Y%m%d-%H%M%S"))
         .unwrap_or_else(|_| "run".into());
     let run_name = format!("{stamp}-vs-{sha}");
@@ -88,9 +85,7 @@ pub fn sprt(cfg: &SprtConfig) -> Result<()> {
     // fastchess runs with cwd = root, so its output args must be root-relative.
     let run_rel = format!("target/sprt/runs/{run_name}");
 
-    // Children (cargo, fastchess) receive SIGINT with the process group and die
-    // on their own; we just note the interrupt so error messages make sense and
-    // unwind normally, which runs the worktree guard.
+    // Children get SIGINT with the process group and die on their own; we just note it so errors make sense.
     let interrupted = Arc::new(AtomicBool::new(false));
     let _ = ctrlc::set_handler({
         let interrupted = Arc::clone(&interrupted);
@@ -185,9 +180,7 @@ pub fn sprt(cfg: &SprtConfig) -> Result<()> {
     }
     let result = check_interrupt(run(&mut fastchess));
 
-    // fastchess writes config.json (with the tallies so far) on exit, even
-    // after Ctrl-C, so a report is generated on the interrupt path too. A
-    // report failure must never mask the match result.
+    // fastchess writes config.json even after Ctrl-C, so the interrupt path reports too. A report failure must not mask the result.
     match sprt_report::generate(&run_dir) {
         Ok(path) => println!("[sprt] report: {}", path.display()),
         Err(e) => eprintln!("[sprt] warning: no report generated: {e}"),

@@ -139,14 +139,8 @@ pub fn king_bucket(perspective: Color, king: Square, mirror: bool) -> usize {
     KING_LAYOUT[index]
 }
 
-// `mirror` and `bucket` describe the position *after* the move. A deferred
-// entry is replayed against its parent's weight block, so the king may only
-// stay deferred while both are unchanged -- a bucket change rewrites every
-// feature index just as surely as a mirror flip does.
-//
-// The old bucket has to be read with the OLD square's own mirror flag, not the
-// new one: `mirror` belongs to the square the king landed on, and folding the
-// square it came from with it names a bucket that never existed.
+// `mirror` and `bucket` describe the position *after* the move. The old bucket must be read with the OLD
+// square's own mirror flag: `mirror` belongs to the square the king landed on.
 pub fn needs_refresh(delta: &Delta, color: Color, mirror: bool, bucket: usize) -> bool {
     let king = Piece::new(color, PieceType::King);
 
@@ -262,15 +256,10 @@ impl FinnyTable {
         &mut self.0[perspective][mirror as usize][bucket]
     }
 
-    // `mirror` and `bucket` are passed in rather than looked up here: both
-    // callers have already computed them, and routing every refresh through the
-    // one `king_context` call keeps this from becoming a second place that can
-    // disagree about which cell a position belongs to.
+    // `mirror` and `bucket` come from the caller's one `king_context` call, so nothing here can disagree.
     pub fn refresh(&mut self, net: &Network, board: &Board, perspective: Color, mirror: bool, bucket: usize) -> Accumulator {
         let entry = self.entry_mut(perspective, mirror, bucket);
 
-        // Counted only under `--features nnue-stats`; both are compiled away
-        // otherwise, along with the `record_refresh` call at the bottom.
         #[cfg(feature = "nnue-stats")]
         let (mut diff, mut stale) = (0u64, 0u64);
 
@@ -298,9 +287,7 @@ impl FinnyTable {
             entry.bb[piece] = curr
         }
 
-        // A cell is cold when its snapshot held nothing at all, which is the
-        // only state `FinnyEntry::new` produces and one no real position can
-        // reach -- both kings are always on the board.
+        // A cell is cold when its snapshot was still empty.
         #[cfg(feature = "nnue-stats")]
         crate::nnue::stats::record_refresh(diff, board.occ().pop_count() as u64, stale == 0);
 

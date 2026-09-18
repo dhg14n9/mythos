@@ -1,9 +1,7 @@
 use crate::board::board::Board;
 use crate::types::MoveList;
 
-// to_fen is the inverse of from_fen, so the suite FENs are free test data:
-// every one of them must survive a round trip byte for byte. That covers
-// castling order, en passant formatting and the move-number inversion.
+// to_fen is the inverse of from_fen: every suite FEN must survive a round trip byte for byte.
 #[test]
 fn suite_fens_round_trip() {
     for (fen, _, _) in crate::bench::cases() {
@@ -12,10 +10,7 @@ fn suite_fens_round_trip() {
     }
 }
 
-// game_ply and half_move only move under make_move, so string equality against
-// a hand-written FEN cannot reach them. Compare Zobrist keys instead: equal
-// hashes prove placement, side to move, castling rights and the en passant
-// square all survived the trip through text.
+// game_ply and half_move only move under make_move, so compare Zobrist keys instead of strings.
 #[test]
 fn round_trip_after_moves() {
     let mut board = Board::start_pos();

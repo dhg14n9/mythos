@@ -54,7 +54,6 @@ impl Board {
 
         let mut parts = fen.split_whitespace();
 
-        // Piece placement
         let placement = parts.next().ok_or("Missing piece placement")?;
         let mut rank: i8 = 7;
         let mut file: i8 = 0;
@@ -76,14 +75,12 @@ impl Board {
             }
         }
 
-        // Side to move
         let stm = parts.next().ok_or("Missing side to move")?;
         board.side_to_move = Color::parse(stm.chars().next().ok_or("Empty side to move")?)?;
         if board.side_to_move == Color::Black {
             board.zobrist ^= ZobristHelper::color();
         }
 
-        // Castling rights
         let castling = parts.next().ok_or("Missing castling rights")?;
         for ch in castling.chars() {
             match ch {
@@ -97,18 +94,16 @@ impl Board {
         }
         board.zobrist ^= ZobristHelper::castling(board.castling_right);
 
-        // En passant
         let ep = parts.next().ok_or("Missing en passant")?;
         if ep != "-" {
             board.en_passant = Square::parse(ep)?;
             board.zobrist ^= ZobristHelper::ep(board.en_passant);
         }
 
-        // Half move clock
         let half = parts.next().ok_or("Missing half move clock")?;
         board.half_move = half.parse::<u16>().map_err(|_| "Invalid half move clock")?;
 
-        // Full move number (only stored as game_ply; see full_move())
+        // full move number, stored as game_ply
         let full = parts.next().ok_or("Missing full move number")?;
         let full_move = full
             .parse::<usize>()
@@ -258,7 +253,7 @@ impl Board {
         self.zobrist ^= ZobristHelper::square(from, piece) ^ ZobristHelper::square(to, piece);
     }
 
-    // handle state pushing and popping. ONLY HANDLE STATE PROPERTIES
+    // state properties only, no piece movement
     fn push_state(&mut self, captured_piece: Piece) {
         self.state_history.push(StateInfo {
             hash: self.zobrist,
@@ -270,7 +265,6 @@ impl Board {
         })
     }
 
-    // pop the previous state and return captured piece
     fn pop_state(&mut self) -> Piece {
         let prev_state = self.state_history.pop();
 
@@ -363,21 +357,19 @@ impl Board {
         self.game_ply -= 1;
         self.side_to_move = us;
 
-        // Return the mover to its home square.
         if mv.is_promotion() {
-            // The promoted piece vanishes and a pawn reappears on `from`.
+            // the promoted piece vanishes, a pawn reappears on `from`
             self.remove_piece_unhashed(Piece::new(us, mv.promo_piece()), to);
             self.place_piece_unhashed(Piece::new(us, PieceType::Pawn), from);
         } else {
             self.move_piece_unhashed(self.piece_at(to), to, from);
         }
 
-        // Put back whatever was captured (capture_square handles en passant).
+        // captured piece back (capture_square handles en passant)
         if mv.is_capture() {
             self.place_piece_unhashed(captured, mv.capture_square());
         }
 
-        // Send the rook home for castling.
         if mv.is_castling() {
             let (rook_from, rook_to) = Self::castle_rook_squares(kind, to);
             self.move_piece_unhashed(Piece::new(us, PieceType::Rook), rook_to, rook_from);
@@ -392,7 +384,6 @@ impl Board {
         !self.checkers.is_empty()
     }
 
-    // SEE helper
     pub fn attackers_to(&self, square: Square, occ: Bitboard) -> Bitboard {
         let mut result = Bitboard::EMPTY;
         result |= bishop_attack(occ, square) & (self.piece_type_bb(PieceType::Bishop) | self.piece_type_bb(PieceType::Queen));
@@ -447,10 +438,7 @@ impl Board {
 mod tests {
     use super::*;
 
-    // ----- make_move / unmake_move round-trip tests -----
-
-    // A compact copy of every Board field a move can touch, compared field-by-field
-    // so a failure names exactly what diverged.
+    // Every Board field a move can touch, compared field-by-field.
     struct Snapshot {
         piece_type_bb: [u64; PieceType::NUM],
         color_bb: [u64; Color::NUM],
@@ -499,7 +487,6 @@ mod tests {
         }
     }
 
-    // Field-by-field so a failure names exactly what diverged.
     fn assert_snapshot_eq(a: &Snapshot, b: &Snapshot, ctx: &str) {
         for i in 0..PieceType::NUM {
             assert_eq!(
@@ -529,10 +516,7 @@ mod tests {
         assert_eq!(a.hist_len, b.hist_len, "state_history len after {ctx}");
     }
 
-    // Verify the mailbox and the bitboards tell the same story. The XOR relocation in
-    // move_piece is easy to get subtly wrong (e.g. `&` instead of `|` when building the
-    // toggle mask) in a way that still round-trips cleanly, so we check the intermediate
-    // position directly rather than trusting make/unmake to cancel out.
+    // The XOR relocation in move_piece can be wrong in a way that still round-trips, so check the intermediate position.
     fn assert_board_consistent(b: &Board, ctx: &str) {
         let occ = b.color_bb.iter().fold(0u64, |acc, bb| acc | bb.0);
         let pt_occ = b.piece_type_bb.iter().fold(0u64, |acc, bb| acc | bb.0);
@@ -562,19 +546,17 @@ mod tests {
         }
     }
 
-    // make_move then unmake_move must return to the exact starting position.
     fn roundtrip(name: &str, fen: &str, mv: Move) {
         let mut board = Board::from_fen(fen).expect(name);
         let before = snapshot(&board);
 
         board.make_move(mv);
-        // Sanity: every legal move flips the side to move, so the hash must change.
-        // Guards against a move that is silently a no-op (which would pass trivially).
+        // Every legal move flips the side to move, so the hash must change.
         assert_ne!(
             board.zobrist, before.zobrist,
             "make_move changed nothing for {name}"
         );
-        // The post-make position must itself be internally consistent, not just reversible.
+        // The post-make position must be internally consistent, not just reversible.
         assert_board_consistent(&board, name);
 
         board.unmake_move(mv);
@@ -670,7 +652,7 @@ mod tests {
                 "r3k3/1P6/8/8/8/8/8/4K3 w - - 0 1",
                 Move::new(Square::B7, Square::A8, CapPromoQueen),
             ),
-            // A couple of black-to-move cases to exercise us == Black (game_ply parity, back rank).
+            // black-to-move cases, to exercise us == Black
             (
                 "promo_queen_b",
                 "4k3/8/8/8/8/8/p7/4K3 b - - 0 1",
@@ -690,8 +672,7 @@ mod tests {
 
     #[test]
     fn make_unmake_sequence() {
-        // Play a short line from the start position, then unmake it in reverse.
-        // Exercises the state-history stack across several stacked make/unmake pairs.
+        // Exercises the state-history stack across stacked make/unmake pairs.
         let mut board = Board::start_pos();
         let start = snapshot(&board);
 
@@ -713,10 +694,7 @@ mod tests {
         assert_snapshot_eq(&start, &snapshot(&board), "sequence");
     }
 
-    // make_move's incremental zobrist must match hashing the resulting position
-    // from scratch, which is what from_fen does. This catches a missed or extra
-    // XOR (ep set/clear, castling rights, promotions, ...) that the round-trip
-    // tests cannot see, because unmake restores the hash wholesale from history.
+    // Incremental zobrist must match hashing from scratch: catches a missed or extra XOR the round-trip tests cannot see.
     #[test]
     fn make_move_hash_matches_from_fen() {
         use MoveKind::*;
@@ -770,11 +748,7 @@ mod tests {
         }
     }
 
-    // ----- speed benchmark -----
-
-    // Times a make_move + unmake_move pair, cycling through every MoveKind. Ignored by
-    // default so it never slows the normal suite; run it explicitly with:
-    //     cargo test bench_make_unmake -- --ignored --nocapture
+    // Ignored by default: cargo test bench_make_unmake -- --ignored --nocapture
     #[test]
     #[ignore]
     fn bench_make_unmake() {
@@ -784,9 +758,7 @@ mod tests {
 
         const ITERATIONS: usize = 100_000_000;
 
-        // One (position, move) per MoveKind. Each make/unmake pair round-trips its own
-        // board, so cycling through them keeps every board valid for the whole run and
-        // makes the reported time an average across all move types.
+        // One (position, move) per MoveKind, each round-tripping its own board
         let cases: &[(&str, Move)] = &[
             (
                 "4k3/8/8/8/8/8/8/4K1N1 w - - 0 1",
@@ -854,8 +826,7 @@ mod tests {
         let kinds = states.len();
 
         let start = Instant::now();
-        // Wrapping counter instead of `i % kinds`: kinds is a runtime value, so
-        // the modulo would compile to a hardware div inside the timed loop.
+        // Wrapping counter: `i % kinds` would compile to a hardware div here
         let mut k = 0;
         for _ in 0..ITERATIONS {
             let (board, mv) = &mut states[k];
@@ -863,8 +834,7 @@ mod tests {
             if k == kinds {
                 k = 0;
             }
-            // black_box stops the optimizer from proving the pair is a no-op and
-            // deleting the whole loop, which would make the timing meaningless.
+            // black_box keeps the optimizer from deleting the loop
             let mv = black_box(*mv);
             board.make_move(mv);
             board.unmake_move(mv);
@@ -872,7 +842,6 @@ mod tests {
         }
         let elapsed = start.elapsed();
 
-        // One iteration == one make + one unmake.
         let per_pair = elapsed.as_nanos() as f64 / ITERATIONS as f64;
         let pairs_per_sec = ITERATIONS as f64 / elapsed.as_secs_f64();
         println!(

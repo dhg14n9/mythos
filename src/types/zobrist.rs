@@ -14,7 +14,7 @@ struct ZobristKeys {
     square_key: [[KeyType; Piece::NUM]; Square::NUM],
     ep_key: [KeyType; Square::NUM + 1],
     castling_key: [KeyType; Castling::NUM],
-    btm_key: KeyType, // black to move key
+    btm_key: KeyType,
 }
 
 const fn build_key() -> ZobristKeys {
@@ -37,7 +37,7 @@ const fn build_key() -> ZobristKeys {
         ep_file_key[f] = split_mix64(&mut state);
         f += 1;
     }
-    // Expand per-file keys to a square-indexed table; [Square::None] stays 0.
+    // Square-indexed table; [Square::None] stays 0.
     let mut ep_key = [0; Square::NUM + 1];
     let mut sq = 0;
     while sq < Square::NUM {
@@ -78,8 +78,7 @@ impl ZobristHelper {
     }
 
     pub fn castling(castling: Castling) -> u64 {
-        // raw() is always < 16, but LLVM can't see that through the u8 newtype;
-        // the mask removes the bounds check for free.
+        // the mask removes a bounds check LLVM cannot elide through the newtype
         ZOBRIST_KEY.castling_key[castling.raw() & (Castling::NUM - 1)]
     }
 

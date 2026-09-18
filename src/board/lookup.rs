@@ -184,7 +184,6 @@ const fn table_size() -> usize {
     total
 }
 
-// Magic numbers
 #[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
 pub const ROOK_MAGICS: [(u64, u32); 64] = [
     (0x2080001040002081, 52), // a1
@@ -375,8 +374,6 @@ mod imp {
                 let blocker = nth_subset(mask, i);
                 let idx = current + (blocker.wrapping_mul(magic) >> shift) as usize;
                 let attack = gen_rook_attack(sq, blocker);
-                // No legal slider attack is empty, so a non-empty slot with a
-                // different value can only be a magic collision -> fail the build.
                 if table[idx].0 != 0 && table[idx].0 != attack {
                     panic!("rook magic collision");
                 }
@@ -475,8 +472,7 @@ mod imp {
                 start: current as u32,
             };
 
-            // pext(nth_subset(mask, i), mask) == i, so the slot is just `i`.
-            // That keeps the builder intrinsic-free and therefore `const`.
+            // pext(nth_subset(mask, i), mask) == i, so the slot is just i
             let mut i = 0;
             while i < size {
                 table[current + i] = Bitboard(gen_rook_attack(sq, nth_subset(mask, i)));
@@ -517,7 +513,7 @@ mod imp {
 
     pub fn rook_attack(occ: Bitboard, square: Square) -> Bitboard {
         let e = &TABLES.rook[square as usize];
-        // `_pext_u64` already ignores bits outside the mask, so no pre-AND needed.
+        // _pext_u64 ignores bits outside the mask; no pre-AND needed
         let idx = unsafe { _pext_u64(occ.0, e.mask) } as usize;
         TABLES.table[e.start as usize + idx]
     }

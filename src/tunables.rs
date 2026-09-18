@@ -49,7 +49,7 @@ macro_rules! tunables {
 
 //        name                default   min     max    c_end
 tunables! {
-    // Reverse futility pruning.
+    // Reverse futility pruning
     rfp_margin_mult       =      107,     40,    250,   10.0;
     rfp_max_depth         =        5,      3,     10,    0.5;
 
@@ -69,18 +69,18 @@ tunables! {
     lmp_base              =        2,      1,      8,    0.5;
     lmp_max_depth         =        7,      4,     12,    0.5;
 
-    // Futility pruning, margin per ply of depth
+    // Futility pruning, margin per ply
     fp_margin_mult        =       76,     40,    250,   10.0;
     fp_max_depth          =        7,      3,     10,    0.5;
 
-    // SEE pruning thresholds, per ply of depth
+    // SEE pruning, margin per ply
     see_quiet_margin      =      -56,   -150,    -10,    7.0;
     see_noisy_margin      =      -80,   -200,    -20,    9.0;
 
     // History pruning
     hist_prune_margin     =     1142,    200,   3000,  140.0;
 
-    // Internal iterative reduction: min depth to reduce a node with no TT move
+    // Internal iterative reduction
     iir_min_depth         =        5,      2,      8,    0.5;
 
     // Aspiration windows
@@ -105,7 +105,7 @@ tunables! {
     hist_cont_malus_off    =      25,      0,    300,   15.0;
     hist_cont_malus_decay  =      24,      0,    100,    5.0;
 
-    // Capture history applied to noisy moves.
+    // Capture history
     hist_noisy_bonus_mult  =     144,     60,    400,   17.0;
     hist_noisy_bonus_max   =    1617,    600,   3000,  120.0;
     hist_noisy_bonus_off   =      70,      0,    300,   15.0;
@@ -128,7 +128,7 @@ tunables! {
     se_margin              =      32,      8,    100,    4.0;
     se_double_margin       =      24,      4,    120,    5.0;
 
-    // improving. Only rfp for now
+    // Improving. Only rfp for now
     improving_threshold    =       0,      0,    240,   12.0;
     rfp_improvement_mult   =     100,      0,    200,   10.0;
 

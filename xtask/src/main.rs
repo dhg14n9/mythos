@@ -62,8 +62,7 @@ fn dispatch(args: &[String]) -> Result<()> {
     }
 }
 
-/// `vs-search-bench [ref] [depth]` in either order: a purely numeric
-/// argument is the depth, anything else is the git ref.
+/// `vs-search-bench [ref] [depth]` in either order: a numeric argument is the depth, anything else the git ref.
 fn parse_vs_args<'a>(args: &[&'a str]) -> Result<(&'a str, &'a str)> {
     let mut gitref = "HEAD";
     let mut depth = "7";

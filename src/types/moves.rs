@@ -2,7 +2,6 @@ use crate::types::Square;
 use crate::types::piece::PieceType;
 use std::fmt::{Display, Formatter};
 
-// A move is u16, 4 bits for MoveKind, 6 bits for start square, 6 bits for destination square
 // null move = 0
 // 15         12 11         6 5           0
 // +------------+------------+------------+
@@ -11,7 +10,7 @@ use std::fmt::{Display, Formatter};
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Default)]
 pub struct Move(u16);
 
-// Move kind. Check out "https://www.chessprogramming.org/Encoding_Moves#From-To_Based"
+// https://www.chessprogramming.org/Encoding_Moves#From-To_Based
 #[derive(Copy, Clone)]
 #[rustfmt::skip]
 #[repr(u8)]
@@ -69,7 +68,7 @@ impl Move {
         self.0 != 0
     }
 
-    // Moves that is a capture or a queen promotion
+    // capture or queen promotion
     pub fn is_noisy(self) -> bool {
         let kind = self.kind() as u8;
         kind & 4 != 0 || kind == MoveKind::PromoQueen as u8
@@ -82,7 +81,7 @@ impl Move {
         (self.kind() as u8 & 8) != 0
     }
 
-    // special move are move that is neither Normal nor Capture.
+    // neither Normal nor Capture
     pub fn is_special(self) -> bool {
         (self.kind() as u8 & 11) != 0
     }
@@ -104,7 +103,6 @@ impl Move {
         }
     }
 
-    // evil bit manipulation
     pub fn capture_square(self) -> Square {
         self.to() ^ (self.is_enpassant() as u8 * 8)
     }

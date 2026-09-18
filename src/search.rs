@@ -13,7 +13,6 @@ use crate::types::{Color, Move, MoveList, PieceType, Score};
 
 const TC_NODE_CHECK: u64 = 2048;
 
-// track stable best move
 struct StableTracker {
     mv: Move,
     stable_iteration: usize
@@ -355,7 +354,7 @@ impl Search {
         let mut best = -Score::MAX;
         let mut best_move = Move::NULL;
 
-        // store quiets that doesn't get cut off to give malus
+        // quiets that didn't cut off, for malus
         let mut failure: [Move; 32] = [Move::NULL; 32];
         let mut n_failed: usize = 0;
 
@@ -470,7 +469,7 @@ impl Search {
 
                 score = -self.negamax::<false, false>(board, reduced_depth, -alpha - 1, -alpha, ply + 1, true);
 
-                // wrong reduction
+                // re-search: the reduction was wrong
                 if score > alpha && reduced_depth < new_depth {
                     score = -self.negamax::<false, false>(board, new_depth, -alpha - 1, -alpha, ply + 1, true);
                 }
@@ -508,7 +507,6 @@ impl Search {
                     let cont_bonus  = (hist_cont_bonus_mult() * depth as i32).min(hist_cont_bonus_max()) - hist_cont_bonus_off();
                     let cont_malus  = (hist_cont_malus_mult() * depth as i32).min(hist_cont_malus_max()) - hist_cont_malus_off() - hist_cont_malus_decay() * n_failed as i32;
 
-                    // add to killer + butterfly
                     self.thread_data.killer.store(mv, ply);
                     self.thread_data.butterfly.update(stm, mv.from(), mv.to(), quiet_bonus);
                     for i in 0..CONT_LEN {
@@ -573,7 +571,6 @@ impl Search {
         best
     }
 
-    // iterative deepening
     pub fn iterative(&mut self, board: &mut Board, max_depth: usize) -> (Move, i32) {
 
         let mut best = {
@@ -634,8 +631,6 @@ impl Search {
             best_pv = Vec::from(self.pv_table.get_line(0));
             self.extend_pv_from_tt(board, &mut best_pv);
 
-
-            // info
             if !self.silent {
                 let score = if Score::is_mate(best.1) {
                     format!("mate {}", Score::mate_distance(best.1))
@@ -646,7 +641,7 @@ impl Search {
                 let nps = (self.nodes as f64 / ellapsed.as_secs_f64().max(f64::EPSILON)) as u64;
                 println!(
                     "info depth {depth} score {} nodes {} nps {nps} hashfull {} time {} pv {}",
-                    score, // is mate print "mate N", not mate print cp score
+                    score,
                     self.nodes,
                     self.trans_table.hashfull(),
                     ellapsed.as_millis(),
@@ -712,7 +707,7 @@ impl Search {
         (0..list.len()).any(|i| list.get_nth(i) == mv)
     }
 
-    // check if move is reducable, i is move number in move ordering
+    // i is the move number in move ordering
     fn should_lmr(&self, i: usize, depth: usize, mv: Move, is_check: bool, escaping_check: bool, killers: (Move, Move)) -> bool {
         if i < lmr_min_moves() as usize { return false }
         if depth < lmr_min_depth() as usize { return false }
@@ -726,7 +721,6 @@ impl Search {
         true
     }
 
-    // allow null move pruning
     fn should_nmp(&self, beta: i32, depth: usize, board: &Board, static_eval: i32) -> bool {
         if depth < nmp_min_depth() as usize { return false }
         if board.is_check() { return false }
