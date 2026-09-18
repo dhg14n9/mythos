@@ -1,42 +1,12 @@
-# --- Rust ---
-# Build output — huge, fully regenerable from source. Never commit.
 /target
-
-# Backup files left by older rustfmt
 **/*.rs.bk
-
-# NOTE: Cargo.lock is intentionally NOT ignored.
-# Mythos is a binary, so committing Cargo.lock pins exact dependency
-# versions for reproducible builds. (Only libraries omit it.)
-
-# --- IDE (JetBrains: RustRover / CLion) ---
 .idea/
-
-# --- Engine testing / self-play output ---
-# fastchess / cutechess match logs and game records
 *.pgn
 *.log
 sprt_*.txt
-
-# Local working plan / notes for the NNUE project
-NNUE_PLAN.md
-
-# --- OpenBench ---
-# Binaries dropped in the repo root by `make EXE=...`
 /Engine-*
 /mythos
-
-# --- OS junk ---
 .DS_Store
-
-# --- Claude Code ---
-CLAUDE.md
-
-# --- Ginormous Opening Books ---
 xtask/books/*.epd
-
-# --- Eval tuner ---
-# Training datasets — 80MB+, re-downloadable
 tuner/data/
-# Local working plan / notes
 tuner/PLAN.md
