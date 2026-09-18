@@ -1,51 +1,25 @@
-# Build entry point for OpenBench.
-#
-# OpenBench runs `make EXE=Engine-<sha>` from the repo root and then invokes
-# `./Engine-<sha> bench`, so the default goal has to leave a runnable binary at
-# exactly $(EXE). `?=` means a command-line EXE= wins while a bare `make` still
-# works locally. OpenBench also passes CC=/CXX=; those are for C/C++ engines and
-# are harmless here.
-#
-# Everything below is a thin wrapper around cargo — `cargo build` remains the
-# normal way to build, and `cargo xtask` still owns the dev workflows.
-
 EXE ?= mythos
+export EVALFILE
 
-# SPSA workloads need the tunables exposed as UCI options, which normal builds
-# compile in as constants. `make TUNE=1` (or a TUNE=1 in the OpenBench engine's
-# make command) flips the cargo feature on.
 ifdef TUNE
 FEATURE_LIST += tunables
 endif
 
-# Datagen workloads harvest search scores from `info string pgncomment` lines,
-# which normal builds don't emit. `make DATAGEN=1` turns them back on.
 ifdef DATAGEN
 FEATURE_LIST += datagen
 endif
 
-# Join with commas: `cargo --features` wants `a,b`, but `+=` builds a space list.
 comma := ,
 space := $() $()
 ifneq ($(strip $(FEATURE_LIST)),)
 FEATURES := --features $(subst $(space),$(comma),$(strip $(FEATURE_LIST)))
 endif
 
-# --bin mythos keeps the workspace's tuner/ and xtask/ members out of the build;
-# an OpenBench worker has no reason to compile the dev tooling.
-#
-# No RUSTFLAGS here: .cargo/config.toml already sets target-cpu=native, which is
-# what we want since each client compiles locally. It changes speed but not the
-# bench node count (PEXT and the fallback generate identical attack sets), so
-# clients on different CPUs still agree on the node count OpenBench verifies.
 .PHONY: all
 all:
 	cargo build --release --bin mythos $(FEATURES)
 	cp target/release/mythos $(EXE)
 
-# Only removes the copied binary. Deliberately not `cargo clean`: target/ also
-# holds target/sprt/runs/ and target/vsbench/, which are results you want to
-# keep. Use `cargo clean` by hand if you really mean to wipe those too.
 .PHONY: clean
 clean:
 	rm -f $(EXE)

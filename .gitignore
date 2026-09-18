@@ -10,3 +10,4 @@ sprt_*.txt
 xtask/books/*.epd
 tuner/data/
 tuner/PLAN.md
+/nets/
