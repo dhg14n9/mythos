@@ -5,7 +5,7 @@ use crate::nnue::accumulator::{feature_index, king_bucket, king_context, needs_r
 use crate::nnue::network::{evaluate, forward, forward_scalar, load_net, materialize, push, refresh};
 use crate::types::{Color, MoveList, Piece, PieceType, Square};
 
-const NET: &str = "nets/net.nnue";
+const NET: &str = env!("MYTHOS_NET");
 
 const STARTPOS: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
