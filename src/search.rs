@@ -323,9 +323,9 @@ impl Search {
         } else { depth };
 
         // temporary, havent sprt-ed
-        // if Self::should_razor(PV, in_check, static_eval, alpha, depth, tt_move, tt_bound) {
-        //     return self.qsearch::<false>(board, alpha, beta, ply);
-        // }
+        if Self::should_razor(PV, in_check, static_eval, alpha, depth, tt_move, tt_bound) {
+            return self.qsearch::<false>(board, alpha, beta, ply);
+        }
 
         if !ROOT && allow_null && self.should_nmp(beta, depth, board, static_eval) {
             self.cont_stack[ply] = None;
