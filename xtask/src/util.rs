@@ -3,8 +3,6 @@ use std::process::Command;
 
 pub type Result<T> = std::result::Result<T, String>;
 
-pub const STARTPOS: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-
 /// xtask lives one level below the workspace root.
 pub fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))

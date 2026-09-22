@@ -1,25 +1,18 @@
 use inquire::{Confirm, InquireError, Select, Text};
 
 use crate::release;
-use crate::sprt::{self, SprtConfig};
-use crate::sprt_report;
 use crate::tasks;
-use crate::util::{Result, STARTPOS, workspace_root};
+use crate::util::Result;
 use crate::vs_bench;
 
 const ITEMS: &[&str] = &[
     "test — run the test suite (optional filter)",
     "perft — fast perft suite (correctness gate)",
     "perft-deep — thorough perft suite",
-    "perft-bench — time a perft (fen/depth/tt)",
-    "bench-suite — Andrew Wagner 127-position suite",
-    "divide — per-move node counts via UCI go perft",
     "bench — make/unmake micro-benchmark",
     "search-bench — fixed-depth search node-count fingerprint",
     "vs-search-bench — diff search-bench of working tree vs a git ref",
     "release — build + verify the shippable binary matrix",
-    "sprt — SPRT match vs a git ref",
-    "sprt-report — regenerate the report for a past SPRT run",
     "quit",
 ];
 
@@ -41,15 +34,10 @@ pub fn menu() -> Result<()> {
             "test" => prompt_test(),
             "perft" => tasks::perft(),
             "perft-deep" => tasks::perft_deep(),
-            "perft-bench" => prompt_perft_bench(),
-            "bench-suite" => prompt_bench_suite(),
-            "divide" => prompt_divide(),
             "bench" => tasks::bench(),
             "search-bench" => prompt_search_bench(),
             "vs-search-bench" => prompt_vs_search_bench(),
             "release" => prompt_release(),
-            "sprt" => prompt_sprt(),
-            "sprt-report" => prompt_sprt_report(),
             _ => unreachable!(),
         };
 
@@ -84,30 +72,9 @@ fn ask_confirm(prompt: Confirm<'_>) -> Result<bool> {
     }
 }
 
-fn ask_tt() -> Result<bool> {
-    ask_confirm(Confirm::new("use transposition table?").with_default(false))
-}
-
 fn prompt_test() -> Result<()> {
     let filter = ask(Text::new("filter (blank = all)").with_default(""))?;
     tasks::test(Some(&filter))
-}
-
-fn prompt_perft_bench() -> Result<()> {
-    let fen = ask(Text::new("FEN").with_default(STARTPOS))?;
-    let depth = ask(Text::new("depth").with_default("6"))?;
-    let tt = ask_tt()?;
-    tasks::perft_bench(tt, Some(&fen), Some(&depth))
-}
-
-fn prompt_bench_suite() -> Result<()> {
-    tasks::bench_suite(ask_tt()?)
-}
-
-fn prompt_divide() -> Result<()> {
-    let fen = ask(Text::new("FEN").with_default(STARTPOS))?;
-    let depth = ask(Text::new("depth").with_default("1"))?;
-    tasks::divide(Some(&fen), Some(&depth))
 }
 
 fn prompt_search_bench() -> Result<()> {
@@ -123,57 +90,9 @@ fn prompt_vs_search_bench() -> Result<()> {
     vs_bench::vs_search_bench(&gitref, &depth, Some(&hash))
 }
 
-/// Pick one of the timestamped run folders under `rel`, newest first.
-fn pick_run(rel: &str, empty_msg: &str) -> Result<String> {
-    let mut names: Vec<String> = std::fs::read_dir(workspace_root().join(rel))
-        .ok()
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|e| e.path().is_dir())
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .collect();
-    if names.is_empty() {
-        return Err(empty_msg.into());
-    }
-    names.sort_unstable_by(|a, b| b.cmp(a)); // timestamp prefix: newest first
-    match Select::new("run", names).prompt() {
-        Ok(pick) => Ok(pick),
-        Err(InquireError::OperationCanceled | InquireError::OperationInterrupted) => {
-            Err(CANCELED.into())
-        }
-        Err(e) => Err(e.to_string()),
-    }
-}
-
 fn prompt_release() -> Result<()> {
     let nopext = ask_confirm(
         Confirm::new("also build a v3 without BMI2 (for Zen 1/2)?").with_default(false),
     )?;
     release::release(nopext)
-}
-
-fn prompt_sprt() -> Result<()> {
-    let defaults = SprtConfig::default();
-    let cfg = SprtConfig {
-        gitref: ask(Text::new("baseline ref").with_default(&defaults.gitref))?,
-        elo0: ask(Text::new("elo0").with_default(&defaults.elo0))?,
-        elo1: ask(Text::new("elo1").with_default(&defaults.elo1))?,
-        tc: ask(Text::new("time control").with_default(&defaults.tc))?,
-        concurrency: ask(Text::new("concurrency").with_default(&defaults.concurrency))?,
-        rounds: ask(Text::new("max rounds").with_default(&defaults.rounds))?,
-        book: None,
-        affinity: match ask(
-            Text::new("affinity (cpu list, `auto`, or empty for none)").with_default(""),
-        )? {
-            s if s.is_empty() => None,
-            s => Some(s),
-        },
-    };
-    sprt::sprt(&cfg)
-}
-
-fn prompt_sprt_report() -> Result<()> {
-    let pick = pick_run("target/sprt/runs", "no SPRT runs found under target/sprt/runs")?;
-    sprt_report::report_cmd(&pick)
 }
