@@ -451,9 +451,9 @@ impl Search {
             let give_check = board.is_check();
 
             // temporarily scrap this check extension
-            // if give_check && ply < self.root_depth / 2 {
-            //     extension += 1;
-            // }
+            if give_check && ply < self.root_depth / 2 {
+                extension += 1;
+            }
             let new_depth = (depth as i32 - 1 + extension).max(0) as usize;
 
             let mut score;
