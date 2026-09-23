@@ -6,13 +6,17 @@ use crate::tables::MAX_PLY;
 pub mod accumulator;
 pub mod network;
 pub mod stats;
+pub mod trace;
 
 pub(crate) const BUCKET_SIZE: usize = 768;
-const HL: usize = 512;
+const HL: usize = 1024;
+const L1: usize = 16;
+const L2: usize = 32;
 pub(crate) const QA: i16 = 255;
 const QB: i16 = 64;
 const SCALE: i32 = 400;
 pub(crate) const OUTPUT_BUCKETS: usize = 8;
+const FT_SHIFT: u32 = 9;
 
 #[rustfmt::skip]
 const KING_LAYOUT: [usize; 32] = [
@@ -51,8 +55,11 @@ pub fn eval(board: &Board, accumulator_stack: &mut [AccState; MAX_PLY], ply: usi
     materialize(&NETWORK, accumulator_stack, ply, us);
     materialize(&NETWORK, accumulator_stack, ply, !us);
 
-    const DIVISOR: usize = 32usize.div_ceil(OUTPUT_BUCKETS);
-    let o_bucket = (board.occ().pop_count() - 2) / DIVISOR;
+    evaluate(&NETWORK, &accumulator_stack[ply].accs[us], &accumulator_stack[ply].accs[!us], output_bucket(board))
+}
 
-    evaluate(&NETWORK, &accumulator_stack[ply].accs[us], &accumulator_stack[ply].accs[!us], o_bucket)
+pub(crate) const BUCKET_DIVISOR: usize = 32usize.div_ceil(OUTPUT_BUCKETS);
+
+pub fn output_bucket(board: &Board) -> usize {
+    (board.occ().pop_count() - 2) / BUCKET_DIVISOR
 }

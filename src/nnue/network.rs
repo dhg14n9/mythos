@@ -1,32 +1,37 @@
 use crate::board::board::Board;
 use crate::nnue::accumulator::{feature_index, king_context, needs_refresh, Accumulator, Delta, AccState, FinnyTable};
-use crate::nnue::{HL, INPUT, OUTPUT_BUCKETS, QA, QB, SCALE};
+use crate::nnue::{HL, INPUT, OUTPUT_BUCKETS, QA, QB, SCALE, L1, L2};
 use crate::types::{Color, Piece, Square};
 
 const NET_BYTES: usize = {
-    let raw = size_of::<[Accumulator; INPUT]>() // feature_weights
-        + size_of::<Accumulator>()              // feature_bias
-        + size_of::<[[i16; 2 * HL]; OUTPUT_BUCKETS]>() // output_weights
-        + size_of::<[i16; OUTPUT_BUCKETS]>();          // output_bias
+    let raw = size_of::<[Accumulator; INPUT]>()  // feature_weights
+        + size_of::<Accumulator>()                       // feature_bias
+        + size_of::<[[[i8; HL]; L1]; OUTPUT_BUCKETS]>()  // l1_weights
+        + size_of::<[[f32; L1]; OUTPUT_BUCKETS]>()       // l1_bias
+        + size_of::<[[[f32; L1]; L2]; OUTPUT_BUCKETS]>() // l2_weights
+        + size_of::<[[f32; L2]; OUTPUT_BUCKETS]>()       // l2_bias
+        + size_of::<[[f32; L2]; OUTPUT_BUCKETS]>()       // l3_weights
+        + size_of::<[f32; OUTPUT_BUCKETS]>();            // l3_bias
     let align = align_of::<Network>();
     (raw + align - 1) / align * align
 };
 
 const _: () = assert!(size_of::<Network>() == NET_BYTES);
+const _: () = assert!(size_of::<Network>() == 15_880_768);
 
 #[repr(C)]
 pub struct Network {
     feature_weights: [Accumulator; INPUT],
     feature_bias: Accumulator,
-    output_weights: [[i16; 2 * HL]; OUTPUT_BUCKETS],
-    output_bias: [i16; OUTPUT_BUCKETS]
+    l1_weights: [[[i8; HL]; L1]; OUTPUT_BUCKETS],
+    l1_bias: [[f32; L1]; OUTPUT_BUCKETS],
+    l2_weights: [[[f32; L1]; L2]; OUTPUT_BUCKETS],
+    l2_bias: [[f32; L2]; OUTPUT_BUCKETS],
+    l3_weights: [[f32; L2]; OUTPUT_BUCKETS],
+    l3_bias: [f32; OUTPUT_BUCKETS]
 }
 
 impl Network {
-    pub fn output_weights(&self, bucket: usize) -> &[i16; 2 * HL] {
-        &self.output_weights[bucket]
-    }
-
     pub fn feature_bias(&self) -> Accumulator {
         self.feature_bias
     }
@@ -63,78 +68,74 @@ pub fn refresh(net: &Network, board: &Board, perspective: Color) -> Accumulator 
 }
 
 pub fn evaluate(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usize) -> i32 {
-    let mut sum = forward(net, us, them, bucket);
+    let mut input = [0f32; HL];
+    pairwise(us, &mut input[..HL / 2]);
+    pairwise(them, &mut input[HL / 2..]);
 
-    sum /= QA as i32;
-    sum += net.output_bias[bucket] as i32;
-    sum *= SCALE;
-    sum /= (QA * QB) as i32;
+    let h1 = l1(net, &input, bucket);
+    let h2 = l2(net, &h1, bucket);
+    let out = l3(net, &h2, bucket);
 
-    sum
+    (out * SCALE as f32) as i32
 }
 
-#[inline]
-pub fn forward(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usize) -> i32 {
-    #[cfg(target_feature = "avx2")]
-    {
-        forward_avx2(net, us, them, bucket)
+pub(crate) fn pairwise(acc: &Accumulator, out: &mut [f32]) {
+    for i in 0..HL / 2 {
+        let a = acc.get(i);
+        let b = acc.get(i + HL / 2);
+
+        let a = a.clamp(0, QA);
+        let b = b.clamp(0, QA);
+
+        let a = (a as f32) / (QA as f32);
+        let b = (b as f32) / (QA as f32);
+
+        out[i] = a * b;
     }
-    #[cfg(not(target_feature = "avx2"))]
-    {
-        forward_scalar(net, us, them, bucket)
-    }
 }
+pub(crate) fn l1(net: &Network, input: &[f32; HL], bucket: usize) -> [f32; L1] {
+    let mut output = [0f32; L1];
 
-pub fn forward_scalar(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usize) -> i32 {
-    let mut sum = 0;
-
-    for i in 0..HL {
-        sum += screlu(us.get(i)) * net.output_weights[bucket][i] as i32;
-        sum += screlu(them.get(i)) * net.output_weights[bucket][HL + i] as i32;
-    }
-
-    sum
-}
-
-fn screlu(x: i16) -> i32 {
-    let y = i32::from(x).clamp(0, i32::from(QA));
-    y * y
-}
-
-
-#[cfg(target_feature = "avx2")]
-#[inline]
-fn forward_avx2(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usize) -> i32 {
-    use std::arch::x86_64::*;
-
-    const LANES: usize = 16;
-    const _: () = assert!(HL % LANES == 0, "HL must be a multiple of 16 for the AVX2 path");
-
-    unsafe {
-        let zero = _mm256_setzero_si256();
-        let upper = _mm256_set1_epi16(QA);
-        let mut acc = _mm256_setzero_si256();
-
-        for (side, offset) in [(us, 0usize), (them, HL)] {
-            let values = side.as_slice().as_ptr();
-            let weights = net.output_weights[bucket].as_ptr().add(offset);
-
-            let mut i = 0;
-            while i < HL {
-                let x = _mm256_load_si256(values.add(i).cast());
-                let x = _mm256_min_epi16(_mm256_max_epi16(x, zero), upper);
-
-                let xw = _mm256_mullo_epi16(x, _mm256_loadu_si256(weights.add(i).cast()));
-
-                acc = _mm256_add_epi32(acc, _mm256_madd_epi16(xw, x));
-
-                i += LANES;
-            }
+    for i in 0..L1 {
+        let mut sum: f32 = 0f32;
+        for j in 0..HL {
+            let weight = (net.l1_weights[bucket][i][j] as f32) / (QB as f32);
+            sum += input[j] * weight;
         }
-       let mut lanes = [0i32; 8];
-        _mm256_storeu_si256(lanes.as_mut_ptr().cast(), acc);
-        lanes.iter().sum()
+        sum += net.l1_bias[bucket][i];
+        output[i] = screlu(sum);
     }
+
+    output
+}
+
+fn l2(net: &Network, input: &[f32; L1], bucket: usize) -> [f32; L2] {
+    let mut output = [0f32; L2];
+
+    for i in 0..L2 {
+        let mut sum: f32 = 0f32;
+        for j in 0..L1 {
+            sum += input[j] * net.l2_weights[bucket][i][j];
+        }
+        sum += net.l2_bias[bucket][i];
+
+        output[i] = screlu(sum);
+    }
+
+    output
+}
+
+fn l3(net: &Network, input: &[f32; L2], bucket: usize) -> f32 {
+    let mut sum: f32 = 0f32;
+    for j in 0..L2 {
+        sum += input[j] * net.l3_weights[bucket][j];
+    }
+
+    sum + net.l3_bias[bucket]
+}
+
+fn screlu(x: f32) -> f32 {
+    x.clamp(0f32, 1f32).powi(2)
 }
 
 pub fn push(net: &Network, board: &Board, child: &mut AccState, delta: &Delta, finny_table: &mut FinnyTable) {
