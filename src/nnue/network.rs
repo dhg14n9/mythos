@@ -182,8 +182,6 @@ pub fn l1_int_avx2(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] 
     let mut sums = [0i32; L1];
 
     unsafe {
-        let ones = _mm256_set1_epi16(1);
-
         for n in (0..L1).step_by(GROUP) {
             let mut acc = [_mm256_setzero_si256(); GROUP];
 
@@ -191,7 +189,7 @@ pub fn l1_int_avx2(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] 
                 let x = _mm256_loadu_si256(input.as_ptr().add(i).cast());
                 for k in 0..GROUP {
                     let w = _mm256_loadu_si256(weights[n + k].as_ptr().add(i).cast());
-                    acc[k] = _mm256_add_epi32(acc[k], _mm256_madd_epi16(_mm256_maddubs_epi16(x, w), ones));
+                    acc[k] = dpbusd(acc[k], x, w);
                 }
             }
 
@@ -211,6 +209,20 @@ pub fn l1_int_avx2(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] 
     output
 }
 
+#[cfg(all(target_feature = "avx2", target_feature = "avxvnni"))]
+#[inline]
+unsafe fn dpbusd(acc: std::arch::x86_64::__m256i, x: std::arch::x86_64::__m256i, w: std::arch::x86_64::__m256i) -> std::arch::x86_64::__m256i {
+    unsafe { std::arch::x86_64::_mm256_dpbusd_avx_epi32(acc, x, w) }
+}
+
+#[cfg(all(target_feature = "avx2", not(target_feature = "avxvnni")))]
+#[inline]
+unsafe fn dpbusd(acc: std::arch::x86_64::__m256i, x: std::arch::x86_64::__m256i, w: std::arch::x86_64::__m256i) -> std::arch::x86_64::__m256i {
+    use std::arch::x86_64::*;
+
+    unsafe { _mm256_add_epi32(acc, _mm256_madd_epi16(_mm256_maddubs_epi16(x, w), _mm256_set1_epi16(1))) }
+}
+
 #[cfg(target_feature = "avx2")]
 #[inline]
 unsafe fn hsum_epi32(v: std::arch::x86_64::__m256i) -> i32 {
@@ -224,7 +236,19 @@ unsafe fn hsum_epi32(v: std::arch::x86_64::__m256i) -> i32 {
     }
 }
 
+#[inline]
 fn l2(net: &Network, input: &[f32; L1], bucket: usize) -> [f32; L2] {
+    #[cfg(all(target_feature = "avx2", target_feature = "fma"))]
+    {
+        l2_avx2(net, input, bucket)
+    }
+    #[cfg(not(all(target_feature = "avx2", target_feature = "fma")))]
+    {
+        l2_scalar(net, input, bucket)
+    }
+}
+
+pub fn l2_scalar(net: &Network, input: &[f32; L1], bucket: usize) -> [f32; L2] {
     let mut output = [0f32; L2];
 
     for i in 0..L2 {
@@ -240,7 +264,104 @@ fn l2(net: &Network, input: &[f32; L1], bucket: usize) -> [f32; L2] {
     output
 }
 
+// Eight row dot products at a time; the hadd tree reduces them to one vector of eight sums.
+#[cfg(all(target_feature = "avx2", target_feature = "fma"))]
+#[inline]
+pub fn l2_avx2(net: &Network, input: &[f32; L1], bucket: usize) -> [f32; L2] {
+    use std::arch::x86_64::*;
+
+    const LANES: usize = 8;
+    const _: () = assert!(L1 == 2 * LANES && L2 % LANES == 0);
+
+    let weights = &net.l2_weights[bucket];
+    let mut output = [0f32; L2];
+
+    unsafe {
+        let lo = _mm256_loadu_ps(input.as_ptr());
+        let hi = _mm256_loadu_ps(input.as_ptr().add(LANES));
+
+        for n in (0..L2).step_by(LANES) {
+            let row = |k: usize| {
+                let w = weights[n + k].as_ptr();
+                _mm256_fmadd_ps(hi, _mm256_loadu_ps(w.add(LANES)), _mm256_mul_ps(lo, _mm256_loadu_ps(w)))
+            };
+
+            let s01 = _mm256_hadd_ps(row(0), row(1));
+            let s23 = _mm256_hadd_ps(row(2), row(3));
+            let s45 = _mm256_hadd_ps(row(4), row(5));
+            let s67 = _mm256_hadd_ps(row(6), row(7));
+            let s0123 = _mm256_hadd_ps(s01, s23);
+            let s4567 = _mm256_hadd_ps(s45, s67);
+            let sums = _mm256_add_ps(
+                _mm256_permute2f128_ps::<0x20>(s0123, s4567),
+                _mm256_permute2f128_ps::<0x31>(s0123, s4567),
+            );
+
+            let sums = _mm256_add_ps(sums, _mm256_loadu_ps(net.l2_bias[bucket].as_ptr().add(n)));
+            _mm256_storeu_ps(output.as_mut_ptr().add(n), screlu_ps(sums));
+        }
+    }
+
+    output
+}
+
+#[inline]
 fn l3(net: &Network, input: &[f32; L2], bucket: usize) -> f32 {
+    #[cfg(all(target_feature = "avx2", target_feature = "fma"))]
+    {
+        l3_avx2(net, input, bucket)
+    }
+    #[cfg(not(all(target_feature = "avx2", target_feature = "fma")))]
+    {
+        l3_scalar(net, input, bucket)
+    }
+}
+
+#[cfg(all(target_feature = "avx2", target_feature = "fma"))]
+#[inline]
+pub fn l3_avx2(net: &Network, input: &[f32; L2], bucket: usize) -> f32 {
+    use std::arch::x86_64::*;
+
+    const LANES: usize = 8;
+    const _: () = assert!(L2 % LANES == 0);
+
+    let weights = &net.l3_weights[bucket];
+
+    unsafe {
+        let mut acc = _mm256_setzero_ps();
+        for i in (0..L2).step_by(LANES) {
+            acc = _mm256_fmadd_ps(_mm256_loadu_ps(input.as_ptr().add(i)), _mm256_loadu_ps(weights.as_ptr().add(i)), acc);
+        }
+
+        hsum_ps(acc) + net.l3_bias[bucket]
+    }
+}
+
+#[cfg(target_feature = "avx2")]
+#[inline]
+unsafe fn screlu_ps(x: std::arch::x86_64::__m256) -> std::arch::x86_64::__m256 {
+    use std::arch::x86_64::*;
+
+    unsafe {
+        let x = _mm256_min_ps(_mm256_max_ps(x, _mm256_setzero_ps()), _mm256_set1_ps(1.0));
+        _mm256_mul_ps(x, x)
+    }
+}
+
+#[cfg(target_feature = "avx2")]
+#[inline]
+unsafe fn hsum_ps(v: std::arch::x86_64::__m256) -> f32 {
+    use std::arch::x86_64::*;
+
+    unsafe {
+        let s = _mm_add_ps(_mm256_castps256_ps128(v), _mm256_extractf128_ps::<1>(v));
+        let s = _mm_add_ps(s, _mm_movehl_ps(s, s));
+        let s = _mm_add_ss(s, _mm_movehdup_ps(s));
+        _mm_cvtss_f32(s)
+    }
+}
+
+pub fn l3_scalar(net: &Network, input: &[f32; L2], bucket: usize) -> f32 {
     let mut sum: f32 = 0f32;
     for j in 0..L2 {
         sum += input[j] * net.l3_weights[bucket][j];
