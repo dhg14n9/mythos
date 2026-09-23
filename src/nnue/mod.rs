@@ -48,7 +48,11 @@ const _: () = assert!(BUCKET_COUNT == 10);
 
 pub(crate) const INPUT: usize = BUCKET_SIZE * BUCKET_COUNT;
 
-pub static NETWORK: Network = unsafe { std::mem::transmute(*include_bytes!(env!("MYTHOS_NET")))};
+pub static NETWORK: Network = unsafe {
+    let mut net: Network = std::mem::transmute(*include_bytes!(env!("MYTHOS_NET")));
+    net.transpose_l1();
+    net
+};
 
 pub fn eval(board: &Board, accumulator_stack: &mut [AccState; MAX_PLY], ply: usize) -> i32 {
     let us = board.stm();
