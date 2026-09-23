@@ -1,7 +1,9 @@
 use crate::board::board::Board;
 use crate::nnue::accumulator::{feature_index, king_context, needs_refresh, Accumulator, Delta, AccState, FinnyTable};
-use crate::nnue::{HL, INPUT, OUTPUT_BUCKETS, QA, QB, SCALE, L1, L2};
+use crate::nnue::{HL, INPUT, OUTPUT_BUCKETS, QA, QB, SCALE, L1, L2, FT_SHIFT};
 use crate::types::{Color, Piece, Square};
+
+const L1_SCALE: f32 = (1 << FT_SHIFT) as f32 / (QA as f32 * QB as f32 * QA as f32);
 
 const NET_BYTES: usize = {
     let raw = size_of::<[Accumulator; INPUT]>()  // feature_weights
@@ -68,18 +70,30 @@ pub fn refresh(net: &Network, board: &Board, perspective: Color) -> Accumulator 
 }
 
 pub fn evaluate(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usize) -> i32 {
-    let mut input = [0f32; HL];
-    pairwise(us, &mut input[..HL / 2]);
-    pairwise(them, &mut input[HL / 2..]);
+    let mut input = [0u8; HL];
+    pairwise_int(us, &mut input[..HL / 2]);
+    pairwise_int(them, &mut input[HL / 2..]);
 
-    let h1 = l1(net, &input, bucket);
+    let h1 = l1_int(net, &input, bucket);
     let h2 = l2(net, &h1, bucket);
     let out = l3(net, &h2, bucket);
 
     (out * SCALE as f32) as i32
 }
 
-pub(crate) fn pairwise(acc: &Accumulator, out: &mut [f32]) {
+#[inline]
+pub(crate) fn pairwise_int(acc: &Accumulator, out: &mut [u8]) {
+    #[cfg(target_feature = "avx2")]
+    {
+        pairwise_int_avx2(acc, out)
+    }
+    #[cfg(not(target_feature = "avx2"))]
+    {
+        pairwise_int_scalar(acc, out)
+    }
+}
+
+pub fn pairwise_int_scalar(acc: &Accumulator, out: &mut [u8]) {
     for i in 0..HL / 2 {
         let a = acc.get(i);
         let b = acc.get(i + HL / 2);
@@ -87,26 +101,127 @@ pub(crate) fn pairwise(acc: &Accumulator, out: &mut [f32]) {
         let a = a.clamp(0, QA);
         let b = b.clamp(0, QA);
 
-        let a = (a as f32) / (QA as f32);
-        let b = (b as f32) / (QA as f32);
-
-        out[i] = a * b;
+        out[i] = ((i32::from(a) * i32::from(b)) >> FT_SHIFT) as u8;
     }
 }
-pub(crate) fn l1(net: &Network, input: &[f32; HL], bucket: usize) -> [f32; L1] {
+
+// mulhi(a << 7, b) = (a * b) >> 9 without leaving i16: a << 7 <= 255 * 128 fits.
+#[cfg(target_feature = "avx2")]
+#[inline]
+pub fn pairwise_int_avx2(acc: &Accumulator, out: &mut [u8]) {
+    use std::arch::x86_64::*;
+
+    const LANES: usize = 16;
+    const _: () = assert!(HL / 2 % (2 * LANES) == 0, "HL / 2 must be a multiple of 32 for the AVX2 pairwise");
+    const _: () = assert!(FT_SHIFT == 9, "the mulhi trick is exact only for a shift of 9");
+    assert_eq!(out.len(), HL / 2);
+
+    unsafe {
+        let zero = _mm256_setzero_si256();
+        let upper = _mm256_set1_epi16(QA);
+        let values = acc.as_slice().as_ptr();
+
+        let product = |i: usize| {
+            let a = _mm256_load_si256(values.add(i).cast());
+            let b = _mm256_load_si256(values.add(i + HL / 2).cast());
+            let a = _mm256_min_epi16(_mm256_max_epi16(a, zero), upper);
+            let b = _mm256_min_epi16(_mm256_max_epi16(b, zero), upper);
+            _mm256_mulhi_epi16(_mm256_slli_epi16::<7>(a), b)
+        };
+
+        let mut i = 0;
+        while i < HL / 2 {
+            // packus interleaves 128-bit lanes
+            let packed = _mm256_packus_epi16(product(i), product(i + LANES));
+            let packed = _mm256_permute4x64_epi64::<0b11_01_10_00>(packed);
+            _mm256_storeu_si256(out.as_mut_ptr().add(i).cast(), packed);
+            i += 2 * LANES;
+        }
+    }
+}
+
+#[inline]
+pub(crate) fn l1_int(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] {
+    #[cfg(target_feature = "avx2")]
+    {
+        l1_int_avx2(net, input, bucket)
+    }
+    #[cfg(not(target_feature = "avx2"))]
+    {
+        l1_int_scalar(net, input, bucket)
+    }
+}
+
+pub fn l1_int_scalar(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] {
     let mut output = [0f32; L1];
 
     for i in 0..L1 {
-        let mut sum: f32 = 0f32;
+        let mut sum: i32 = 0;
         for j in 0..HL {
-            let weight = (net.l1_weights[bucket][i][j] as f32) / (QB as f32);
-            sum += input[j] * weight;
+            sum += i32::from(input[j]) * i32::from(net.l1_weights[bucket][i][j]);
         }
+        let mut sum = sum as f32 * L1_SCALE;
         sum += net.l1_bias[bucket][i];
         output[i] = screlu(sum);
     }
 
     output
+}
+
+// maddubs cannot saturate: inputs are <= 127, so a pair sums to at most 2 * 127 * 128.
+#[cfg(target_feature = "avx2")]
+#[inline]
+pub fn l1_int_avx2(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] {
+    use std::arch::x86_64::*;
+
+    const CHUNK: usize = 32;
+    const GROUP: usize = 4;
+    const _: () = assert!(HL % CHUNK == 0 && L1 % GROUP == 0);
+
+    let weights = &net.l1_weights[bucket];
+    let mut sums = [0i32; L1];
+
+    unsafe {
+        let ones = _mm256_set1_epi16(1);
+
+        for n in (0..L1).step_by(GROUP) {
+            let mut acc = [_mm256_setzero_si256(); GROUP];
+
+            for i in (0..HL).step_by(CHUNK) {
+                let x = _mm256_loadu_si256(input.as_ptr().add(i).cast());
+                for k in 0..GROUP {
+                    let w = _mm256_loadu_si256(weights[n + k].as_ptr().add(i).cast());
+                    acc[k] = _mm256_add_epi32(acc[k], _mm256_madd_epi16(_mm256_maddubs_epi16(x, w), ones));
+                }
+            }
+
+            for k in 0..GROUP {
+                sums[n + k] = hsum_epi32(acc[k]);
+            }
+        }
+    }
+
+    let mut output = [0f32; L1];
+    for i in 0..L1 {
+        let mut sum = sums[i] as f32 * L1_SCALE;
+        sum += net.l1_bias[bucket][i];
+        output[i] = screlu(sum);
+    }
+
+    output
+}
+
+#[cfg(target_feature = "avx2")]
+#[inline]
+unsafe fn hsum_epi32(v: std::arch::x86_64::__m256i) -> i32 {
+    use std::arch::x86_64::*;
+
+    unsafe {
+        let s = _mm_add_epi32(_mm256_castsi256_si128(v), _mm256_extracti128_si256::<1>(v));
+        let s = _mm_add_epi32(s, _mm_shuffle_epi32::<0b01_00_11_10>(s));
+        let s = _mm_add_epi32(s, _mm_shuffle_epi32::<0b10_11_00_01>(s));
+        _mm_cvtsi128_si32(s)
+    }
 }
 
 fn l2(net: &Network, input: &[f32; L1], bucket: usize) -> [f32; L2] {
