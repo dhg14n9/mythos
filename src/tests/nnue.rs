@@ -618,3 +618,38 @@ fn simd_l1_matches_scalar() {
         }
     }
 }
+
+// Not bit-exact: FMA and the hadd tree round differently from the scalar sums.
+#[cfg(all(target_feature = "avx2", target_feature = "fma"))]
+#[test]
+fn simd_l2_l3_match_scalar() {
+    use crate::nnue::network::{l1_int, l2_avx2, l2_scalar, l3_avx2, l3_scalar, pairwise_int};
+    use crate::nnue::HL;
+
+    let fens = UPDATE_FENS
+        .iter()
+        .copied()
+        .chain(HM_PAIRS.iter().flat_map(|&(a, b)| [a, b]))
+        .chain([STARTPOS, "8/8/8/8/8/8/4P3/4K2k w - - 0 1"]);
+
+    for fen in fens {
+        let board = Board::from_fen(fen).expect(fen);
+        let mut input = [0u8; HL];
+        pairwise_int(&refresh(&NETWORK, &board, board.stm()), &mut input[..HL / 2]);
+        pairwise_int(&refresh(&NETWORK, &board, !board.stm()), &mut input[HL / 2..]);
+
+        for bucket in 0..OUTPUT_BUCKETS {
+            let h1 = l1_int(&NETWORK, &input, bucket);
+            let scalar = l2_scalar(&NETWORK, &h1, bucket);
+            let simd = l2_avx2(&NETWORK, &h1, bucket);
+            assert!(
+                scalar.iter().zip(&simd).all(|(a, b)| (a - b).abs() <= 1e-5),
+                "{fen}: simd L2 disagreed with the scalar one in bucket {bucket}: {scalar:?} vs {simd:?}",
+            );
+
+            let scalar = l3_scalar(&NETWORK, &scalar, bucket);
+            let simd = l3_avx2(&NETWORK, &simd, bucket);
+            assert!((scalar - simd).abs() <= 1e-4, "{fen}: simd L3 disagreed with the scalar one in bucket {bucket}: {scalar} vs {simd}");
+        }
+    }
+}
