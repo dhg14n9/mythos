@@ -175,13 +175,15 @@ pub fn l1_int_avx2(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] 
     use std::arch::x86_64::*;
 
     const CHUNK: usize = 32;
-    const GROUP: usize = 4;
+    const GROUP: usize = 8;
     const _: () = assert!(HL % CHUNK == 0 && L1 % GROUP == 0);
 
     let weights = &net.l1_weights[bucket];
-    let mut sums = [0i32; L1];
+    let mut output = [0f32; L1];
 
     unsafe {
+        let scale = _mm256_set1_ps(L1_SCALE);
+
         for n in (0..L1).step_by(GROUP) {
             let mut acc = [_mm256_setzero_si256(); GROUP];
 
@@ -193,17 +195,22 @@ pub fn l1_int_avx2(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] 
                 }
             }
 
-            for k in 0..GROUP {
-                sums[n + k] = hsum_epi32(acc[k]);
-            }
-        }
-    }
+            let s01 = _mm256_hadd_epi32(acc[0], acc[1]);
+            let s23 = _mm256_hadd_epi32(acc[2], acc[3]);
+            let s45 = _mm256_hadd_epi32(acc[4], acc[5]);
+            let s67 = _mm256_hadd_epi32(acc[6], acc[7]);
+            let s0123 = _mm256_hadd_epi32(s01, s23);
+            let s4567 = _mm256_hadd_epi32(s45, s67);
+            let sums = _mm256_add_epi32(
+                _mm256_permute2x128_si256::<0x20>(s0123, s4567),
+                _mm256_permute2x128_si256::<0x31>(s0123, s4567),
+            );
 
-    let mut output = [0f32; L1];
-    for i in 0..L1 {
-        let mut sum = sums[i] as f32 * L1_SCALE;
-        sum += net.l1_bias[bucket][i];
-        output[i] = screlu(sum);
+            // mul then add, not FMA: keeps the rounding identical to l1_int_scalar
+            let sums = _mm256_mul_ps(_mm256_cvtepi32_ps(sums), scale);
+            let sums = _mm256_add_ps(sums, _mm256_loadu_ps(net.l1_bias[bucket].as_ptr().add(n)));
+            _mm256_storeu_ps(output.as_mut_ptr().add(n), screlu_ps(sums));
+        }
     }
 
     output
@@ -221,19 +228,6 @@ unsafe fn dpbusd(acc: std::arch::x86_64::__m256i, x: std::arch::x86_64::__m256i,
     use std::arch::x86_64::*;
 
     unsafe { _mm256_add_epi32(acc, _mm256_madd_epi16(_mm256_maddubs_epi16(x, w), _mm256_set1_epi16(1))) }
-}
-
-#[cfg(target_feature = "avx2")]
-#[inline]
-unsafe fn hsum_epi32(v: std::arch::x86_64::__m256i) -> i32 {
-    use std::arch::x86_64::*;
-
-    unsafe {
-        let s = _mm_add_epi32(_mm256_castsi256_si128(v), _mm256_extracti128_si256::<1>(v));
-        let s = _mm_add_epi32(s, _mm_shuffle_epi32::<0b01_00_11_10>(s));
-        let s = _mm_add_epi32(s, _mm_shuffle_epi32::<0b10_11_00_01>(s));
-        _mm_cvtsi128_si32(s)
-    }
 }
 
 #[inline]
