@@ -21,11 +21,32 @@ const NET_BYTES: usize = {
 const _: () = assert!(size_of::<Network>() == NET_BYTES);
 const _: () = assert!(size_of::<Network>() == 15_880_768);
 
+const NNZ_TABLE: [[u16; 8]; 256] = {
+    let mut table = [[0u16; 8]; 256];
+    let mut mask = 0;
+    while mask < 256 {
+        let mut n = 0;
+        let mut bit = 0;
+        while bit < 8 {
+            if mask & (1 << bit) != 0 {
+                table[mask][n] = bit;
+                n += 1;
+            }
+            bit += 1;
+        }
+        mask += 1;
+    }
+    table
+};
+
+const _: () = assert!(NNZ_TABLE[0b1010_0000][0] == 5 && NNZ_TABLE[0b1010_0000][1] == 7);
+const _: () = assert!(NNZ_TABLE[0xFF][7] == 7);
+
 #[repr(C)]
 pub struct Network {
     feature_weights: [Accumulator; INPUT],
     feature_bias: Accumulator,
-    l1_weights: [[[i8; HL]; L1]; OUTPUT_BUCKETS],
+    l1_weights: [[[i8; L1 * 4]; HL / 4]; OUTPUT_BUCKETS],
     l1_bias: [[f32; L1]; OUTPUT_BUCKETS],
     l2_weights: [[[f32; L1]; L2]; OUTPUT_BUCKETS],
     l2_bias: [[f32; L2]; OUTPUT_BUCKETS],
@@ -41,6 +62,27 @@ impl Network {
     pub fn feature_weights(&self) -> &[Accumulator; INPUT] {
         &self.feature_weights
     }
+
+    pub const fn transpose_l1(&mut self) {
+        let mut bucket = 0;
+        while bucket < OUTPUT_BUCKETS {
+            let old = self.l1_weights[bucket];
+
+            let mut o = 0;
+            while o < L1 {
+                let mut j = 0;
+                while j < HL {
+                    let p = o * HL + j;
+                    let w = old[p / (L1 * 4)][p % (L1 * 4)];
+                    self.l1_weights[bucket][j / 4][o * 4 + j % 4] = w;
+
+                    j += 1;
+                }
+                o += 1;
+            }
+            bucket += 1;
+        }
+    }
 }
 
 pub fn load_net(path: &str) -> Box<Network> {
@@ -51,6 +93,7 @@ pub fn load_net(path: &str) -> Box<Network> {
 
     unsafe {
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), net.as_mut_ptr().cast::<u8>(), size_of::<Network>());
+        net.assume_init_mut().transpose_l1();
         net.assume_init()
     }
 }
@@ -73,6 +116,7 @@ pub fn evaluate(net: &Network, us: &Accumulator, them: &Accumulator, bucket: usi
     let mut input = [0u8; HL];
     pairwise_int(us, &mut input[..HL / 2]);
     pairwise_int(them, &mut input[HL / 2..]);
+    crate::nnue::stats::record_l1_input(&input);
 
     let h1 = l1_int(net, &input, bucket);
     let h2 = l2(net, &h1, bucket);
@@ -158,7 +202,7 @@ pub fn l1_int_scalar(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1
     for i in 0..L1 {
         let mut sum: i32 = 0;
         for j in 0..HL {
-            sum += i32::from(input[j]) * i32::from(net.l1_weights[bucket][i][j]);
+            sum += i32::from(input[j]) * i32::from(net.l1_weights[bucket][j / 4][i * 4 + j % 4]);
         }
         let mut sum = sum as f32 * L1_SCALE;
         sum += net.l1_bias[bucket][i];
@@ -168,48 +212,111 @@ pub fn l1_int_scalar(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1
     output
 }
 
+#[inline]
+pub(crate) fn find_nnz(input: &[u8; HL], nnz: &mut [u16; HL / 4]) -> usize {
+    #[cfg(target_feature = "avx2")]
+    {
+        find_nnz_avx2(input, nnz)
+    }
+    #[cfg(not(target_feature = "avx2"))]
+    {
+        find_nnz_scalar(input, nnz)
+    }
+}
+
+pub fn find_nnz_scalar(input: &[u8; HL], nnz: &mut [u16; HL / 4]) -> usize {
+    let mut count = 0;
+    for (i, chunk) in input.chunks_exact(4).enumerate() {
+        let x = u32::from_ne_bytes(chunk.try_into().unwrap());
+        if x != 0 {
+            nnz[count] = i as u16;
+            count += 1;
+        }
+    }
+    count
+}
+
+#[cfg(target_feature = "avx2")]
+#[inline]
+pub fn find_nnz_avx2(input: &[u8; HL], nnz: &mut [u16; HL / 4]) -> usize {
+    use std::arch::x86_64::*;
+
+    const _: () = assert!(HL % 32 == 0);
+
+    let mut count = 0;
+
+    unsafe {
+        let zero = _mm256_setzero_si256();
+        let step = _mm_set1_epi16(8);
+        let mut base = _mm_setzero_si128();
+
+        for i in (0..HL).step_by(32) {
+            let v = _mm256_loadu_si256(input.as_ptr().add(i).cast());
+            let mask = _mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpgt_epi32(v, zero))) as usize;
+
+            let offsets = _mm_loadu_si128(NNZ_TABLE[mask].as_ptr().cast());
+            _mm_storeu_si128(nnz.as_mut_ptr().add(count).cast(), _mm_add_epi16(base, offsets));
+
+            count += mask.count_ones() as usize;
+            base = _mm_add_epi16(base, step);
+        }
+    }
+
+    count
+}
+
 // maddubs cannot saturate: inputs are <= 127, so a pair sums to at most 2 * 127 * 128.
 #[cfg(target_feature = "avx2")]
 #[inline]
 pub fn l1_int_avx2(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] {
     use std::arch::x86_64::*;
 
-    const CHUNK: usize = 32;
-    const GROUP: usize = 8;
-    const _: () = assert!(HL % CHUNK == 0 && L1 % GROUP == 0);
+    const _: () = assert!(L1 == 16, "two 8-lane accumulators cover L1");
+    const UNROLL: usize = 4;
 
     let weights = &net.l1_weights[bucket];
+    let mut nnz = [0u16; HL / 4];
+    let count = find_nnz(input, &mut nnz);
     let mut output = [0f32; L1];
 
     unsafe {
-        let scale = _mm256_set1_ps(L1_SCALE);
+        let chunks = input.as_ptr().cast::<i32>();
+        let mut lo = [_mm256_setzero_si256(); UNROLL];
+        let mut hi = [_mm256_setzero_si256(); UNROLL];
 
-        for n in (0..L1).step_by(GROUP) {
-            let mut acc = [_mm256_setzero_si256(); GROUP];
+        let accumulate = |lo: &mut __m256i, hi: &mut __m256i, c: u16| {
+            let c = c as usize;
+            let x = _mm256_set1_epi32(chunks.add(c).read_unaligned());
+            let w = weights[c].as_ptr();
+            *lo = dpbusd(*lo, x, _mm256_loadu_si256(w.cast()));
+            *hi = dpbusd(*hi, x, _mm256_loadu_si256(w.add(32).cast()));
+        };
 
-            for i in (0..HL).step_by(CHUNK) {
-                let x = _mm256_loadu_si256(input.as_ptr().add(i).cast());
-                for k in 0..GROUP {
-                    let w = _mm256_loadu_si256(weights[n + k].as_ptr().add(i).cast());
-                    acc[k] = dpbusd(acc[k], x, w);
-                }
+        // independent accumulators hide dpbusd latency; one pair would serialise the loop
+        let mut groups = nnz[..count].chunks_exact(UNROLL);
+        for group in &mut groups {
+            for k in 0..UNROLL {
+                accumulate(&mut lo[k], &mut hi[k], group[k]);
             }
+        }
+        for &c in groups.remainder() {
+            accumulate(&mut lo[0], &mut hi[0], c);
+        }
 
-            let s01 = _mm256_hadd_epi32(acc[0], acc[1]);
-            let s23 = _mm256_hadd_epi32(acc[2], acc[3]);
-            let s45 = _mm256_hadd_epi32(acc[4], acc[5]);
-            let s67 = _mm256_hadd_epi32(acc[6], acc[7]);
-            let s0123 = _mm256_hadd_epi32(s01, s23);
-            let s4567 = _mm256_hadd_epi32(s45, s67);
-            let sums = _mm256_add_epi32(
-                _mm256_permute2x128_si256::<0x20>(s0123, s4567),
-                _mm256_permute2x128_si256::<0x31>(s0123, s4567),
-            );
+        for k in 1..UNROLL {
+            lo[0] = _mm256_add_epi32(lo[0], lo[k]);
+            hi[0] = _mm256_add_epi32(hi[0], hi[k]);
+        }
+        let (lo, hi) = (lo[0], hi[0]);
 
+        let scale = _mm256_set1_ps(L1_SCALE);
+        let bias = net.l1_bias[bucket].as_ptr();
+
+        for (i, sums) in [(0, lo), (8, hi)] {
             // mul then add, not FMA: keeps the rounding identical to l1_int_scalar
             let sums = _mm256_mul_ps(_mm256_cvtepi32_ps(sums), scale);
-            let sums = _mm256_add_ps(sums, _mm256_loadu_ps(net.l1_bias[bucket].as_ptr().add(n)));
-            _mm256_storeu_ps(output.as_mut_ptr().add(n), screlu_ps(sums));
+            let sums = _mm256_add_ps(sums, _mm256_loadu_ps(bias.add(i)));
+            _mm256_storeu_ps(output.as_mut_ptr().add(i), screlu_ps(sums));
         }
     }
 
