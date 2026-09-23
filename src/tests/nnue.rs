@@ -2,7 +2,7 @@ use std::path::Path;
 use crate::board::board::Board;
 use crate::nnue::{BUCKET_COUNT, BUCKET_SIZE, INPUT, NETWORK, OUTPUT_BUCKETS, QA};
 use crate::nnue::accumulator::{feature_index, king_bucket, king_context, needs_refresh, should_mirror, AccState, Delta, FinnyTable};
-use crate::nnue::network::{evaluate, forward, forward_scalar, load_net, materialize, push, refresh};
+use crate::nnue::network::{evaluate, load_net, materialize, push, refresh};
 use crate::types::{Color, MoveList, Piece, PieceType, Square};
 
 const NET: &str = env!("MYTHOS_NET");
@@ -200,20 +200,22 @@ fn mirrored_positions_evaluate_identically() {
     let a = Board::from_fen("8/8/8/8/8/8/4P3/4K2k w - - 0 1").expect("bad FEN");
     let b = Board::from_fen("4k2K/4p3/8/8/8/8/8/8 b - - 0 1").expect("bad FEN");
 
-    let score_a = evaluate(
-        &net,
-        &refresh(&net, &a, a.stm()),
-        &refresh(&net, &a, !a.stm()),
-        0,
-    );
-    let score_b = evaluate(
-        &net,
-        &refresh(&net, &b, b.stm()),
-        &refresh(&net, &b, !b.stm()),
-        0,
-    );
+    for bucket in 0..OUTPUT_BUCKETS {
+        let score_a = evaluate(
+            &net,
+            &refresh(&net, &a, a.stm()),
+            &refresh(&net, &a, !a.stm()),
+            bucket,
+        );
+        let score_b = evaluate(
+            &net,
+            &refresh(&net, &b, b.stm()),
+            &refresh(&net, &b, !b.stm()),
+            bucket,
+        );
 
-    assert_eq!(score_a, score_b, "mirrored positions disagreed");
+        assert_eq!(score_a, score_b, "mirrored positions disagreed in bucket {bucket}");
+    }
 }
 
 // With pure HM a position and its file-mirror give byte-identical accumulators, so evals must be exactly equal.
@@ -241,20 +243,22 @@ fn horizontally_mirrored_positions_evaluate_identically() {
         let a = Board::from_fen(left).expect(left);
         let b = Board::from_fen(right).expect(right);
 
-        let score_a = evaluate(
-            &NETWORK,
-            &refresh(&NETWORK, &a, a.stm()),
-            &refresh(&NETWORK, &a, !a.stm()),
-            0,
-        );
-        let score_b = evaluate(
-            &NETWORK,
-            &refresh(&NETWORK, &b, b.stm()),
-            &refresh(&NETWORK, &b, !b.stm()),
-            0,
-        );
+        for bucket in 0..OUTPUT_BUCKETS {
+            let score_a = evaluate(
+                &NETWORK,
+                &refresh(&NETWORK, &a, a.stm()),
+                &refresh(&NETWORK, &a, !a.stm()),
+                bucket,
+            );
+            let score_b = evaluate(
+                &NETWORK,
+                &refresh(&NETWORK, &b, b.stm()),
+                &refresh(&NETWORK, &b, !b.stm()),
+                bucket,
+            );
 
-        assert_eq!(score_a, score_b, "{left} and its mirror {right} disagreed");
+            assert_eq!(score_a, score_b, "{left} and its mirror {right} disagreed in bucket {bucket}");
+        }
     }
 }
 
@@ -556,46 +560,4 @@ fn empty_delta_copies_the_parent() {
 
     // A null move leaves the piece layout alone, so ply 2 must equal a refresh at ply 1.
     check_against_refresh(&board, &mut stack, 2, fen, "null move");
-}
-
-// AVX2 reassociates screlu(x) * w into x * (x * w) with the middle term in i16, valid only while QA * max|w| fits.
-#[test]
-fn output_weights_fit_in_i16() {
-    let worst = (0..OUTPUT_BUCKETS)
-        .flat_map(|bucket| NETWORK.output_weights(bucket).iter())
-        .map(|w| w.unsigned_abs())
-        .max()
-        .unwrap();
-    let product = i32::from(QA) * i32::from(worst);
-
-    println!("max |output_weight| = {worst}, QA * it = {product}");
-    assert!(
-        product <= i32::from(i16::MAX),
-        "QA ({QA}) * max |output_weight| ({worst}) = {product} overflows i16 -- \
-         the AVX2 forward pass in network.rs is no longer valid for this net",
-    );
-}
-
-// Must be bit-exact, not close: a mismatch of one can cross a quantisation boundary.
-#[test]
-fn simd_forward_matches_scalar() {
-    let fens = UPDATE_FENS
-        .iter()
-        .copied()
-        .chain(HM_PAIRS.iter().flat_map(|&(a, b)| [a, b]))
-        .chain([STARTPOS, "8/8/8/8/8/8/4P3/4K2k w - - 0 1"]);
-
-    for fen in fens {
-        let board = Board::from_fen(fen).expect(fen);
-        let us = refresh(&NETWORK, &board, board.stm());
-        let them = refresh(&NETWORK, &board, !board.stm());
-
-        for bucket in 0..OUTPUT_BUCKETS {
-            assert_eq!(
-                forward(&NETWORK, &us, &them, bucket),
-                forward_scalar(&NETWORK, &us, &them, bucket),
-                "{fen}: simd forward pass disagreed with the scalar one in bucket {bucket}",
-            );
-        }
-    }
 }

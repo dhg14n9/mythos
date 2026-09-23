@@ -76,6 +76,7 @@ impl Session {
             }
             // Non-standard: dumps the OpenBench SPSA block
             "spsa" => crate::tunables::print_spsa(),
+            "eval" => crate::nnue::trace::print(&self.board),
             // Non-standard: OpenBench DATAGEN opening generation.
             "genfens" => genfens(args),
             "perftsuite" => {
