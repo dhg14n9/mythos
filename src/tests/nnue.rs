@@ -619,6 +619,49 @@ fn simd_l1_matches_scalar() {
     }
 }
 
+#[cfg(target_feature = "avx2")]
+#[test]
+fn simd_find_nnz_matches_scalar() {
+    use crate::nnue::network::{find_nnz_avx2, find_nnz_scalar, pairwise_int};
+    use crate::nnue::HL;
+
+    let fens = UPDATE_FENS
+        .iter()
+        .copied()
+        .chain(HM_PAIRS.iter().flat_map(|&(a, b)| [a, b]))
+        .chain([STARTPOS, "8/8/8/8/8/8/4P3/4K2k w - - 0 1"]);
+
+    let mut inputs: Vec<[u8; HL]> = fens
+        .map(|fen| {
+            let board = Board::from_fen(fen).expect(fen);
+            let mut input = [0u8; HL];
+            pairwise_int(&refresh(&NETWORK, &board, board.stm()), &mut input[..HL / 2]);
+            pairwise_int(&refresh(&NETWORK, &board, !board.stm()), &mut input[HL / 2..]);
+            input
+        })
+        .collect();
+
+    let mut edges = [[0u8; HL]; 3];
+    edges[1] = [127; HL];
+    edges[2][5] = 1;
+    edges[2][HL - 1] = 127;
+    inputs.extend(edges);
+
+    for input in &inputs {
+        let mut scalar = [0u16; HL / 4];
+        let mut simd = [0u16; HL / 4];
+        let n = find_nnz_scalar(input, &mut scalar);
+        let m = find_nnz_avx2(input, &mut simd);
+
+        assert_eq!(n, m, "simd find_nnz counted {m} chunks, scalar {n}");
+        assert_eq!(scalar[..n], simd[..m]);
+    }
+
+    let mut nnz = [0u16; HL / 4];
+    let n = find_nnz_scalar(&edges[2], &mut nnz);
+    assert_eq!(nnz[..n], [1, (HL / 4 - 1) as u16]);
+}
+
 // Not bit-exact: FMA and the hadd tree round differently from the scalar sums.
 #[cfg(all(target_feature = "avx2", target_feature = "fma"))]
 #[test]
