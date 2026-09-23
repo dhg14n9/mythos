@@ -2,7 +2,7 @@ use std::path::Path;
 use crate::board::board::Board;
 use crate::nnue::{BUCKET_COUNT, BUCKET_SIZE, INPUT, NETWORK, OUTPUT_BUCKETS, QA};
 use crate::nnue::accumulator::{feature_index, king_bucket, king_context, needs_refresh, should_mirror, AccState, Delta, FinnyTable};
-use crate::nnue::network::{evaluate, load_net, materialize, push, refresh};
+use crate::nnue::network::{evaluate, load_net, pairwise_int_scalar, materialize, push, refresh};
 use crate::types::{Color, MoveList, Piece, PieceType, Square};
 
 const NET: &str = env!("MYTHOS_NET");
@@ -560,4 +560,61 @@ fn empty_delta_copies_the_parent() {
 
     // A null move leaves the piece layout alone, so ply 2 must equal a refresh at ply 1.
     check_against_refresh(&board, &mut stack, 2, fen, "null move");
+}
+
+#[cfg(target_feature = "avx2")]
+#[test]
+fn simd_pairwise_matches_scalar() {
+    use crate::nnue::network::pairwise_int_avx2;
+    use crate::nnue::HL;
+
+    let fens = UPDATE_FENS
+        .iter()
+        .copied()
+        .chain(HM_PAIRS.iter().flat_map(|&(a, b)| [a, b]))
+        .chain([STARTPOS, "8/8/8/8/8/8/4P3/4K2k w - - 0 1"]);
+
+    for fen in fens {
+        let board = Board::from_fen(fen).expect(fen);
+        for color in Color::ALL {
+            let acc = refresh(&NETWORK, &board, color);
+            let mut scalar = [0u8; HL / 2];
+            let mut simd = [0u8; HL / 2];
+            pairwise_int_scalar(&acc, &mut scalar);
+            pairwise_int_avx2(&acc, &mut simd);
+
+            assert!(scalar == simd, "{fen}: simd pairwise disagreed with the scalar one for {color}");
+        }
+    }
+}
+
+// Bit-exact, not close: the i32 sums are order-independent, so any difference is a bug.
+#[cfg(target_feature = "avx2")]
+#[test]
+fn simd_l1_matches_scalar() {
+    use crate::nnue::network::{l1_int_avx2, l1_int_scalar, pairwise_int};
+    use crate::nnue::HL;
+
+    let fens = UPDATE_FENS
+        .iter()
+        .copied()
+        .chain(HM_PAIRS.iter().flat_map(|&(a, b)| [a, b]))
+        .chain([STARTPOS, "8/8/8/8/8/8/4P3/4K2k w - - 0 1"]);
+
+    for fen in fens {
+        let board = Board::from_fen(fen).expect(fen);
+        let mut input = [0u8; HL];
+        pairwise_int(&refresh(&NETWORK, &board, board.stm()), &mut input[..HL / 2]);
+        pairwise_int(&refresh(&NETWORK, &board, !board.stm()), &mut input[HL / 2..]);
+
+        for bucket in 0..OUTPUT_BUCKETS {
+            let scalar = l1_int_scalar(&NETWORK, &input, bucket);
+            let simd = l1_int_avx2(&NETWORK, &input, bucket);
+
+            assert!(
+                scalar.iter().zip(&simd).all(|(a, b)| a.to_bits() == b.to_bits()),
+                "{fen}: simd L1 disagreed with the scalar one in bucket {bucket}: {scalar:?} vs {simd:?}",
+            );
+        }
+    }
 }
