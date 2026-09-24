@@ -327,6 +327,12 @@ impl Search {
         //     return self.qsearch::<false>(board, alpha, beta, ply);
         // }
 
+        if !ROOT && self.should_rfp(board, beta, depth) &&
+            static_eval > beta + Self::rfp_margin(depth, improving) {
+            return static_eval
+        }
+
+
         if !ROOT && allow_null && self.should_nmp(beta, depth, board, static_eval) {
             self.cont_stack[ply] = None;
 
@@ -343,12 +349,6 @@ impl Search {
             if score >= beta {
                 return score
             }
-        }
-
-        let rfp_margin = Self::rfp_margin(depth, improving);
-
-        if !ROOT && self.should_rfp(board, beta, depth) && static_eval > beta + rfp_margin {
-            return static_eval
         }
 
         let mut best = -Score::MAX;
