@@ -53,6 +53,10 @@ tunables! {
     rfp_margin_mult       =      107,     40,    250,   10.0;
     rfp_max_depth         =        5,      3,     10,    0.5;
 
+    // Razoring
+    razor_margin          =      500,    150,   1000,   45.0;
+    razor_max_depth       =        5,      2,      8,    0.5;
+
     // Null move pruning
     nmp_min_depth         =        4,      2,      5,    0.5;
     nmp_base              =        2,      2,      5,    0.5;
