@@ -403,8 +403,14 @@ impl Search {
 
                 if score < s_beta {
                     extension = 1;
-                    if !PV && score < s_beta - se_double_margin() {
-                        extension = 2;
+                    if !PV {
+                        let dif = s_beta - score;
+                        if dif > se_triple_margin() {
+                            extension = 3;
+                        }
+                        else if dif > se_double_margin() {
+                            extension = 2;
+                        }
                     }
                 } else if s_beta >= beta && !PV {
                     return s_beta

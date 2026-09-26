@@ -127,6 +127,7 @@ tunables! {
     // singular / double extension
     se_margin              =      32,      8,    100,    4.0;
     se_double_margin       =      24,      4,    120,    5.0;
+    se_triple_margin       =      96,     32,    300,   12.0;
 
     // Improving. Only rfp for now
     improving_threshold    =       0,      0,    240,   12.0;
