@@ -405,7 +405,7 @@ impl Search {
                     extension = 1;
                     if !PV {
                         let dif = s_beta - score;
-                        if dif > se_triple_margin() {
+                        if mv.is_quiet() && dif > se_triple_margin() {
                             extension = 3;
                         }
                         else if dif > se_double_margin() {
