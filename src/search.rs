@@ -243,9 +243,11 @@ impl Search {
         mut alpha: i32,
         mut beta: i32,
         ply: usize,
-        allow_null: bool
+        allow_null: bool,
+        cut_node: bool
     ) -> i32 {
         debug_assert!(!ROOT || (PV && ply == 0));
+        debug_assert!(!PV || !cut_node);
 
         self.nodes += 1;
         self.pv_table.clear(ply);
@@ -337,7 +339,15 @@ impl Search {
             self.accumulator_stack[ply + 1].bucket = self.accumulator_stack[ply].bucket;
 
 
-            let score = -self.negamax::<false, false>(board, (depth - 1).saturating_sub(Self::nmp_reduction(depth)), -beta, -beta + 1, ply + 1, false);
+            let score = -self.negamax::<false, false>(
+                board,
+                (depth - 1).saturating_sub(Self::nmp_reduction(depth)),
+                -beta,
+                -beta + 1,
+                ply + 1,
+                false,
+                !cut_node
+            );
             board.unmake_null_move();
 
             if score >= beta {
@@ -396,7 +406,15 @@ impl Search {
 
 
                 self.excluded[ply] = mv;
-                let score = self.negamax::<false, false>(board, s_depth, s_beta - 1, s_beta, ply, false);
+                let score = self.negamax::<false, false>(
+                    board,
+                    s_depth,
+                    s_beta - 1,
+                    s_beta,
+                    ply,
+                    false,
+                    cut_node
+                );
                 self.excluded[ply] = Move::NULL;
 
                 self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() });
@@ -459,24 +477,56 @@ impl Search {
             let mut score;
 
             if i == 0 {
-                score = -self.negamax::<false, PV>(board, new_depth, -beta, -alpha, ply + 1, true);
+                score = -self.negamax::<false, PV>(
+                    board,
+                    new_depth,
+                    -beta,
+                    -alpha,
+                    ply + 1,
+                    true,
+                    !PV && !cut_node
+                );
             } else {
                 let r = if !ROOT && self.should_lmr(i, depth, mv, give_check, in_check, killers) {
-                    Self::lmr_reduction(depth, i, hist)
+                    Self::lmr_reduction(depth, i, hist) + if cut_node { lmr_cut_node() } else { 0 }
                 } else { 0 };
                 let r = r.min(new_depth.saturating_sub(1) as i32).max(0);
                 let reduced_depth = new_depth - r as usize;
 
-                score = -self.negamax::<false, false>(board, reduced_depth, -alpha - 1, -alpha, ply + 1, true);
+                score = -self.negamax::<false, false>(
+                    board,
+                    reduced_depth,
+                    -alpha - 1,
+                    -alpha,
+                    ply + 1,
+                    true,
+                    true
+                );
 
                 // re-search: the reduction was wrong
                 if score > alpha && reduced_depth < new_depth {
-                    score = -self.negamax::<false, false>(board, new_depth, -alpha - 1, -alpha, ply + 1, true);
+                    score = -self.negamax::<false, false>(
+                        board,
+                        new_depth,
+                        -alpha - 1,
+                        -alpha,
+                        ply + 1,
+                        true,
+                        !cut_node
+                    );
                 }
 
                 // new PV
                 if score > alpha && score < beta {
-                    score = -self.negamax::<false, PV>(board, new_depth, -beta, -alpha, ply + 1, true);
+                    score = -self.negamax::<false, PV>(
+                        board,
+                        new_depth,
+                        -beta,
+                        -alpha,
+                        ply + 1,
+                        true,
+                        false
+                    );
                 }
             }
 
@@ -594,7 +644,15 @@ impl Search {
             let mut alpha_tries: usize = 0;
             let mut beta_tries: usize = 0;
 
-            let mut score = self.negamax::<true, true>(board, depth, alpha, beta, 0, true);
+            let mut score = self.negamax::<true, true>(
+                board,
+                depth,
+                alpha,
+                beta,
+                0,
+                true,
+                false
+            );
 
             while !self.stopped && (alpha >= score || beta <= score) {
                 if alpha >= score {
@@ -615,7 +673,15 @@ impl Search {
                     };
                     beta_tries += 1;
                 }
-                score = self.negamax::<true, true>(board, depth, alpha, beta, 0, true);
+                score = self.negamax::<true, true>(
+                    board,
+                    depth,
+                    alpha,
+                    beta,
+                    0,
+                    true,
+                    false
+                );
             }
 
             if self.stopped || self.root_best_move.is_null() {
