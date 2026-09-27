@@ -323,9 +323,9 @@ impl Search {
         } else { depth };
 
         // temporary, havent sprt-ed
-        // if Self::should_razor(PV, in_check, static_eval, alpha, depth, tt_move, tt_bound) {
-        //     return self.qsearch::<false>(board, alpha, beta, ply);
-        // }
+        if Self::should_razor(PV, in_check, static_eval, alpha, depth, tt_move, tt_bound) {
+            return self.qsearch::<false>(board, alpha, beta, ply);
+        }
 
         if !ROOT && allow_null && self.should_nmp(beta, depth, board, static_eval) {
             self.cont_stack[ply] = None;
@@ -757,11 +757,11 @@ impl Search {
     fn should_razor(pv: bool, in_check: bool, static_eval: i32, alpha: i32, depth: usize, tt_move: Move, tt_bound: BoundType) -> bool {
         !pv
         && !in_check
-        && (static_eval < alpha - 500 * (depth * depth) as i32)
-        && alpha < 2000
-        && !tt_move.is_quiet()
-        && tt_bound != BoundType::Lower
-        && depth < 6
+        // && alpha < 2000
+        && static_eval < alpha - razor_margin() * (depth * depth) as i32
+        // && !tt_move.is_quiet()
+        // && tt_bound != BoundType::Lower
+        && depth <= razor_max_depth() as usize
     }
 
     fn should_iir(root: bool, depth: usize, tt_move: Move) -> bool {
