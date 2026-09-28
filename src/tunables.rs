@@ -68,6 +68,7 @@ tunables! {
     lmr_base              =      106,      0,    200,   10.0;
     lmr_div               =      199,    100,    400,   15.0;
     lmr_hist_div          =     7544,   2000,  20000,  900.0;
+    lmr_cut_node          =        1,      0,      3,    0.5;
 
     // Late move pruning
     lmp_base              =        2,      1,      8,    0.5;
