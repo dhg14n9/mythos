@@ -7,7 +7,7 @@ use crate::nnue;
 use crate::nnue::accumulator::{king_context, AccState, Delta, FinnyTable};
 use crate::nnue::NETWORK;
 use crate::nnue::network::push;
-use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY, CONT_LEN, CONT_OFFSET};
+use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY, CONT_LEN, CONT_OFFSET, MAX_CORR};
 use crate::tunables::*;
 use crate::types::{Color, Move, MoveList, PieceType, Score};
 
@@ -664,6 +664,13 @@ impl Search {
         if excluded_move.is_null() {
             self.trans_table.store(board.hash(), Score::to_tt(best, ply), best_move, depth, bound);
         }
+
+        if Self::should_correction(in_check, excluded_move, best_move, bound, best, static_eval) {
+            let bonus = ((best - static_eval) * depth as i32 * corr_bonus_mult() / 100).clamp(-MAX_CORR / 4, MAX_CORR / 4);
+
+            self.thread_data.correction.update(stm, board.pawn_key(), bonus);
+        }
+
         best
     }
 
@@ -874,6 +881,17 @@ impl Search {
         // && !tt_move.is_quiet()
         // && tt_bound != BoundType::Lower
         && depth <= razor_max_depth() as usize
+    }
+
+    fn should_correction(in_check: bool, excluded_move: Move, best_move: Move, bound: BoundType, best: i32, static_eval: i32) -> bool {
+        !in_check &&
+            excluded_move.is_null() &&
+            (best_move.is_null() || !best_move.is_noisy()) &&
+            match bound {
+                BoundType::Exact => { true }
+                BoundType::Lower => { best >= static_eval }
+                BoundType::Upper => { best <= static_eval }
+            }
     }
 
     fn should_iir(root: bool, depth: usize, tt_move: Move) -> bool {
