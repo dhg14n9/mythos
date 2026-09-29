@@ -169,6 +169,28 @@ impl Search {
             return 0; // search cancelled
         }
 
+        let tt_entry = self.trans_table.probe(board.hash());
+        let mut tt_move = Move::NULL;
+        let mut tt_score = Score::NONE;
+        let mut tt_depth = 0;
+        let mut tt_bound = BoundType::Upper;
+        if let Some((score, best, entry_depth, bound)) = tt_entry {
+            tt_move = best;
+            tt_score = Score::from_tt(score, ply);
+            tt_depth = entry_depth;
+            tt_bound = bound;
+
+            let cut = match bound {
+                BoundType::Exact => true,
+                BoundType::Lower => tt_score >= beta,
+                BoundType::Upper => tt_score <= alpha
+            };
+            if !PV && cut {
+                return tt_score;
+            }
+
+        }
+
         let in_check = board.is_check();
         let static_eval = if in_check { -Score::INF } else { nnue::eval(board, &mut self.accumulator_stack, ply) };
 
@@ -178,6 +200,7 @@ impl Search {
 
 
         let mut best = -Score::MAX;
+        let mut best_move = Move::NULL;
 
         if !in_check {
             best = static_eval;
@@ -187,7 +210,7 @@ impl Search {
             alpha = alpha.max(best);
         }
 
-        let mut move_picker = MovePicker::new(Move::NULL);
+        let mut move_picker = MovePicker::new(tt_move);
         move_picker.gen_move(board, true);
 
         if in_check {
@@ -221,6 +244,7 @@ impl Search {
 
             if best > alpha {
                 alpha = best;
+                best_move = mv;
 
                 if PV {
                     self.pv_table.update(ply, mv);
@@ -230,6 +254,12 @@ impl Search {
             if alpha >= beta {
                 break;
             };
+        }
+
+        let bound = if best >= beta { BoundType::Lower } else { BoundType::Upper };
+
+        if !self.stopped {
+            self.trans_table.store(board.hash(), Score::to_tt(best, ply), best_move, 0, bound);
         }
 
         best
