@@ -10,6 +10,14 @@ fn suite_fens_round_trip() {
     }
 }
 
+#[test]
+fn bench_fens_round_trip() {
+    for fen in crate::bench::bench_positions() {
+        let board = Board::from_fen(fen).unwrap_or_else(|e| panic!("bad FEN {fen}: {e}"));
+        assert_eq!(board.to_fen(), fen);
+    }
+}
+
 // game_ply and half_move only move under make_move, so compare Zobrist keys instead of strings.
 #[test]
 fn round_trip_after_moves() {

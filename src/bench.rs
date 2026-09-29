@@ -8,8 +8,9 @@ use crate::types::MoveList;
 // Andrew Wagner's verified perft suite — 127 positions with known leaf counts
 // (http://www.rocechess.ch/perft.html)
 const EPD: &str = include_str!("tests/perft_bench.epd");
+const BENCH_EPD: &str = include_str!("bench.epd");
 
-pub const BENCH_DEPTH: usize = 13;
+pub const BENCH_DEPTH: usize = 12;
 pub const BENCH_HASH_MB: usize = 16;
 
 // `bench [depth] [--hash MB]`, shared by the `bench` subcommand and UCI `bench`.
@@ -60,6 +61,14 @@ pub fn cases() -> Vec<(&'static str, usize, u64)> {
         .collect()
 }
 
+pub fn bench_positions() -> Vec<&'static str> {
+    BENCH_EPD
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect()
+}
+
 pub fn group_digits(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
@@ -73,12 +82,11 @@ pub fn group_digits(n: u64) -> String {
     out
 }
 
-// Search bench: fixed-depth search over a spread of suite positions; the total node count fingerprints the search.
+// Search bench: fixed-depth search over bench.epd; the total node count fingerprints the search.
 pub fn search_bench(depth: usize, hash_mb: usize) {
     crate::nnue::stats::reset();
 
-    let cases = cases();
-    let positions: Vec<&str> = cases.iter().step_by(6).map(|&(fen, _, _)| fen).collect();
+    let positions = bench_positions();
 
     let mut total_nodes = 0u64;
     let suite_start = Instant::now();
