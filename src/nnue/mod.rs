@@ -9,7 +9,7 @@ pub mod stats;
 pub mod trace;
 
 pub(crate) const BUCKET_SIZE: usize = 768;
-pub(crate) const HL: usize = 1024;
+pub(crate) const HL: usize = 768;
 const L1: usize = 16;
 const L2: usize = 32;
 pub(crate) const QA: i16 = 255;

@@ -19,7 +19,6 @@ const NET_BYTES: usize = {
 };
 
 const _: () = assert!(size_of::<Network>() == NET_BYTES);
-const _: () = assert!(size_of::<Network>() == 15_880_768);
 
 const NNZ_TABLE: [[u16; 8]; 256] = {
     let mut table = [[0u16; 8]; 256];
