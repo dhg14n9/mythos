@@ -259,11 +259,38 @@ pub struct ContKey {
     pub(crate) square: Square
 }
 
+const CORR_SIZE: usize = 16384;
+const MAX_CORR: i32 = 16384;
+
+pub struct Correction {
+    array: Box<[[i16; CORR_SIZE]; 2]>
+}
+
+impl Correction {
+    pub fn new() -> Self {
+        Self {
+            array: Box::from([[0; CORR_SIZE]; 2])
+        }
+    }
+
+    pub fn probe(&self, color: Color, pawn_key: u64) -> i32 {
+        self.array[color][pawn_key as usize & (CORR_SIZE - 1)] as i32
+    }
+
+    pub fn update(&mut self, color: Color, pawn_key: u64, diff: i32) {
+        let entry = &mut self.array[color][pawn_key as usize & (CORR_SIZE - 1)];
+        let mut value = *entry as i32;
+        apply::<MAX_CORR>(&mut value, diff);
+        *entry = value as i16
+    }
+}
+
 pub struct ThreadData {
     pub butterfly: Butterfly,
     pub killer: Killer,
     pub continuation: Continuation,
-    pub capture: Capture
+    pub capture: Capture,
+    pub correction: Correction
 }
 
 impl ThreadData {
@@ -272,7 +299,8 @@ impl ThreadData {
             butterfly: Butterfly::new(),
             killer: Killer::new(),
             continuation: Continuation::new(),
-            capture: Capture::new()
+            capture: Capture::new(),
+            correction: Correction::new()
         }
     }
 
