@@ -235,6 +235,7 @@ impl Search {
             let delta = Delta::new(board, mv);
 
             board.make_move(mv);
+            self.trans_table.prefetch(board.hash());
 
             push(&NETWORK, board, &mut self.accumulator_stack[ply + 1], &delta, &mut self.finny_table);
 
@@ -495,6 +496,7 @@ impl Search {
             let delta = Delta::new(board, mv);
 
             board.make_move(mv);
+            self.trans_table.prefetch(board.hash());
 
             push(&NETWORK, board, &mut self.accumulator_stack[ply + 1], &delta, &mut self.finny_table);
 

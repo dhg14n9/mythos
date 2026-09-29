@@ -46,6 +46,17 @@ impl TransTable {
         ((key as u128 * num_entry as u128) >> 64) as usize
     }
 
+    pub fn prefetch(&self, key: u64) {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+            let slot = &self.array[Self::index(key, self.num_entry)];
+            _mm_prefetch::<_MM_HINT_T0>(slot as *const Slot as *const i8);
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        let _ = key;
+    }
+
     pub fn probe(&self, key: u64) -> Option<(i32, Move, usize, BoundType)> {
         let slot = &self.array[Self::index(key, self.num_entry)];
         let key_cell = slot.key.load(Ordering::Relaxed);
