@@ -139,6 +139,7 @@ tunables! {
     rfp_improvement_mult   =     100,      0,    200,   10.0;
 
     corr_bonus_mult        =     200,     50,    600,   25.0;
+    corr_div               =     128,     16,    256,   12.0;
 
 }
 

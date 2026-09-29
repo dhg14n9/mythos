@@ -192,7 +192,10 @@ impl Search {
         }
 
         let in_check = board.is_check();
-        let static_eval = if in_check { -Score::INF } else { nnue::eval(board, &mut self.accumulator_stack, ply) };
+        let static_eval = if in_check { -Score::INF } else {
+            let raw = nnue::eval(board, &mut self.accumulator_stack, ply);
+            self.corrected_eval(board, raw)
+        };
 
         if ply >= MAX_PLY - 1 {
             return nnue::eval(board, &mut self.accumulator_stack, ply);
@@ -349,7 +352,10 @@ impl Search {
 
         let stm = board.stm();
         let in_check = board.is_check();
-        let static_eval = if in_check { -Score::INF } else { nnue::eval(board, &mut self.accumulator_stack, ply) };
+        let static_eval = if in_check { -Score::INF } else {
+            let raw = nnue::eval(board, &mut self.accumulator_stack, ply);
+            self.corrected_eval(board, raw)
+        };
 
         self.eval_ply[ply] = if in_check { Score::NONE } else { static_eval };
 
@@ -938,6 +944,12 @@ impl Search {
         }
         self.accumulator_stack[ply].computed = [true; 2];
 
+    }
+
+    fn corrected_eval(&self, board: &Board, raw_eval: i32) -> i32 {
+        let entry = self.thread_data.correction.probe(board.stm(), board.pawn_key());
+        let correction = entry / corr_div();
+        (raw_eval + correction).clamp(-Score::MATE, Score::MATE)
     }
 }
 
