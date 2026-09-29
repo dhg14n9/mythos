@@ -44,6 +44,7 @@ Mythos leans heavily on the work and generosity of the computer-chess community:
   and bulletformat for the training-data format.
 - **[Leela Chess Zero](https://lczero.org/)** and everyone who contributes games
   to it — the T91 run's data is what the current net is pretrained on
+- My big brother's RTX 2060 Super for training the current net. 
 
 
 ## License
