@@ -425,9 +425,11 @@ impl Search {
                         extension = 2;
                     }
                 } else if s_beta >= beta && !PV {
-                    return s_beta
+                    return s_beta;
                 } else if tt_score > beta {
                     extension = -2;
+                } else if cut_node {
+                    extension = -se_cut_node_neg_ext();
                 }
 
             }
