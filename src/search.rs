@@ -203,7 +203,19 @@ impl Search {
         let mut best_move = Move::NULL;
 
         if !in_check {
-            best = static_eval;
+            use BoundType::{Upper, Lower, Exact};
+
+            best = if tt_score == Score::NONE {
+                static_eval
+            } else if tt_bound == Exact ||
+                (tt_bound == Lower && tt_score > static_eval) ||
+                (tt_bound == Upper && tt_score < static_eval)
+            {
+                tt_score
+            } else {
+                static_eval
+            };
+
             if best >= beta {
                 return best;
             }
