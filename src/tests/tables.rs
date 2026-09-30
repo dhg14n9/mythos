@@ -1,7 +1,7 @@
 use crate::tables::{BoundType, TransTable};
 use crate::types::{Move, Score};
 
-// Scores live in an i16, so the widest ones the search produces must survive the narrowing.
+// Scores and evals live in an i16, so the widest ones the search produces must survive the narrowing.
 #[test]
 fn store_probe_round_trip() {
     let tt = TransTable::new(1);
@@ -26,14 +26,15 @@ fn store_probe_round_trip() {
                         .wrapping_mul(6364136223846793005)
                         .wrapping_add(1442695040888963407);
 
-                    tt.store(key, score, mv, depth, bound);
-                    let (got_score, got_mv, got_depth, got_bound) =
-                        tt.probe(key).expect("an entry just stored must probe back");
+                    let eval = -score;
+                    tt.store(key, score, mv, depth, bound, eval);
+                    let hit = tt.probe(key).expect("an entry just stored must probe back");
 
-                    assert_eq!(got_score, score, "score, depth {depth}");
-                    assert_eq!(got_mv, mv, "move, score {score}");
-                    assert_eq!(got_depth, depth, "depth, score {score}");
-                    assert_eq!(got_bound, bound, "bound, score {score}");
+                    assert_eq!(hit.score, score, "score, depth {depth}");
+                    assert_eq!(hit.eval, eval, "eval, score {score}");
+                    assert_eq!(hit.mv, mv, "move, score {score}");
+                    assert_eq!(hit.depth, depth, "depth, score {score}");
+                    assert_eq!(hit.bound, bound, "bound, score {score}");
                 }
             }
         }
@@ -46,7 +47,7 @@ fn probe_rejects_wrong_key() {
     let tt = TransTable::new(1);
     let key = 0x0123_4567_89ab_cdefu64;
 
-    tt.store(key, 123, Move::from_raw(0x1234), 9, BoundType::Exact);
+    tt.store(key, 123, Move::from_raw(0x1234), 9, BoundType::Exact, 45);
 
     assert!(tt.probe(key).is_some(), "the stored key must hit");
     assert!(tt.probe(key ^ 1).is_none(), "a neighbouring key must not");
@@ -64,7 +65,7 @@ fn hashfull_tracks_occupancy() {
         key = key
             .wrapping_mul(6364136223846793005)
             .wrapping_add(1442695040888963407);
-        tt.store(key, 0, Move::NULL, 1, BoundType::Exact);
+        tt.store(key, 0, Move::NULL, 1, BoundType::Exact, 0);
     }
 
     // 200k spread-out stores into 98k entries leaves nearly all of them written.
@@ -84,21 +85,21 @@ fn empty_entry_never_hits() {
     assert!(tt.probe(0xabcd_0000_0000_0000).is_none());
 }
 
-// A shallower non-exact result for the same position keeps the deeper entry, but still refreshes its move.
+// A shallower non-exact result for the same position keeps the deeper entry and its eval, but still refreshes its move.
 #[test]
 fn same_key_keeps_deeper_entry() {
     let tt = TransTable::new(1);
     let key = 0x0123_4567_89ab_cdefu64;
 
-    tt.store(key, 50, Move::from_raw(0x1234), 12, BoundType::Lower);
-    tt.store(key, -20, Move::from_raw(0x4321), 3, BoundType::Upper);
+    tt.store(key, 50, Move::from_raw(0x1234), 12, BoundType::Lower, 30);
+    tt.store(key, -20, Move::from_raw(0x4321), 3, BoundType::Upper, -99);
 
-    let (score, mv, depth, bound) = tt.probe(key).unwrap();
-    assert_eq!((score, depth, bound), (50, 12, BoundType::Lower));
-    assert_eq!(mv, Move::from_raw(0x4321));
+    let hit = tt.probe(key).unwrap();
+    assert_eq!((hit.score, hit.depth, hit.bound, hit.eval), (50, 12, BoundType::Lower, 30));
+    assert_eq!(hit.mv, Move::from_raw(0x4321));
 
-    tt.store(key, 7, Move::NULL, 2, BoundType::Exact);
-    let (score, mv, depth, bound) = tt.probe(key).unwrap();
-    assert_eq!((score, depth, bound), (7, 2, BoundType::Exact));
-    assert_eq!(mv, Move::from_raw(0x4321), "a null move must not erase the stored one");
+    tt.store(key, 7, Move::NULL, 2, BoundType::Exact, Score::NONE);
+    let hit = tt.probe(key).unwrap();
+    assert_eq!((hit.score, hit.depth, hit.bound, hit.eval), (7, 2, BoundType::Exact, Score::NONE));
+    assert_eq!(hit.mv, Move::from_raw(0x4321), "a null move must not erase the stored one");
 }

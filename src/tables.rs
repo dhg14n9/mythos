@@ -12,6 +12,14 @@ pub enum BoundType {
     Upper
 }
 
+pub struct TTHit {
+    pub score: i32,
+    pub mv: Move,
+    pub depth: usize,
+    pub bound: BoundType,
+    pub eval: i32
+}
+
 #[derive(Default)]
 #[repr(C)]
 struct Entry {
@@ -78,12 +86,13 @@ impl TransTable {
         let _ = key;
     }
 
-    pub fn probe(&self, key: u64) -> Option<(i32, Move, usize, BoundType)> {
+    pub fn probe(&self, key: u64) -> Option<TTHit> {
         let key16 = key as u16;
         let entry = self.cluster(key).entries.iter()
             .find(|e| e.key.load(Relaxed) == key16 && e.depth.load(Relaxed) != 0)?;
 
         let score = entry.score.load(Relaxed) as i32;
+        let eval = entry.eval.load(Relaxed) as i32;
         let mv = Move::from_raw(entry.mv.load(Relaxed));
         let depth = entry.depth.load(Relaxed) as usize - DEPTH_OFFSET;
         let bound = match entry.flags.load(Relaxed) & BOUND_MASK {
@@ -91,10 +100,10 @@ impl TransTable {
             1 => BoundType::Lower,
             _ => BoundType::Upper
         };
-        Some((score, mv, depth, bound))
+        Some(TTHit { score, mv, depth, bound, eval })
     }
 
-    pub fn store(&self, key: u64, score: i32, best: Move, depth: usize, bound_type: BoundType) {
+    pub fn store(&self, key: u64, score: i32, best: Move, depth: usize, bound_type: BoundType, eval: i32) {
         debug_assert!(score.abs() <= Score::NONE, "score {score} overflows the 16-bit field");
         debug_assert!(depth + DEPTH_OFFSET < 256, "depth {depth} overflows the 8-bit field");
 
@@ -121,7 +130,7 @@ impl TransTable {
 
         entry.key.store(key16, Relaxed);
         entry.score.store(score as i16, Relaxed);
-        entry.eval.store(Score::NONE as i16, Relaxed);
+        entry.eval.store(eval as i16, Relaxed);
         entry.depth.store((depth + DEPTH_OFFSET) as u8, Relaxed);
         entry.flags.store((self.generation << AGE_SHIFT) | bound_type as u8, Relaxed);
     }
