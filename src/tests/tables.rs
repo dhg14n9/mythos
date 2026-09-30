@@ -1,8 +1,7 @@
 use crate::tables::{BoundType, TransTable};
 use crate::types::{Move, Score};
 
-// A single u64 carries score, move, depth and bound, so only a store/probe round trip catches a wrong shift or mask.
-// Negative scores matter most: they need an arithmetic shift, and a logical one turns them into large positives.
+// Scores live in an i16, so the widest ones the search produces must survive the narrowing.
 #[test]
 fn store_probe_round_trip() {
     let tt = TransTable::new(1);
@@ -12,13 +11,12 @@ fn store_probe_round_trip() {
         Score::MAX, -Score::MAX,
         Score::INF, -Score::INF,
         Score::NONE, -Score::NONE,
-        (1 << 17) - 1, -(1 << 17), // the widest values the field can hold
     ];
     let moves = [Move::NULL, Move::from_raw(0xffff), Move::from_raw(0x1234)];
-    let depths = [0usize, 1, 7, 254, 255];
+    let depths = [0usize, 1, 7, 253, 254];
     let bounds = [BoundType::Exact, BoundType::Lower, BoundType::Upper];
 
-// store is depth-preferred, so walking depth ascending guarantees every store wins and a missing probe is a real bug.
+// Every key is fresh, so each store lands in the cluster and a missing probe is a real bug.
     let mut key = 0x9e37_79b9_7f4a_7c15u64;
     for &depth in &depths {
         for &score in &scores {
@@ -42,7 +40,7 @@ fn store_probe_round_trip() {
     }
 }
 
-// The table is lockless: the slot holds `key ^ data`, so a torn or unrelated entry fails the XOR check.
+// Entries keep only the low 16 key bits; flipping one of them must miss.
 #[test]
 fn probe_rejects_wrong_key() {
     let tt = TransTable::new(1);
@@ -58,7 +56,7 @@ fn probe_rejects_wrong_key() {
 // hashfull has to read 0 when empty and near-full when saturated.
 #[test]
 fn hashfull_tracks_occupancy() {
-    let tt = TransTable::new(1); // 1 MiB / 16 B = 65536 slots
+    let tt = TransTable::new(1); // 1 MiB / 32 B = 32768 clusters of 3
     assert_eq!(tt.hashfull(), 0, "a fresh table reads empty");
 
     let mut key = 1u64;
@@ -69,11 +67,38 @@ fn hashfull_tracks_occupancy() {
         tt.store(key, 0, Move::NULL, 1, BoundType::Exact);
     }
 
-    // 200k spread-out stores into 65k slots leaves ~95% of them written.
+    // 200k spread-out stores into 98k entries leaves nearly all of them written.
     let full = tt.hashfull();
     assert!(full > 500, "saturated table read {full} permille");
     assert!(full <= 1000, "permille out of range: {full}");
 
     tt.clear();
     assert_eq!(tt.hashfull(), 0, "clear resets the gauge");
+}
+
+// A fresh table must not hit on a key whose low 16 bits are zero.
+#[test]
+fn empty_entry_never_hits() {
+    let tt = TransTable::new(1);
+    assert!(tt.probe(0).is_none());
+    assert!(tt.probe(0xabcd_0000_0000_0000).is_none());
+}
+
+// A shallower non-exact result for the same position keeps the deeper entry, but still refreshes its move.
+#[test]
+fn same_key_keeps_deeper_entry() {
+    let tt = TransTable::new(1);
+    let key = 0x0123_4567_89ab_cdefu64;
+
+    tt.store(key, 50, Move::from_raw(0x1234), 12, BoundType::Lower);
+    tt.store(key, -20, Move::from_raw(0x4321), 3, BoundType::Upper);
+
+    let (score, mv, depth, bound) = tt.probe(key).unwrap();
+    assert_eq!((score, depth, bound), (50, 12, BoundType::Lower));
+    assert_eq!(mv, Move::from_raw(0x4321));
+
+    tt.store(key, 7, Move::NULL, 2, BoundType::Exact);
+    let (score, mv, depth, bound) = tt.probe(key).unwrap();
+    assert_eq!((score, depth, bound), (7, 2, BoundType::Exact));
+    assert_eq!(mv, Move::from_raw(0x4321), "a null move must not erase the stored one");
 }

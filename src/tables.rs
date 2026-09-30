@@ -1,7 +1,7 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI16, AtomicU16, AtomicU8};
 use std::sync::atomic::Ordering::Relaxed;
-use crate::types::{Color, Move, Piece, PieceType, Square};
+use crate::types::{Color, Move, Piece, PieceType, Score, Square};
 
 #[derive(Default, Copy, Clone, PartialEq, Debug)]
 #[repr(u8)]
@@ -13,134 +13,150 @@ pub enum BoundType {
 }
 
 #[derive(Default)]
-pub struct Slot {
-    key: AtomicU64,
-    data: AtomicU64
+#[repr(C)]
+struct Entry {
+    key: AtomicU16,
+    mv: AtomicU16,
+    score: AtomicI16,
+    eval: AtomicI16,
+    depth: AtomicU8,
+    flags: AtomicU8
 }
+
+const CLUSTER_SIZE: usize = 3;
+
+#[derive(Default)]
+#[repr(C, align(32))]
+struct Cluster {
+    entries: [Entry; CLUSTER_SIZE]
+}
+
+const _: () = assert!(size_of::<Entry>() == 10);
+const _: () = assert!(size_of::<Cluster>() == 32);
 
 #[derive(Clone)]
 pub struct TransTable {
-    array: Arc<[Slot]>,
-    num_entry: usize,
+    array: Arc<[Cluster]>,
+    num_cluster: usize,
     pub generation: u8,
 }
 
-const BOUND_SHIFT: usize =  0;
-const DEPTH_SHIFT: usize =  2;
-const MOVE_SHIFT : usize = 10;
-const AGE_SHIFT  : usize = 26;
-const SCORE_SHIFT: usize = 46;
+// flags: [ age: 5 ][ pv: 1, unused ][ bound: 2 ]
+const AGE_SHIFT: u8 = 3;
+const BOUND_MASK: u8 = 3;
 
-const AGE_PEN: u8 = 4;
+// Stored depth is offset by one so that 0 marks an empty entry.
+const DEPTH_OFFSET: usize = 1;
+
+const AGE_PEN: i32 = 4;
 
 
 impl TransTable {
-    pub const AGE_MASK: u8 = 0x3F;
+    pub const AGE_MASK: u8 = 0x1F;
 
     pub fn new(size_mb: usize) -> Self {
-        let num_entry = (size_mb.max(1) * 1024 * 1024) / size_of::<Slot>();
-        let array: Arc<[Slot]> = (0..num_entry).map(|_| Slot::default()).collect();
-        Self { array, num_entry, generation: 0 }
+        let num_cluster = (size_mb.max(1) * 1024 * 1024) / size_of::<Cluster>();
+        let array: Arc<[Cluster]> = (0..num_cluster).map(|_| Cluster::default()).collect();
+        Self { array, num_cluster, generation: 0 }
     }
-    fn index(key: u64, num_entry: usize) -> usize {
-        ((key as u128 * num_entry as u128) >> 64) as usize
+
+    fn index(key: u64, num_cluster: usize) -> usize {
+        ((key as u128 * num_cluster as u128) >> 64) as usize
+    }
+
+    fn cluster(&self, key: u64) -> &Cluster {
+        &self.array[Self::index(key, self.num_cluster)]
     }
 
     pub fn prefetch(&self, key: u64) {
         #[cfg(target_arch = "x86_64")]
         unsafe {
             use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
-            let slot = &self.array[Self::index(key, self.num_entry)];
-            _mm_prefetch::<_MM_HINT_T0>(slot as *const Slot as *const i8);
+            _mm_prefetch::<_MM_HINT_T0>(self.cluster(key) as *const Cluster as *const i8);
         }
         #[cfg(not(target_arch = "x86_64"))]
         let _ = key;
     }
 
     pub fn probe(&self, key: u64) -> Option<(i32, Move, usize, BoundType)> {
-        let slot = &self.array[Self::index(key, self.num_entry)];
-        let key_cell = slot.key.load(Ordering::Relaxed);
-        let data = slot.data.load(Ordering::Relaxed);
-        if key_cell ^ data == key {
-            let (score, mv, depth, bound_type, _) = Self::unpack(data);
-            Some((score, mv, depth, bound_type))
-        } else {
-            None
-        }
+        let key16 = key as u16;
+        let entry = self.cluster(key).entries.iter()
+            .find(|e| e.key.load(Relaxed) == key16 && e.depth.load(Relaxed) != 0)?;
+
+        let score = entry.score.load(Relaxed) as i32;
+        let mv = Move::from_raw(entry.mv.load(Relaxed));
+        let depth = entry.depth.load(Relaxed) as usize - DEPTH_OFFSET;
+        let bound = match entry.flags.load(Relaxed) & BOUND_MASK {
+            0 => BoundType::Exact,
+            1 => BoundType::Lower,
+            _ => BoundType::Upper
+        };
+        Some((score, mv, depth, bound))
     }
 
     pub fn store(&self, key: u64, score: i32, best: Move, depth: usize, bound_type: BoundType) {
-        let slot = &self.array[Self::index(key, self.num_entry)];
-        let (_, _, entry_depth, _, entry_age) = Self::unpack(slot.data.load(Relaxed));
-        let real_age = (self.generation.wrapping_sub(entry_age)) & Self::AGE_MASK;
+        debug_assert!(score.abs() <= Score::NONE, "score {score} overflows the 16-bit field");
+        debug_assert!(depth + DEPTH_OFFSET < 256, "depth {depth} overflows the 8-bit field");
 
-        if (depth as i32) < Self::quality(entry_depth, real_age) {
-            return
+        let key16 = key as u16;
+        let entries = &self.cluster(key).entries;
+
+        let entry = entries.iter()
+            .find(|e| e.depth.load(Relaxed) == 0 || e.key.load(Relaxed) == key16)
+            .unwrap_or_else(|| entries.iter().min_by_key(|e| self.quality(e)).unwrap());
+
+        let same_key = entry.key.load(Relaxed) == key16 && entry.depth.load(Relaxed) != 0;
+
+        if !(same_key && best.is_null()) {
+            entry.mv.store(best.raw(), Relaxed);
         }
 
-        let data = Self::pack(score, best, depth, bound_type, self.generation);
-        slot.key.store(key ^ data, Ordering::Relaxed);
-        slot.data.store(data, Ordering::Relaxed);
+        if same_key
+            && bound_type != BoundType::Exact
+            && self.age(entry) == 0
+            && depth + DEPTH_OFFSET + 4 <= entry.depth.load(Relaxed) as usize
+        {
+            return;
+        }
+
+        entry.key.store(key16, Relaxed);
+        entry.score.store(score as i16, Relaxed);
+        entry.eval.store(Score::NONE as i16, Relaxed);
+        entry.depth.store((depth + DEPTH_OFFSET) as u8, Relaxed);
+        entry.flags.store((self.generation << AGE_SHIFT) | bound_type as u8, Relaxed);
     }
 
     pub fn clear(&self) {
-        for slot in self.array.iter() {
-            slot.key.store(0, Ordering::Relaxed);
-            slot.data.store(0, Ordering::Relaxed);
+        for entry in self.array.iter().flat_map(|c| &c.entries) {
+            entry.key.store(0, Relaxed);
+            entry.mv.store(0, Relaxed);
+            entry.score.store(0, Relaxed);
+            entry.eval.store(0, Relaxed);
+            entry.depth.store(0, Relaxed);
+            entry.flags.store(0, Relaxed);
         }
     }
 
-
     pub fn hashfull(&self) -> usize {
-        let sample = self.num_entry.min(1000);
+        let sample = self.num_cluster.min(1000);
         if sample == 0 {
             return 0;
         }
         let used = self.array[..sample]
             .iter()
-            .filter(|slot| {
-                slot.key.load(Ordering::Relaxed) != 0 || slot.data.load(Ordering::Relaxed) != 0
-            })
+            .flat_map(|c| &c.entries)
+            .filter(|e| e.depth.load(Relaxed) != 0 && self.age(e) == 0)
             .count();
-        used * 1000 / sample
+        used * 1000 / (sample * CLUSTER_SIZE)
     }
 
-    // The whole entry lives in one u64:
-    //
-    //   63            46 45      32 31       26 25        10 9       2 1   0
-    //  [ score: 18 sgn ][ free: 14 ][ age: 6  ] [ move: 16 ] [depth: 8] [bnd]
-    //
-    // score sits at the top so unpack sign-extends with one arithmetic shift.
-    // age wraps every 64 searches, hence the wrapping_sub in store.
-    fn pack(score: i32, best: Move, depth: usize, bound_type: BoundType, age: u8) -> u64 {
-        debug_assert!(
-            (-(1 << 17)..(1 << 17)).contains(&score),
-            "score {score} overflows the 18-bit field"
-        );
-        debug_assert!(depth < 256, "depth {depth} overflows the 8-bit field");
-
-        ((score as u64) << SCORE_SHIFT)         |
-            ((best.raw() as u64) << MOVE_SHIFT) |
-            ((depth as u64) << DEPTH_SHIFT)     |
-            ((bound_type as u64) << BOUND_SHIFT)|
-            ((age as u64) << AGE_SHIFT)
+    fn age(&self, entry: &Entry) -> u8 {
+        let entry_age = entry.flags.load(Relaxed) >> AGE_SHIFT;
+        self.generation.wrapping_sub(entry_age) & Self::AGE_MASK
     }
 
-    fn unpack(data: u64) -> (i32, Move, usize, BoundType, u8) {
-        let score = (data as i64 >> SCORE_SHIFT) as i32;
-        let mv = Move::from_raw(((data >> MOVE_SHIFT) & 0xffff) as u16);
-        let depth = ((data >> DEPTH_SHIFT) & 0xff) as usize;
-        let bound_type = match data & 3 {
-            0 => BoundType::Exact,
-            1 => BoundType::Lower,
-            _ => BoundType::Upper
-        };
-        let age = ((data >> AGE_SHIFT) as u8) & Self::AGE_MASK;
-        (score, mv, depth, bound_type, age)
-    }
-
-    fn quality(depth: usize, real_age: u8) -> i32 {
-        depth as i32 - (AGE_PEN as i32 * real_age as i32)
+    fn quality(&self, entry: &Entry) -> i32 {
+        entry.depth.load(Relaxed) as i32 - AGE_PEN * self.age(entry) as i32
     }
 
 }
