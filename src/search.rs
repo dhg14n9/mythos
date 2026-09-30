@@ -169,18 +169,22 @@ impl Search {
             return 0; // search cancelled
         }
 
-        let tt_entry = self.trans_table.probe(board.hash());
+        let in_check = board.is_check();
+
+        let tt_hit = self.trans_table.probe(board.hash());
         let mut tt_move = Move::NULL;
         let mut tt_score = Score::NONE;
         let mut tt_depth = 0;
         let mut tt_bound = BoundType::Upper;
-        if let Some((score, best, entry_depth, bound)) = tt_entry {
-            tt_move = best;
-            tt_score = Score::from_tt(score, ply);
-            tt_depth = entry_depth;
-            tt_bound = bound;
+        let mut tt_eval = Score::NONE;
+        if let Some(hit) = tt_hit {
+            tt_move = hit.mv;
+            tt_score = Score::from_tt(hit.score, ply);
+            tt_depth = hit.depth;
+            tt_bound = hit.bound;
+            tt_eval = hit.eval;
 
-            let cut = match bound {
+            let cut = match tt_bound {
                 BoundType::Exact => true,
                 BoundType::Lower => tt_score >= beta,
                 BoundType::Upper => tt_score <= alpha
@@ -191,11 +195,8 @@ impl Search {
 
         }
 
-        let in_check = board.is_check();
-        let static_eval = if in_check { -Score::INF } else {
-            let raw = nnue::eval(board, &mut self.accumulator_stack, ply);
-            self.corrected_eval(board, raw)
-        };
+        let raw_eval = if in_check { Score::NONE } else if tt_eval != Score::NONE { tt_eval } else { nnue::eval(board, &mut self.accumulator_stack, ply) };
+        let static_eval = if in_check { -Score::INF } else { self.corrected_eval(board, raw_eval) };
 
         if ply >= MAX_PLY - 1 {
             return nnue::eval(board, &mut self.accumulator_stack, ply);
@@ -275,7 +276,7 @@ impl Search {
         let bound = if best >= beta { BoundType::Lower } else { BoundType::Upper };
 
         if !self.stopped {
-            self.trans_table.store(board.hash(), Score::to_tt(best, ply), best_move, 0, bound);
+            self.trans_table.store(board.hash(), Score::to_tt(best, ply), best_move, 0, bound, raw_eval);
         }
 
         best
@@ -323,19 +324,22 @@ impl Search {
         }
 
         let excluded_move = self.excluded[ply];
+        let in_check = board.is_check();
 
-        let tt_entry = self.trans_table.probe(board.hash());
+        let tt_hit = self.trans_table.probe(board.hash());
         let mut tt_move = Move::NULL;
         let mut tt_score = Score::NONE;
         let mut tt_depth = 0;
         let mut tt_bound = BoundType::Upper;
-        if let Some((score, best, entry_depth, bound)) = tt_entry {
-            tt_move = best;
-            tt_score = Score::from_tt(score, ply);
-            tt_depth = entry_depth;
-            tt_bound = bound;
-            if entry_depth >= depth && !PV && excluded_move.is_null() {
-                let cut = match bound {
+        let mut tt_eval = Score::NONE;
+        if let Some(hit) = tt_hit {
+            tt_move = hit.mv;
+            tt_score = Score::from_tt(hit.score, ply);
+            tt_depth = hit.depth;
+            tt_bound = hit.bound;
+            tt_eval = hit.eval;
+            if tt_depth >= depth && !PV && excluded_move.is_null() {
+                let cut = match tt_bound {
                     BoundType::Exact => true,
                     BoundType::Lower => tt_score >= beta,
                     BoundType::Upper => tt_score <= alpha
@@ -351,11 +355,8 @@ impl Search {
         };
 
         let stm = board.stm();
-        let in_check = board.is_check();
-        let static_eval = if in_check { -Score::INF } else {
-            let raw = nnue::eval(board, &mut self.accumulator_stack, ply);
-            self.corrected_eval(board, raw)
-        };
+        let raw_eval = if in_check { Score::NONE } else if tt_eval != Score::NONE { tt_eval } else { nnue::eval(board, &mut self.accumulator_stack, ply) };
+        let static_eval = if in_check { -Score::INF } else { self.corrected_eval(board, raw_eval) };
 
         self.eval_ply[ply] = if in_check { Score::NONE } else { static_eval };
 
@@ -668,7 +669,7 @@ impl Search {
         else                  { BoundType::Exact };
 
         if excluded_move.is_null() {
-            self.trans_table.store(board.hash(), Score::to_tt(best, ply), best_move, depth, bound);
+            self.trans_table.store(board.hash(), Score::to_tt(best, ply), best_move, depth, bound, raw_eval);
         }
 
         if Self::should_correction(in_check, excluded_move, best_move, bound, best, static_eval) {
@@ -811,7 +812,8 @@ impl Search {
             }
             seen.push(key);
 
-            let Some((_, mv, _, _)) = self.trans_table.probe(key) else { break };
+            let Some(hit) = self.trans_table.probe(key) else { break };
+            let mv = hit.mv;
 
             if mv.is_null() || !Self::pv_move_is_legal(&board, mv) {
                 break;

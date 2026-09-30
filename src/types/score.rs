@@ -2,10 +2,10 @@ pub struct Score;
 
 impl Score {
     pub const ZERO: i32 = 0;
-    pub const MAX: i32 = 50000;
-    pub const INF: i32 = 50001;
-    pub const NONE: i32 = 50002;
-    pub const MATE: i32 = 40000; 
+    pub const MAX: i32 = 32000;
+    pub const INF: i32 = 32001;
+    pub const NONE: i32 = 32002;
+    pub const MATE: i32 = 30000;
 
     pub fn mate_in(ply: usize) -> i32 {
         Self::MAX - ply as i32
