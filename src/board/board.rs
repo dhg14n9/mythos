@@ -1,9 +1,6 @@
 use crate::board::lookup::{bishop_attack, king_attack, knight_attack, pawn_attack, rook_attack};
 use crate::types::uninit_array::UninitArray;
-use crate::types::{
-    Bitboard, Castling, CastlingKind, Color, File, Move, MoveKind, Piece, PieceType, Rank, Square,
-    ZobristHelper,
-};
+use crate::types::{Bitboard, Castling, CastlingKind, Color, File, Move, MoveKind, Piece, PieceType, Rank, Square, ZobristHelper};
 
 const MAX_STATE_ARRAY_LENGTH: usize = 1024;
 
@@ -14,7 +11,8 @@ pub struct StateInfo {
     pub castling_right: Castling,
     pub en_passant: Square,
     pub captured_piece: Piece,
-    pub checkers: Bitboard
+    pub checkers: Bitboard,
+    pub pawn_key: u64
 }
 
 #[derive(Clone)]
@@ -33,6 +31,7 @@ pub struct Board {
 
     pub(super) state_history: UninitArray<StateInfo, MAX_STATE_ARRAY_LENGTH>,
     pub(super) checkers: Bitboard,
+    pub(super) pawn_key: u64,
 }
 
 impl Board {
@@ -50,6 +49,7 @@ impl Board {
             piece_count: [0; Piece::NUM],
             state_history: UninitArray::new(),
             checkers: Bitboard::EMPTY,
+            pawn_key: 0
         };
 
         let mut parts = fen.split_whitespace();
@@ -209,9 +209,18 @@ impl Board {
         self.zobrist
     }
 
+    pub fn pawn_key(&self) -> u64 {
+        self.pawn_key
+    }
+
     pub fn place_piece(&mut self, piece: Piece, square: Square) {
         self.place_piece_unhashed(piece, square);
-        self.zobrist ^= ZobristHelper::square(square, piece);
+
+        let key = ZobristHelper::square(square, piece);
+        self.zobrist ^= key;
+        if piece.piece_type() == PieceType::Pawn {
+            self.pawn_key ^= key;
+        }
     }
 
     pub fn clear_square(&mut self, square: Square) {
@@ -237,7 +246,12 @@ impl Board {
 
     fn remove_piece(&mut self, piece: Piece, square: Square) {
         self.remove_piece_unhashed(piece, square);
-        self.zobrist ^= ZobristHelper::square(square, piece);
+
+        let key = ZobristHelper::square(square, piece);
+        self.zobrist ^= key;
+        if piece.piece_type() == PieceType::Pawn {
+            self.pawn_key ^= key;
+        }
     }
 
     fn move_piece_unhashed(&mut self, piece: Piece, from: Square, to: Square) {
@@ -250,7 +264,12 @@ impl Board {
 
     fn move_piece(&mut self, piece: Piece, from: Square, to: Square) {
         self.move_piece_unhashed(piece, from, to);
-        self.zobrist ^= ZobristHelper::square(from, piece) ^ ZobristHelper::square(to, piece);
+        let key = ZobristHelper::square(from, piece) ^ ZobristHelper::square(to, piece);
+        self.zobrist ^= key;
+
+        if piece.piece_type() == PieceType::Pawn {
+            self.pawn_key ^= key;
+        }
     }
 
     // state properties only, no piece movement
@@ -261,7 +280,8 @@ impl Board {
             castling_right: self.castling_right,
             en_passant: self.en_passant,
             captured_piece,
-            checkers: self.checkers
+            checkers: self.checkers,
+            pawn_key: self.pawn_key
         })
     }
 
@@ -273,6 +293,7 @@ impl Board {
         self.castling_right = prev_state.castling_right;
         self.en_passant = prev_state.en_passant;
         self.checkers = prev_state.checkers;
+        self.pawn_key = prev_state.pawn_key;
 
         prev_state.captured_piece
     }
