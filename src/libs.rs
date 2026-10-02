@@ -2,6 +2,7 @@
 
 pub mod bench;
 pub mod board;
+pub mod datagen;
 pub mod movepicker;
 pub mod tunables;
 pub mod types;

@@ -147,37 +147,51 @@ pub(crate) fn gen_openings(count: usize, seed: u64, book: Option<&str>, mut emit
     }
 
     let mut rng = Rng::new(seed);
-    let start = Board::start_pos();
-
     let trans_table = TransTable::new(GENFENS_HASH);
     let mut thread_data = ThreadData::new();
 
     for _ in 0..count {
-        for tries in 0..GENFENS_TRIES {
-            let plies = GENFENS_PLIES + rng.next_below(2) as usize;
-            let Some(mut board) = random_line(&mut rng, &start, plies) else {
-                continue;
-            };
-
-            let mut list = MoveList::new();
-            board.gen_move(&mut list, false);
-            if list.len() == 0 || board.is_draw() {
-                continue;
-            }
-
-            let mut search = Search::new(TimeControl::infinite(), trans_table.clone(), thread_data);
-            search.silent = true;
-            let (_, score) = search.iterative(&mut board, GENFENS_DEPTH);
-            thread_data = search.thread_data;
-
-            if score.abs() > GENFENS_CUTOFF && tries + 1 < GENFENS_TRIES {
-                continue;
-            }
-
+        let board;
+        (board, thread_data) = random_opening(&mut rng, &trans_table, thread_data, GENFENS_PLIES);
+        if let Some(board) = board {
             emit(&board.to_fen());
-            break;
         }
     }
+}
+
+pub(crate) fn random_opening(
+    rng: &mut Rng,
+    trans_table: &TransTable,
+    mut thread_data: ThreadData,
+    base_plies: usize
+) -> (Option<Board>, ThreadData) {
+    let start = Board::start_pos();
+
+    for tries in 0..GENFENS_TRIES {
+        let plies = base_plies + rng.next_below(2) as usize;
+        let Some(mut board) = random_line(rng, &start, plies) else {
+            continue;
+        };
+
+        let mut list = MoveList::new();
+        board.gen_move(&mut list, false);
+        if list.len() == 0 || board.is_draw() {
+            continue;
+        }
+
+        let mut search = Search::new(TimeControl::infinite(), trans_table.clone(), thread_data);
+        search.silent = true;
+        let (_, score) = search.iterative(&mut board, GENFENS_DEPTH);
+        thread_data = search.thread_data;
+
+        if score.abs() > GENFENS_CUTOFF && tries + 1 < GENFENS_TRIES {
+            continue;
+        }
+
+        return (Some(board), thread_data);
+    }
+
+    (None, thread_data)
 }
 
 fn random_line(rng: &mut Rng, start: &Board, plies: usize) -> Option<Board> {
@@ -320,7 +334,8 @@ fn go(
             soft_lim,
             hard_lim,
             soft_base: soft_lim,
-            hard_node
+            hard_node,
+            soft_node: u64::MAX
         };
         let mut search = Search::new(time_control, tt, td);
         let best = search.iterative(&mut board, max_depth);

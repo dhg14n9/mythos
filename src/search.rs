@@ -86,7 +86,8 @@ pub struct TimeControl {
     pub soft_lim: Duration,
     pub hard_lim: Duration,
     pub soft_base: Duration,
-    pub hard_node: u64
+    pub hard_node: u64,
+    pub soft_node: u64
 }
 
 impl TimeControl {
@@ -97,7 +98,8 @@ impl TimeControl {
             soft_lim: Duration::MAX,
             hard_lim: Duration::MAX,
             soft_base: Duration::MAX,
-            hard_node: u64::MAX
+            hard_node: u64::MAX,
+            soft_node: u64::MAX
         }
     }
 }
@@ -697,7 +699,7 @@ impl Search {
         self.refresh_accumulators(board, 0);
 
         for depth in 1..=max_depth {
-            if self.time_control.start.elapsed() > self.time_control.soft_lim {
+            if self.time_control.start.elapsed() > self.time_control.soft_lim || self.nodes >= self.time_control.soft_node {
                 break;
             }
             self.root_depth = depth;

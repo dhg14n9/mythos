@@ -13,6 +13,7 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("datagen") => std::process::exit(mythos::datagen::run(&args[1..])),
         _ => mythos::uci::run(&args),
     }
 }
