@@ -2,7 +2,7 @@ use std::path::Path;
 use crate::board::board::Board;
 use crate::nnue::{BUCKET_COUNT, BUCKET_SIZE, INPUT, NETWORK, OUTPUT_BUCKETS, QA};
 use crate::nnue::accumulator::{feature_index, king_bucket, king_context, needs_refresh, should_mirror, AccState, Delta, FinnyTable};
-use crate::nnue::network::{evaluate, forward, forward_scalar, load_net, materialize, push, refresh};
+use crate::nnue::network::{evaluate, load_net, pairwise_int_scalar, materialize, push, refresh};
 use crate::types::{Color, MoveList, Piece, PieceType, Square};
 
 const NET: &str = env!("MYTHOS_NET");
@@ -200,20 +200,22 @@ fn mirrored_positions_evaluate_identically() {
     let a = Board::from_fen("8/8/8/8/8/8/4P3/4K2k w - - 0 1").expect("bad FEN");
     let b = Board::from_fen("4k2K/4p3/8/8/8/8/8/8 b - - 0 1").expect("bad FEN");
 
-    let score_a = evaluate(
-        &net,
-        &refresh(&net, &a, a.stm()),
-        &refresh(&net, &a, !a.stm()),
-        0,
-    );
-    let score_b = evaluate(
-        &net,
-        &refresh(&net, &b, b.stm()),
-        &refresh(&net, &b, !b.stm()),
-        0,
-    );
+    for bucket in 0..OUTPUT_BUCKETS {
+        let score_a = evaluate(
+            &net,
+            &refresh(&net, &a, a.stm()),
+            &refresh(&net, &a, !a.stm()),
+            bucket,
+        );
+        let score_b = evaluate(
+            &net,
+            &refresh(&net, &b, b.stm()),
+            &refresh(&net, &b, !b.stm()),
+            bucket,
+        );
 
-    assert_eq!(score_a, score_b, "mirrored positions disagreed");
+        assert_eq!(score_a, score_b, "mirrored positions disagreed in bucket {bucket}");
+    }
 }
 
 // With pure HM a position and its file-mirror give byte-identical accumulators, so evals must be exactly equal.
@@ -241,20 +243,22 @@ fn horizontally_mirrored_positions_evaluate_identically() {
         let a = Board::from_fen(left).expect(left);
         let b = Board::from_fen(right).expect(right);
 
-        let score_a = evaluate(
-            &NETWORK,
-            &refresh(&NETWORK, &a, a.stm()),
-            &refresh(&NETWORK, &a, !a.stm()),
-            0,
-        );
-        let score_b = evaluate(
-            &NETWORK,
-            &refresh(&NETWORK, &b, b.stm()),
-            &refresh(&NETWORK, &b, !b.stm()),
-            0,
-        );
+        for bucket in 0..OUTPUT_BUCKETS {
+            let score_a = evaluate(
+                &NETWORK,
+                &refresh(&NETWORK, &a, a.stm()),
+                &refresh(&NETWORK, &a, !a.stm()),
+                bucket,
+            );
+            let score_b = evaluate(
+                &NETWORK,
+                &refresh(&NETWORK, &b, b.stm()),
+                &refresh(&NETWORK, &b, !b.stm()),
+                bucket,
+            );
 
-        assert_eq!(score_a, score_b, "{left} and its mirror {right} disagreed");
+            assert_eq!(score_a, score_b, "{left} and its mirror {right} disagreed in bucket {bucket}");
+        }
     }
 }
 
@@ -558,27 +562,12 @@ fn empty_delta_copies_the_parent() {
     check_against_refresh(&board, &mut stack, 2, fen, "null move");
 }
 
-// AVX2 reassociates screlu(x) * w into x * (x * w) with the middle term in i16, valid only while QA * max|w| fits.
+#[cfg(target_feature = "avx2")]
 #[test]
-fn output_weights_fit_in_i16() {
-    let worst = (0..OUTPUT_BUCKETS)
-        .flat_map(|bucket| NETWORK.output_weights(bucket).iter())
-        .map(|w| w.unsigned_abs())
-        .max()
-        .unwrap();
-    let product = i32::from(QA) * i32::from(worst);
+fn simd_pairwise_matches_scalar() {
+    use crate::nnue::network::pairwise_int_avx2;
+    use crate::nnue::HL;
 
-    println!("max |output_weight| = {worst}, QA * it = {product}");
-    assert!(
-        product <= i32::from(i16::MAX),
-        "QA ({QA}) * max |output_weight| ({worst}) = {product} overflows i16 -- \
-         the AVX2 forward pass in network.rs is no longer valid for this net",
-    );
-}
-
-// Must be bit-exact, not close: a mismatch of one can cross a quantisation boundary.
-#[test]
-fn simd_forward_matches_scalar() {
     let fens = UPDATE_FENS
         .iter()
         .copied()
@@ -587,15 +576,123 @@ fn simd_forward_matches_scalar() {
 
     for fen in fens {
         let board = Board::from_fen(fen).expect(fen);
-        let us = refresh(&NETWORK, &board, board.stm());
-        let them = refresh(&NETWORK, &board, !board.stm());
+        for color in Color::ALL {
+            let acc = refresh(&NETWORK, &board, color);
+            let mut scalar = [0u8; HL / 2];
+            let mut simd = [0u8; HL / 2];
+            pairwise_int_scalar(&acc, &mut scalar);
+            pairwise_int_avx2(&acc, &mut simd);
+
+            assert!(scalar == simd, "{fen}: simd pairwise disagreed with the scalar one for {color}");
+        }
+    }
+}
+
+// Bit-exact, not close: the i32 sums are order-independent, so any difference is a bug.
+#[cfg(target_feature = "avx2")]
+#[test]
+fn simd_l1_matches_scalar() {
+    use crate::nnue::network::{l1_int_avx2, l1_int_scalar, pairwise_int};
+    use crate::nnue::HL;
+
+    let fens = UPDATE_FENS
+        .iter()
+        .copied()
+        .chain(HM_PAIRS.iter().flat_map(|&(a, b)| [a, b]))
+        .chain([STARTPOS, "8/8/8/8/8/8/4P3/4K2k w - - 0 1"]);
+
+    for fen in fens {
+        let board = Board::from_fen(fen).expect(fen);
+        let mut input = [0u8; HL];
+        pairwise_int(&refresh(&NETWORK, &board, board.stm()), &mut input[..HL / 2]);
+        pairwise_int(&refresh(&NETWORK, &board, !board.stm()), &mut input[HL / 2..]);
 
         for bucket in 0..OUTPUT_BUCKETS {
-            assert_eq!(
-                forward(&NETWORK, &us, &them, bucket),
-                forward_scalar(&NETWORK, &us, &them, bucket),
-                "{fen}: simd forward pass disagreed with the scalar one in bucket {bucket}",
+            let scalar = l1_int_scalar(&NETWORK, &input, bucket);
+            let simd = l1_int_avx2(&NETWORK, &input, bucket);
+
+            assert!(
+                scalar.iter().zip(&simd).all(|(a, b)| a.to_bits() == b.to_bits()),
+                "{fen}: simd L1 disagreed with the scalar one in bucket {bucket}: {scalar:?} vs {simd:?}",
             );
+        }
+    }
+}
+
+#[cfg(target_feature = "avx2")]
+#[test]
+fn simd_find_nnz_matches_scalar() {
+    use crate::nnue::network::{find_nnz_avx2, find_nnz_scalar, pairwise_int};
+    use crate::nnue::HL;
+
+    let fens = UPDATE_FENS
+        .iter()
+        .copied()
+        .chain(HM_PAIRS.iter().flat_map(|&(a, b)| [a, b]))
+        .chain([STARTPOS, "8/8/8/8/8/8/4P3/4K2k w - - 0 1"]);
+
+    let mut inputs: Vec<[u8; HL]> = fens
+        .map(|fen| {
+            let board = Board::from_fen(fen).expect(fen);
+            let mut input = [0u8; HL];
+            pairwise_int(&refresh(&NETWORK, &board, board.stm()), &mut input[..HL / 2]);
+            pairwise_int(&refresh(&NETWORK, &board, !board.stm()), &mut input[HL / 2..]);
+            input
+        })
+        .collect();
+
+    let mut edges = [[0u8; HL]; 3];
+    edges[1] = [127; HL];
+    edges[2][5] = 1;
+    edges[2][HL - 1] = 127;
+    inputs.extend(edges);
+
+    for input in &inputs {
+        let mut scalar = [0u16; HL / 4];
+        let mut simd = [0u16; HL / 4];
+        let n = find_nnz_scalar(input, &mut scalar);
+        let m = find_nnz_avx2(input, &mut simd);
+
+        assert_eq!(n, m, "simd find_nnz counted {m} chunks, scalar {n}");
+        assert_eq!(scalar[..n], simd[..m]);
+    }
+
+    let mut nnz = [0u16; HL / 4];
+    let n = find_nnz_scalar(&edges[2], &mut nnz);
+    assert_eq!(nnz[..n], [1, (HL / 4 - 1) as u16]);
+}
+
+// Not bit-exact: FMA and the hadd tree round differently from the scalar sums.
+#[cfg(all(target_feature = "avx2", target_feature = "fma"))]
+#[test]
+fn simd_l2_l3_match_scalar() {
+    use crate::nnue::network::{l1_int, l2_avx2, l2_scalar, l3_avx2, l3_scalar, pairwise_int};
+    use crate::nnue::HL;
+
+    let fens = UPDATE_FENS
+        .iter()
+        .copied()
+        .chain(HM_PAIRS.iter().flat_map(|&(a, b)| [a, b]))
+        .chain([STARTPOS, "8/8/8/8/8/8/4P3/4K2k w - - 0 1"]);
+
+    for fen in fens {
+        let board = Board::from_fen(fen).expect(fen);
+        let mut input = [0u8; HL];
+        pairwise_int(&refresh(&NETWORK, &board, board.stm()), &mut input[..HL / 2]);
+        pairwise_int(&refresh(&NETWORK, &board, !board.stm()), &mut input[HL / 2..]);
+
+        for bucket in 0..OUTPUT_BUCKETS {
+            let h1 = l1_int(&NETWORK, &input, bucket);
+            let scalar = l2_scalar(&NETWORK, &h1, bucket);
+            let simd = l2_avx2(&NETWORK, &h1, bucket);
+            assert!(
+                scalar.iter().zip(&simd).all(|(a, b)| (a - b).abs() <= 1e-5),
+                "{fen}: simd L2 disagreed with the scalar one in bucket {bucket}: {scalar:?} vs {simd:?}",
+            );
+
+            let scalar = l3_scalar(&NETWORK, &scalar, bucket);
+            let simd = l3_avx2(&NETWORK, &simd, bucket);
+            assert!((scalar - simd).abs() <= 1e-4, "{fen}: simd L3 disagreed with the scalar one in bucket {bucket}: {scalar} vs {simd}");
         }
     }
 }

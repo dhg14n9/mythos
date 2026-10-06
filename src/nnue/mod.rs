@@ -6,13 +6,17 @@ use crate::tables::MAX_PLY;
 pub mod accumulator;
 pub mod network;
 pub mod stats;
+pub mod trace;
 
 pub(crate) const BUCKET_SIZE: usize = 768;
-const HL: usize = 512;
+pub(crate) const HL: usize = 512;
+const L1: usize = 16;
+const L2: usize = 32;
 pub(crate) const QA: i16 = 255;
 const QB: i16 = 64;
 const SCALE: i32 = 400;
 pub(crate) const OUTPUT_BUCKETS: usize = 8;
+const FT_SHIFT: u32 = 9;
 
 #[rustfmt::skip]
 const KING_LAYOUT: [usize; 32] = [
@@ -44,15 +48,22 @@ const _: () = assert!(BUCKET_COUNT == 10);
 
 pub(crate) const INPUT: usize = BUCKET_SIZE * BUCKET_COUNT;
 
-pub static NETWORK: Network = unsafe { std::mem::transmute(*include_bytes!(env!("MYTHOS_NET")))};
+pub static NETWORK: Network = unsafe {
+    let mut net: Network = std::mem::transmute(*include_bytes!(env!("MYTHOS_NET")));
+    net.transpose_l1();
+    net
+};
 
 pub fn eval(board: &Board, accumulator_stack: &mut [AccState; MAX_PLY], ply: usize) -> i32 {
     let us = board.stm();
     materialize(&NETWORK, accumulator_stack, ply, us);
     materialize(&NETWORK, accumulator_stack, ply, !us);
 
-    const DIVISOR: usize = 32usize.div_ceil(OUTPUT_BUCKETS);
-    let o_bucket = (board.occ().pop_count() - 2) / DIVISOR;
+    evaluate(&NETWORK, &accumulator_stack[ply].accs[us], &accumulator_stack[ply].accs[!us], output_bucket(board))
+}
 
-    evaluate(&NETWORK, &accumulator_stack[ply].accs[us], &accumulator_stack[ply].accs[!us], o_bucket)
+pub(crate) const BUCKET_DIVISOR: usize = 32usize.div_ceil(OUTPUT_BUCKETS);
+
+pub fn output_bucket(board: &Board) -> usize {
+    (board.occ().pop_count() - 2) / BUCKET_DIVISOR
 }
