@@ -13,6 +13,7 @@ name = "mythos"
 path = "src/main.rs"
 
 [features]
+default = ["tunables"]
 # Refresh-path instrumentation, off by default. See src/nnue/stats.rs.
 nnue-stats = []
 tunables = []
