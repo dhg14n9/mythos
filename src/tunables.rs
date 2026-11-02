@@ -50,24 +50,24 @@ macro_rules! tunables {
 //        name                default   min     max    c_end
 tunables! {
     // Reverse futility pruning
-    rfp_margin_mult       =      107,     40,    250,   10.0;
+    rfp_margin_mult       =      113,     40,    250,   10.0;
     rfp_max_depth         =        5,      3,     10,    0.5;
 
     // Razoring
-    razor_margin          =      500,    150,   1000,   45.0;
-    razor_max_depth       =        5,      2,      8,    0.5;
+    razor_margin          =      223,    150,   1000,   45.0;
+    razor_max_depth       =        3,      2,      8,    0.5;
 
     // Null move pruning
-    nmp_min_depth         =        4,      2,      5,    0.5;
-    nmp_base              =        2,      2,      5,    0.5;
+    nmp_min_depth         =        5,      2,      5,    0.5;
+    nmp_base              =        4,      2,      5,    0.5;
     nmp_depth_div         =        4,      2,      6,    0.5;
 
     // Late move reductions. lmr_base and lmr_div are scaled by 100.
     lmr_min_moves         =        3,      2,      6,    0.5;
-    lmr_min_depth         =        3,      2,      5,    0.5;
-    lmr_base              =      106,      0,    200,   10.0;
-    lmr_div               =      199,    100,    400,   15.0;
-    lmr_hist_div          =     7544,   2000,  20000,  900.0;
+    lmr_min_depth         =        2,      2,      5,    0.5;
+    lmr_base              =      138,      0,    200,   10.0;
+    lmr_div               =      229,    100,    400,   15.0;
+    lmr_hist_div          =     7384,   2000,  20000,  900.0;
     lmr_cut_node          =        1,      0,      3,    0.5;
 
     // Late move pruning
@@ -75,71 +75,71 @@ tunables! {
     lmp_max_depth         =        7,      4,     12,    0.5;
 
     // Futility pruning, margin per ply
-    fp_margin_mult        =       76,     40,    250,   10.0;
-    fp_max_depth          =        7,      3,     10,    0.5;
+    fp_margin_mult        =      130,     40,    250,   10.0;
+    fp_max_depth          =        9,      3,     10,    0.5;
 
     // SEE pruning, margin per ply
-    see_quiet_margin      =      -56,   -150,    -10,    7.0;
-    see_noisy_margin      =      -80,   -200,    -20,    9.0;
+    see_quiet_margin      =      -67,   -150,    -10,    7.0;
+    see_noisy_margin      =      -90,   -200,    -20,    9.0;
 
     // History pruning
-    hist_prune_margin     =     1142,    200,   3000,  140.0;
+    hist_prune_margin     =     1258,    200,   3000,  140.0;
 
     // Internal iterative reduction
-    iir_min_depth         =        5,      2,      8,    0.5;
+    iir_min_depth         =        3,      2,      8,    0.5;
 
     // Aspiration windows
-    asp_window            =       22,      8,     60,    2.5;
+    asp_window            =       27,      8,     60,    2.5;
 
     // History bonus/malus
-    hist_quiet_bonus_mult  =     144,     60,    400,   17.0;
-    hist_quiet_bonus_max   =    1617,    600,   3000,  120.0;
-    hist_quiet_bonus_off   =      70,      0,    300,   15.0;
+    hist_quiet_bonus_mult  =     213,     60,    400,   17.0;
+    hist_quiet_bonus_max   =    1780,    600,   3000,  120.0;
+    hist_quiet_bonus_off   =     101,      0,    300,   15.0;
 
-    hist_quiet_malus_mult  =     232,     60,    400,   17.0;
-    hist_quiet_malus_max   =     900,    400,   2400,  100.0;
-    hist_quiet_malus_off   =      21,      0,    300,   15.0;
-    hist_quiet_malus_decay =      18,      0,    100,    5.0;
+    hist_quiet_malus_mult  =     226,     60,    400,   17.0;
+    hist_quiet_malus_max   =     728,    400,   2400,  100.0;
+    hist_quiet_malus_off   =      39,      0,    300,   15.0;
+    hist_quiet_malus_decay =      11,      0,    100,    5.0;
 
-    hist_cont_bonus_mult   =     152,     40,    300,   13.0;
-    hist_cont_bonus_max    =    1026,    400,   2400,  100.0;
-    hist_cont_bonus_off    =      85,      0,    300,   15.0;
+    hist_cont_bonus_mult   =     177,     40,    300,   13.0;
+    hist_cont_bonus_max    =    1682,    400,   2400,  100.0;
+    hist_cont_bonus_off    =      82,      0,    300,   15.0;
 
-    hist_cont_malus_mult   =     418,    150,    900,   38.0;
-    hist_cont_malus_max    =     729,    300,   2000,   85.0;
-    hist_cont_malus_off    =      25,      0,    300,   15.0;
-    hist_cont_malus_decay  =      24,      0,    100,    5.0;
+    hist_cont_malus_mult   =     273,    150,    900,   38.0;
+    hist_cont_malus_max    =     830,    300,   2000,   85.0;
+    hist_cont_malus_off    =      37,      0,    300,   15.0;
+    hist_cont_malus_decay  =      19,      0,    100,    5.0;
 
     // Capture history
-    hist_noisy_bonus_mult  =     144,     60,    400,   17.0;
-    hist_noisy_bonus_max   =    1617,    600,   3000,  120.0;
-    hist_noisy_bonus_off   =      70,      0,    300,   15.0;
+    hist_noisy_bonus_mult  =     116,     60,    400,   17.0;
+    hist_noisy_bonus_max   =    1674,    600,   3000,  120.0;
+    hist_noisy_bonus_off   =     107,      0,    300,   15.0;
 
-    hist_noisy_malus_mult  =     232,     60,    400,   17.0;
-    hist_noisy_malus_max   =     900,    400,   2400,  100.0;
-    hist_noisy_malus_off   =      21,      0,    300,   15.0;
+    hist_noisy_malus_mult  =     215,     60,    400,   17.0;
+    hist_noisy_malus_max   =     680,    400,   2400,  100.0;
+    hist_noisy_malus_off   =       9,      0,    300,   15.0;
     hist_noisy_malus_decay =      18,      0,    100,    5.0;
 
-    noisy_mvv_mult         =      16,      4,     64,    3.0;
-    hist_malus_scale_decay =      22,      0,    150,    7.0;
+    noisy_mvv_mult         =      14,      4,     64,    3.0;
+    hist_malus_scale_decay =      31,      0,    150,    7.0;
 
     // Time management
-    tm_stab_base           =     300,    150,    500,   17.0;
-    tm_stab_step           =      25,      0,     80,    4.0;
-    tm_stab_min            =     100,    100,    150,    2.5;
-    tm_stab_min_depth      =       8,      4,     14,    0.5;
+    tm_stab_base           =     338,    150,    500,   17.0;
+    tm_stab_step           =      37,      0,     80,    4.0;
+    tm_stab_min            =     102,    100,    150,    2.5;
+    tm_stab_min_depth      =       9,      4,     14,    0.5;
 
     // singular / double extension
-    se_margin              =      32,      8,    100,    4.0;
-    se_double_margin       =      24,      4,    120,    5.0;
+    se_margin              =      25,      8,    100,    4.0;
+    se_double_margin       =      21,      4,    120,    5.0;
     se_cut_node_neg_ext    =       2,      0,      3,    0.5;
 
     // Improving. Only rfp for now
-    improving_threshold    =       0,      0,    240,   12.0;
-    rfp_improvement_mult   =     100,      0,    200,   10.0;
+    improving_threshold    =       5,      0,    240,   12.0;
+    rfp_improvement_mult   =      53,      0,    200,   10.0;
 
-    corr_bonus_mult        =     200,     50,    600,   25.0;
-    corr_div               =     128,     16,    256,   12.0;
+    corr_bonus_mult        =     180,     50,    600,   25.0;
+    corr_div               =     116,     16,    256,   12.0;
 
 }
 
