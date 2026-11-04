@@ -129,9 +129,10 @@ tunables! {
     tm_stab_min            =     102,    100,    150,    2.5;
     tm_stab_min_depth      =       9,      4,     14,    0.5;
 
-    // singular / double extension
+    // extensions
     se_margin              =      25,      8,    100,    4.0;
     se_double_margin       =      21,      4,    120,    5.0;
+    se_triple_margin       =     100,     20,    300,   12.0;
     se_cut_node_neg_ext    =       2,      0,      3,    0.5;
 
     // Improving. Only rfp for now

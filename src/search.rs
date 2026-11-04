@@ -376,7 +376,6 @@ impl Search {
             depth - Self::iir_reduction(depth)
         } else { depth };
 
-        // temporary, havent sprt-ed
         if Self::should_razor(PV, in_check, static_eval, alpha, depth, tt_move, tt_bound) {
             return self.qsearch::<false>(board, alpha, beta, ply);
         }
@@ -443,48 +442,43 @@ impl Search {
 
             if mv == excluded_move { continue; }
 
-            let mut extension: i32 = 0;
-
-            if !ROOT
+            let try_singular = !ROOT
                 && excluded_move.is_null()
                 && mv == tt_move
                 && depth >= 8
                 && tt_depth + 3 >= depth
                 && tt_bound != BoundType::Upper
-                && !Score::is_mate(tt_score)
-            {
+                && !Score::is_mate(tt_score);
+
+            let extension = if try_singular {
                 let s_beta = tt_score - (se_margin() * depth as i32) / 16;
                 let s_depth = (depth - 1) / 2;
 
-
                 self.excluded[ply] = mv;
                 let score = self.negamax::<false, false>(
-                    board,
-                    s_depth,
-                    s_beta - 1,
-                    s_beta,
-                    ply,
-                    false,
-                    cut_node
+                    board, s_depth, s_beta - 1, s_beta, ply, false, cut_node,
                 );
                 self.excluded[ply] = Move::NULL;
 
-                self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() });
-
                 if score < s_beta {
-                    extension = 1;
-                    if !PV && score < s_beta - se_double_margin() {
-                        extension = 2;
+                    match () {
+                        _ if PV => 1,
+                        _ if score < s_beta - se_triple_margin() => 3,
+                        _ if score < s_beta - se_double_margin() => 2,
+                        _ => 1,
                     }
                 } else if s_beta >= beta && !PV {
-                    return s_beta;
+                    return s_beta; // multicut
                 } else if tt_score > beta {
-                    extension = -2;
+                    -2
                 } else if cut_node {
-                    extension = -se_cut_node_neg_ext();
+                    -se_cut_node_neg_ext()
+                } else {
+                    0
                 }
-
-            }
+            } else {
+                0
+            };
 
             let moved = board.piece_at(mv.from());
             self.cont_stack[ply] = Some(ContKey { piece: moved, square: mv.to() });
