@@ -9,7 +9,7 @@ use crate::nnue::NETWORK;
 use crate::nnue::network::push;
 use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY, CONT_LEN, CONT_OFFSET, MAX_CORR};
 use crate::tunables::*;
-use crate::types::{Color, Move, MoveList, PieceType, Score};
+use crate::types::{Color, Move, MoveList, PieceType, Score, Square};
 
 const TC_NODE_CHECK: u64 = 2048;
 
@@ -35,7 +35,7 @@ impl StableTracker {
         (base - step * self.stable_iteration as f32).max(min)
     }
 
-    pub fn update(&mut self, mv: Move, depth: usize, tc: &mut TimeControl) {
+    pub fn update(&mut self, mv: Move, depth: usize, tc: &mut TimeControl, best_node: u64, all_node: u64) {
         if mv == self.mv {
             self.stable_iteration += 1;
         } else {
@@ -44,7 +44,10 @@ impl StableTracker {
         }
 
         if tc.soft_base != Duration::MAX  && depth > tm_stab_min_depth() as usize {
-            tc.soft_lim = tc.soft_base.mul_f32(self.extension()).min(tc.hard_lim);
+            let frac = best_node as f32 / all_node as f32;
+            let factor = (tm_node_base() as f32 / 100f32 - frac) * tm_node_scale() as f32 / 100f32;
+
+            tc.soft_lim = tc.soft_base.mul_f32(self.extension() * factor).min(tc.hard_lim);
         }
     }
 }
@@ -119,6 +122,7 @@ pub struct Search {
     pub finny_table: FinnyTable,
     pub excluded: Box<[Move; MAX_PLY]>,
     pub eval_ply: Box<[i32; MAX_PLY]>,
+    pub node_counter: Box<[[u64; Square::NUM]; Square::NUM]>, // index 0 0 will store the total node count that the search used
 }
 
 impl Search {
@@ -137,7 +141,8 @@ impl Search {
             accumulator_stack: Box::from([AccState::empty(); MAX_PLY]),
             finny_table: FinnyTable::new(&NETWORK),
             excluded: Box::from([Move::NULL; MAX_PLY]),
-            eval_ply: Box::from([Score::NONE; MAX_PLY])
+            eval_ply: Box::from([Score::NONE; MAX_PLY]),
+            node_counter: Box::from([[0; Square::NUM]; Square::NUM]),
         }
     }
 
@@ -519,6 +524,8 @@ impl Search {
             board.make_move(mv);
             self.trans_table.prefetch(board.hash());
 
+            let pre_search_nodes = self.nodes;
+
             push(&NETWORK, board, &mut self.accumulator_stack[ply + 1], &delta, &mut self.finny_table);
 
             let give_check = board.is_check();
@@ -587,6 +594,12 @@ impl Search {
 
             board.unmake_move(mv);
             i += 1;
+
+            if ROOT {
+                let count = self.nodes - pre_search_nodes;
+                self.node_counter[mv.from()][mv.to()] += count;
+                self.node_counter[0][0] += count;
+            }
 
             if score > best {
                 best = score;
@@ -684,6 +697,7 @@ impl Search {
     }
 
     pub fn iterative(&mut self, board: &mut Board, max_depth: usize) -> (Move, i32) {
+        self.node_counter = Box::from([[0; Square::NUM]; Square::NUM]);
 
         let mut best = {
             let mut picker = MovePicker::new(Move::NULL);
@@ -751,7 +765,7 @@ impl Search {
             }
 
             let result = (self.root_best_move, score);
-            stable_tracker.update(result.0, depth, &mut self.time_control);
+            stable_tracker.update(result.0, depth, &mut self.time_control, self.node_counter[result.0.from()][result.0.to()], self.node_counter[0][0]);
 
             alpha = result.1 - asp_window();
             beta = result.1 + asp_window();
