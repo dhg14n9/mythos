@@ -124,12 +124,12 @@ tunables! {
     hist_malus_scale_decay =      31,      0,    150,    7.0;
 
     // Time management
-    tm_stab_base           =     338,    150,    500,   17.0;
-    tm_stab_step           =      37,      0,     80,    4.0;
-    tm_stab_min            =     102,     40,    150,    5.5;
+    tm_stab_base           =     318,    150,    500,   17.0;
+    tm_stab_step           =      43,      0,     80,    4.0;
+    tm_stab_min            =      98,     40,    150,    5.5;
     tm_stab_min_depth      =       9,      4,     14,    0.5;
-    tm_node_base           =     153,    100,    250,    7.0;
-    tm_node_scale          =     174,     50,    300,   12.0;
+    tm_node_base           =     139,    100,    250,    7.0;
+    tm_node_scale          =     145,     50,    300,   12.0;
 
     // singular / double extension
     se_margin              =      25,      8,    100,    4.0;
