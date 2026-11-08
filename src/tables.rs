@@ -49,11 +49,10 @@ pub struct TransTable {
     pub generation: u8,
 }
 
-// flags: [ age: 5 ][ pv: 1, unused ][ bound: 2 ]
 const AGE_SHIFT: u8 = 3;
 const BOUND_MASK: u8 = 3;
 
-// Stored depth is offset by one so that 0 marks an empty entry.
+// stored depth is offset by one so that 0 marks an empty entry.
 const DEPTH_OFFSET: usize = 1;
 
 const AGE_PEN: i32 = 4;

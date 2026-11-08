@@ -3,7 +3,7 @@
 //     cargo build --release --features nnue-stats
 //     taskset -c 0 ./target/release/mythos bench
 //
-// Never measure NPS with it on -- the atomics sit in the refresh path.
+// Never measure NPS with it on 
 //
 //   refreshes per node       how often the expensive path fires; a wider KING_LAYOUT raises this.
 //   features per refresh     the diff the Finny table actually applied.

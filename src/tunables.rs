@@ -49,20 +49,21 @@ macro_rules! tunables {
 
 //        name                default   min     max    c_end
 tunables! {
-    // Reverse futility pruning
+    // reverse futility pruning
     rfp_margin_mult       =      113,     40,    250,   10.0;
     rfp_max_depth         =        5,      3,     10,    0.5;
 
-    // Razoring
+    // razoring
     razor_margin          =      223,    150,   1000,   45.0;
     razor_max_depth       =        3,      2,      8,    0.5;
 
-    // Null move pruning
+    // null move pruning
     nmp_min_depth         =        5,      2,      5,    0.5;
     nmp_base              =        4,      2,      5,    0.5;
     nmp_depth_div         =        4,      2,      6,    0.5;
 
-    // Late move reductions. lmr_base and lmr_div are scaled by 100.
+    // late move reductions
+    // lmr_base and lmr_div are scaled by 100
     lmr_min_moves         =        3,      2,      6,    0.5;
     lmr_min_depth         =        2,      2,      5,    0.5;
     lmr_base              =      138,      0,    200,   10.0;
@@ -70,28 +71,28 @@ tunables! {
     lmr_hist_div          =     7384,   2000,  20000,  900.0;
     lmr_cut_node          =        1,      0,      3,    0.5;
 
-    // Late move pruning
+    // late move pruning
     lmp_base              =        2,      1,      8,    0.5;
     lmp_max_depth         =        7,      4,     12,    0.5;
 
-    // Futility pruning, margin per ply
+    // futility pruning
     fp_margin_mult        =      130,     40,    250,   10.0;
     fp_max_depth          =        9,      3,     10,    0.5;
 
-    // SEE pruning, margin per ply
+    // SEE pruning
     see_quiet_margin      =      -67,   -150,    -10,    7.0;
     see_noisy_margin      =      -90,   -200,    -20,    9.0;
 
-    // History pruning
+    // history pruning
     hist_prune_margin     =     1258,    200,   3000,  140.0;
 
-    // Internal iterative reduction
+    // internal iterative reduction
     iir_min_depth         =        3,      2,      8,    0.5;
 
-    // Aspiration windows
+    // aspiration windows
     asp_window            =       27,      8,     60,    2.5;
 
-    // History bonus/malus
+    // history bonus/malus
     hist_quiet_bonus_mult  =     213,     60,    400,   17.0;
     hist_quiet_bonus_max   =    1780,    600,   3000,  120.0;
     hist_quiet_bonus_off   =     101,      0,    300,   15.0;
@@ -110,7 +111,7 @@ tunables! {
     hist_cont_malus_off    =      37,      0,    300,   15.0;
     hist_cont_malus_decay  =      19,      0,    100,    5.0;
 
-    // Capture history
+    // capture history
     hist_noisy_bonus_mult  =     116,     60,    400,   17.0;
     hist_noisy_bonus_max   =    1674,    600,   3000,  120.0;
     hist_noisy_bonus_off   =     107,      0,    300,   15.0;
@@ -123,7 +124,7 @@ tunables! {
     noisy_mvv_mult         =      14,      4,     64,    3.0;
     hist_malus_scale_decay =      31,      0,    150,    7.0;
 
-    // Time management
+    // time management
     tm_stab_base           =     318,    150,    500,   17.0;
     tm_stab_step           =      43,      0,     80,    4.0;
     tm_stab_min            =      98,     40,    150,    5.5;
@@ -136,7 +137,7 @@ tunables! {
     se_double_margin       =      21,      4,    120,    5.0;
     se_cut_node_neg_ext    =       2,      0,      3,    0.5;
 
-    // Improving. Only rfp for now
+    // improving (rfp only for now)
     improving_threshold    =       5,      0,    240,   12.0;
     rfp_improvement_mult   =      53,      0,    200,   10.0;
 

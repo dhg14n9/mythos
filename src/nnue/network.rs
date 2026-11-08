@@ -148,7 +148,6 @@ pub fn pairwise_int_scalar(acc: &Accumulator, out: &mut [u8]) {
     }
 }
 
-// mulhi(a << 7, b) = (a * b) >> 9 without leaving i16: a << 7 <= 255 * 128 fits.
 #[cfg(target_feature = "avx2")]
 #[inline]
 pub fn pairwise_int_avx2(acc: &Accumulator, out: &mut [u8]) {
@@ -264,7 +263,6 @@ pub fn find_nnz_avx2(input: &[u8; HL], nnz: &mut [u16; HL / 4]) -> usize {
     count
 }
 
-// maddubs cannot saturate: inputs are <= 127, so a pair sums to at most 2 * 127 * 128.
 #[cfg(target_feature = "avx2")]
 #[inline]
 pub fn l1_int_avx2(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] {
@@ -291,7 +289,6 @@ pub fn l1_int_avx2(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] 
             *hi = dpbusd(*hi, x, _mm256_loadu_si256(w.add(32).cast()));
         };
 
-        // independent accumulators hide dpbusd latency; one pair would serialise the loop
         let mut groups = nnz[..count].chunks_exact(UNROLL);
         for group in &mut groups {
             for k in 0..UNROLL {
@@ -312,7 +309,6 @@ pub fn l1_int_avx2(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] 
         let bias = net.l1_bias[bucket].as_ptr();
 
         for (i, sums) in [(0, lo), (8, hi)] {
-            // mul then add, not FMA: keeps the rounding identical to l1_int_scalar
             let sums = _mm256_mul_ps(_mm256_cvtepi32_ps(sums), scale);
             let sums = _mm256_add_ps(sums, _mm256_loadu_ps(bias.add(i)));
             _mm256_storeu_ps(output.as_mut_ptr().add(i), screlu_ps(sums));
@@ -364,7 +360,6 @@ pub fn l2_scalar(net: &Network, input: &[f32; L1], bucket: usize) -> [f32; L2] {
     output
 }
 
-// Eight row dot products at a time; the hadd tree reduces them to one vector of eight sums.
 #[cfg(all(target_feature = "avx2", target_feature = "fma"))]
 #[inline]
 pub fn l2_avx2(net: &Network, input: &[f32; L1], bucket: usize) -> [f32; L2] {
@@ -508,7 +503,6 @@ pub fn materialize(net: &Network, stack: &mut [AccState], ply: usize, color: Col
 }
 
 fn apply(net: &Network, parent: &AccState, child: &mut AccState, color: Color) {
-    // A deferred entry never changed weight block, so these describe its parent too.
     let mirror = child.mirror[color];
     let bucket = child.bucket[color];
     let delta = child.delta;

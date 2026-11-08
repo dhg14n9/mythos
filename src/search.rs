@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use crate::board::board::Board;
 use crate::movepicker::{see, MovePicker};
@@ -12,6 +12,25 @@ use crate::tunables::*;
 use crate::types::{Color, Move, MoveList, PieceType, Score, Square};
 
 const TC_NODE_CHECK: u64 = 2048;
+
+#[repr(align(64))]
+struct Slot(AtomicU64);
+
+pub struct NodeCounter(Box<[Slot]>);
+
+impl NodeCounter {
+    pub fn new(threads: usize) -> Self {
+        Self((0..threads.max(1)).map(|_| Slot(AtomicU64::new(0))).collect())
+    }
+
+    pub fn store(&self, id: usize, nodes: u64) {
+        self.0[id].0.store(nodes, Ordering::Relaxed);
+    }
+
+    pub fn total(&self) -> u64 {
+        self.0.iter().map(|s| s.0.load(Ordering::Relaxed)).sum()
+    }
+}
 
 struct StableTracker {
     mv: Move,
@@ -83,8 +102,38 @@ impl PvTable {
 }
 
 
+pub struct Clock {
+    start: Instant,
+    began: AtomicU64,
+}
+
+impl Clock {
+    const PONDERING: u64 = u64::MAX;
+
+    pub fn new(start: Instant, pondering: bool) -> Self {
+        Self { start, began: AtomicU64::new(if pondering { Self::PONDERING } else { 0 }) }
+    }
+
+    pub fn is_pondering(&self) -> bool {
+        self.began.load(Ordering::Relaxed) == Self::PONDERING
+    }
+
+    pub fn ponderhit(&self) {
+        let now = self.start.elapsed().as_micros() as u64;
+        let _ = self.began.compare_exchange(Self::PONDERING, now, Ordering::Relaxed, Ordering::Relaxed);
+    }
+
+    pub fn elapsed(&self) -> Duration {
+        match self.began.load(Ordering::Relaxed) {
+            Self::PONDERING => Duration::ZERO,
+            us => self.start.elapsed().saturating_sub(Duration::from_micros(us)),
+        }
+    }
+}
+
 pub struct TimeControl {
     pub stop: Arc<AtomicBool>,
+    pub clock: Arc<Clock>,
     pub start: Instant,
     pub soft_lim: Duration,
     pub hard_lim: Duration,
@@ -95,9 +144,11 @@ pub struct TimeControl {
 
 impl TimeControl {
     pub fn infinite() -> Self {
+        let start = Instant::now();
         Self {
             stop: Arc::new(AtomicBool::new(false)),
-            start: Instant::now(),
+            clock: Arc::new(Clock::new(start, false)),
+            start,
             soft_lim: Duration::MAX,
             hard_lim: Duration::MAX,
             soft_base: Duration::MAX,
@@ -118,11 +169,14 @@ pub struct Search {
     pub pv_table: PvTable,
     pub cont_stack: Box<[Option<ContKey>; MAX_PLY]>,
     pub root_best_move: Move,
+    pub ponder_move: Move, 
     pub accumulator_stack: Box<[AccState; MAX_PLY]>,
     pub finny_table: FinnyTable,
     pub excluded: Box<[Move; MAX_PLY]>,
     pub eval_ply: Box<[i32; MAX_PLY]>,
     pub node_counter: Box<[[u64; Square::NUM]; Square::NUM]>, // index 0 0 will store the total node count that the search used
+    pub shared_nodes: Arc<NodeCounter>,
+    pub thread_id: usize,
 }
 
 impl Search {
@@ -138,11 +192,14 @@ impl Search {
             pv_table: PvTable::new(),
             cont_stack: Box::from([None; MAX_PLY]),
             root_best_move: Move::NULL,
+            ponder_move: Move::NULL,
             accumulator_stack: Box::from([AccState::empty(); MAX_PLY]),
             finny_table: FinnyTable::new(&NETWORK),
             excluded: Box::from([Move::NULL; MAX_PLY]),
             eval_ply: Box::from([Score::NONE; MAX_PLY]),
             node_counter: Box::from([[0; Square::NUM]; Square::NUM]),
+            shared_nodes: Arc::new(NodeCounter::new(1)),
+            thread_id: 0,
         }
     }
 
@@ -154,10 +211,11 @@ impl Search {
             self.stopped = true;
             return true;
         }
-        if (self.nodes & (TC_NODE_CHECK - 1) == 0) &&
-            (self.time_control.stop.load(Ordering::Relaxed) || (self.time_control.start.elapsed() > self.time_control.hard_lim))
-        {
-            self.stopped = true;
+        if self.nodes & (TC_NODE_CHECK - 1) == 0 {
+            self.shared_nodes.store(self.thread_id, self.nodes);
+            if self.time_control.stop.load(Ordering::Relaxed) || (self.time_control.clock.elapsed() > self.time_control.hard_lim) {
+                self.stopped = true;
+            }
         }
         self.stopped
     }
@@ -713,7 +771,7 @@ impl Search {
         self.refresh_accumulators(board, 0);
 
         for depth in 1..=max_depth {
-            if self.time_control.start.elapsed() > self.time_control.soft_lim || self.nodes >= self.time_control.soft_node {
+            if self.time_control.clock.elapsed() > self.time_control.soft_lim || self.nodes >= self.time_control.soft_node {
                 break;
             }
             self.root_depth = depth;
@@ -772,6 +830,7 @@ impl Search {
             best = result;
             best_pv = Vec::from(self.pv_table.get_line(0));
             self.extend_pv_from_tt(board, &mut best_pv);
+            self.ponder_move = best_pv.get(1).copied().unwrap_or(Move::NULL);
 
             if !self.silent {
                 let score = if Score::is_mate(best.1) {
@@ -780,11 +839,13 @@ impl Search {
                     format!("cp {}", best.1)
                 };
                 let ellapsed = self.time_control.start.elapsed();
-                let nps = (self.nodes as f64 / ellapsed.as_secs_f64().max(f64::EPSILON)) as u64;
+                self.shared_nodes.store(self.thread_id, self.nodes);
+                let nodes = self.shared_nodes.total();
+                let nps = (nodes as f64 / ellapsed.as_secs_f64().max(f64::EPSILON)) as u64;
                 println!(
                     "info depth {depth} score {} nodes {} nps {nps} hashfull {} time {} pv {}",
                     score,
-                    self.nodes,
+                    nodes,
                     self.trans_table.hashfull(),
                     ellapsed.as_millis(),
                     best_pv.iter()

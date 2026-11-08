@@ -237,7 +237,7 @@ mod tests {
         "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
         "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
         "n1n5/PPPk4/8/8/8/8/4Kppp/5N1N b - - 0 1",
-        // in check: qsearch generates full evasions even when asked for noisy only
+        // in check
         "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3",
     ];
 
@@ -275,7 +275,6 @@ mod tests {
                 got.sort();
                 assert_eq!(got, expected, "moves, no tt move, {fen}");
 
-                // every generated move in turn as the tt move: first, exactly once
                 for &raw in &expected {
                     let tt_move = Move::from_raw(raw);
                     let got_tt = drained_moves(&board, noisy_only, tt_move);
