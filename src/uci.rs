@@ -6,7 +6,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::board::board::Board;
-use crate::search::{NodeCounter, Search, TimeControl};
+use crate::search::{Clock, NodeCounter, Search, TimeControl};
 use crate::tables::{ThreadData, TransTable};
 use crate::types::{Color, Move, MoveList, Rng};
 
@@ -23,6 +23,7 @@ const THREAD_MAX: usize = 256;
 struct Session {
     board: Board,
     stop: Arc<AtomicBool>,
+    clock: Arc<Clock>,
     hash_mb: usize,
     thread: usize,
     trans_table: TransTable,
@@ -35,6 +36,7 @@ impl Session {
         Self {
             board: Board::start_pos(),
             stop: Arc::new(AtomicBool::new(false)),
+            clock: Arc::new(Clock::new(Instant::now(), false)),
             hash_mb,
             thread: THREAD_MIN,
             trans_table: TransTable::new(hash_mb),
@@ -55,6 +57,7 @@ impl Session {
                 println!("id author {AUTHOR}");
                 println!("option name Hash type spin default {HASH_DEFAULT} min {HASH_MIN} max {HASH_MAX}");
                 println!("option name Threads type spin default {THREAD_MIN} min {THREAD_MIN} max {THREAD_MAX}");
+                println!("option name Ponder type check default false");
                 crate::tunables::print_options();
                 println!("uciok");
             }
@@ -74,15 +77,14 @@ impl Session {
                 }
             },
             "position" => position(&mut self.board, args),
-            "go" => go(&mut self.board, args, &self.stop, &mut self.handle, &mut self.trans_table, &mut self.thread_data),
+            "go" => go(&mut self.board, args, &self.stop, &mut self.clock, &mut self.handle, &mut self.trans_table, &mut self.thread_data),
+            "ponderhit" => self.clock.ponderhit(),
             "bench" => {
                 let (depth, hash) = crate::bench::parse_bench_args(args);
                 crate::bench::search_bench(depth, hash);
             }
-            // Non-standard: dumps the OpenBench SPSA block
             "spsa" => crate::tunables::print_spsa(),
             "eval" => crate::nnue::trace::print(&self.board),
-            // Non-standard: OpenBench DATAGEN opening generation.
             "genfens" => genfens(args),
             "perftsuite" => {
                 let use_tt = args.iter().any(|a| matches!(*a, "tt" | "--tt"));
@@ -241,6 +243,7 @@ fn set_option(args: &[&str], hash_mb: &mut usize, thread: &mut usize) -> bool {
                 None => println!("info string invalid value for Hash"),
             }
         }
+        Some(n) if n.eq_ignore_ascii_case("ponder") => {}
         Some(n) if n.eq_ignore_ascii_case("threads") => {
             match value.and_then(|v| v.parse::<usize>().ok()) {
                 Some(t) if (THREAD_MIN..=THREAD_MAX).contains(&t) => *thread = t,
@@ -311,6 +314,7 @@ fn go(
     board: &mut Board,
     args: &[&str],
     stop: &Arc<AtomicBool>,
+    clock: &mut Arc<Clock>,
     handle: &mut Option<JoinHandle<Vec<ThreadData>>>,
     trans_table: &mut TransTable,
     thread_data: &mut Vec<ThreadData>
@@ -325,6 +329,9 @@ fn go(
 
     join_thread(stop, handle, thread_data);
     trans_table.generation = (trans_table.generation + 1) & TransTable::AGE_MASK; 
+    
+    *clock = Arc::new(Clock::new(start, args.contains(&"ponder")));
+    let clock = Arc::clone(clock);
 
     let stop = Arc::clone(stop);
     let (hard_lim, soft_lim) = parse_time(args, board.stm());
@@ -340,10 +347,10 @@ fn go(
         let main_td = tds.next().expect("no thread data");
 
         thread::scope(|s| {
-            // Helpers: no time or node limits, they run until the main thread raises `stop`.
             let helpers: Vec<_> = tds.enumerate().map(|(i, td)| {
                 let time_control = TimeControl {
                     stop: Arc::clone(&stop),
+                    clock: Arc::clone(&clock),
                     start,
                     soft_lim: Duration::MAX,
                     hard_lim: Duration::MAX,
@@ -366,6 +373,7 @@ fn go(
 
             let time_control = TimeControl {
                 stop: Arc::clone(&stop),
+                clock: Arc::clone(&clock),
                 start,
                 soft_lim,
                 hard_lim,
@@ -376,12 +384,20 @@ fn go(
             let mut search = Search::new(time_control, tt.clone(), main_td);
             search.shared_nodes = Arc::clone(&shared_nodes);
             let best = search.iterative(&mut board, max_depth);
+            
+            while clock.is_pondering() && !stop.load(Ordering::Relaxed) {
+                thread::sleep(Duration::from_millis(1));
+            }
 
             stop.store(true, Ordering::Relaxed);
 
             #[cfg(feature = "datagen")]
             println!("info string pgncomment {}", best.1);
-            println!("bestmove {}", best.0);
+            if search.ponder_move.is_null() {
+                println!("bestmove {}", best.0);
+            } else {
+                println!("bestmove {} ponder {}", best.0, search.ponder_move);
+            }
 
             let mut out = Vec::with_capacity(threads);
             out.push(search.thread_data);
@@ -434,14 +450,13 @@ fn perft_divide(board: &mut Board, depth: usize) {
     println!("Nodes searched: {total}");
 }
 
-// value of a `go` parameter, e.g. `nodes 5000` -> value(args, "nodes") == Some(5000)
 fn value(args: &[&str], key: &str) -> Option<u64> {
     let idx = args.iter().position(|&a| a == key)?;
     args.get(idx + 1)?.parse().ok()
 }
 
 fn parse_time(args: &[&str], stm: Color) -> (Duration, Duration) {
-    // GUI latency
+    // gui latency
     const OVERHEAD_MS: u64 = 50;
 
     if let Some(ms) = value(args, "movetime") {

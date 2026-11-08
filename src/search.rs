@@ -102,8 +102,38 @@ impl PvTable {
 }
 
 
+pub struct Clock {
+    start: Instant,
+    began: AtomicU64,
+}
+
+impl Clock {
+    const PONDERING: u64 = u64::MAX;
+
+    pub fn new(start: Instant, pondering: bool) -> Self {
+        Self { start, began: AtomicU64::new(if pondering { Self::PONDERING } else { 0 }) }
+    }
+
+    pub fn is_pondering(&self) -> bool {
+        self.began.load(Ordering::Relaxed) == Self::PONDERING
+    }
+
+    pub fn ponderhit(&self) {
+        let now = self.start.elapsed().as_micros() as u64;
+        let _ = self.began.compare_exchange(Self::PONDERING, now, Ordering::Relaxed, Ordering::Relaxed);
+    }
+
+    pub fn elapsed(&self) -> Duration {
+        match self.began.load(Ordering::Relaxed) {
+            Self::PONDERING => Duration::ZERO,
+            us => self.start.elapsed().saturating_sub(Duration::from_micros(us)),
+        }
+    }
+}
+
 pub struct TimeControl {
     pub stop: Arc<AtomicBool>,
+    pub clock: Arc<Clock>,
     pub start: Instant,
     pub soft_lim: Duration,
     pub hard_lim: Duration,
@@ -114,9 +144,11 @@ pub struct TimeControl {
 
 impl TimeControl {
     pub fn infinite() -> Self {
+        let start = Instant::now();
         Self {
             stop: Arc::new(AtomicBool::new(false)),
-            start: Instant::now(),
+            clock: Arc::new(Clock::new(start, false)),
+            start,
             soft_lim: Duration::MAX,
             hard_lim: Duration::MAX,
             soft_base: Duration::MAX,
@@ -137,6 +169,7 @@ pub struct Search {
     pub pv_table: PvTable,
     pub cont_stack: Box<[Option<ContKey>; MAX_PLY]>,
     pub root_best_move: Move,
+    pub ponder_move: Move, 
     pub accumulator_stack: Box<[AccState; MAX_PLY]>,
     pub finny_table: FinnyTable,
     pub excluded: Box<[Move; MAX_PLY]>,
@@ -159,6 +192,7 @@ impl Search {
             pv_table: PvTable::new(),
             cont_stack: Box::from([None; MAX_PLY]),
             root_best_move: Move::NULL,
+            ponder_move: Move::NULL,
             accumulator_stack: Box::from([AccState::empty(); MAX_PLY]),
             finny_table: FinnyTable::new(&NETWORK),
             excluded: Box::from([Move::NULL; MAX_PLY]),
@@ -179,7 +213,7 @@ impl Search {
         }
         if self.nodes & (TC_NODE_CHECK - 1) == 0 {
             self.shared_nodes.store(self.thread_id, self.nodes);
-            if self.time_control.stop.load(Ordering::Relaxed) || (self.time_control.start.elapsed() > self.time_control.hard_lim) {
+            if self.time_control.stop.load(Ordering::Relaxed) || (self.time_control.clock.elapsed() > self.time_control.hard_lim) {
                 self.stopped = true;
             }
         }
@@ -737,7 +771,7 @@ impl Search {
         self.refresh_accumulators(board, 0);
 
         for depth in 1..=max_depth {
-            if self.time_control.start.elapsed() > self.time_control.soft_lim || self.nodes >= self.time_control.soft_node {
+            if self.time_control.clock.elapsed() > self.time_control.soft_lim || self.nodes >= self.time_control.soft_node {
                 break;
             }
             self.root_depth = depth;
@@ -796,6 +830,7 @@ impl Search {
             best = result;
             best_pv = Vec::from(self.pv_table.get_line(0));
             self.extend_pv_from_tt(board, &mut best_pv);
+            self.ponder_move = best_pv.get(1).copied().unwrap_or(Move::NULL);
 
             if !self.silent {
                 let score = if Score::is_mate(best.1) {

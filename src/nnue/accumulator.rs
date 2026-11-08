@@ -139,8 +139,6 @@ pub fn king_bucket(perspective: Color, king: Square, mirror: bool) -> usize {
     KING_LAYOUT[index]
 }
 
-// `mirror` and `bucket` describe the position *after* the move. The old bucket must be read with the OLD
-// square's own mirror flag: `mirror` belongs to the square the king landed on.
 pub fn needs_refresh(delta: &Delta, color: Color, mirror: bool, bucket: usize) -> bool {
     let king = Piece::new(color, PieceType::King);
 
@@ -256,7 +254,6 @@ impl FinnyTable {
         &mut self.0[perspective][mirror as usize][bucket]
     }
 
-    // `mirror` and `bucket` come from the caller's one `king_context` call, so nothing here can disagree.
     pub fn refresh(&mut self, net: &Network, board: &Board, perspective: Color, mirror: bool, bucket: usize) -> Accumulator {
         let entry = self.entry_mut(perspective, mirror, bucket);
 
@@ -287,7 +284,7 @@ impl FinnyTable {
             entry.bb[piece] = curr
         }
 
-        // A cell is cold when its snapshot was still empty.
+        // a cell is cold when its snapshot was still empty
         #[cfg(feature = "nnue-stats")]
         crate::nnue::stats::record_refresh(diff, board.occ().pop_count() as u64, stale == 0);
 

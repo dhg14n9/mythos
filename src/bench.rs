@@ -5,7 +5,7 @@ use crate::search::{Search, TimeControl};
 use crate::tables::{ThreadData, TransTable};
 use crate::types::MoveList;
 
-// Andrew Wagner's verified perft suite — 127 positions with known leaf counts
+// Andrew Wagner's perft suite
 // (http://www.rocechess.ch/perft.html)
 const EPD: &str = include_str!("tests/perft_bench.epd");
 const BENCH_EPD: &str = include_str!("bench.epd");
@@ -13,7 +13,6 @@ const BENCH_EPD: &str = include_str!("bench.epd");
 pub const BENCH_DEPTH: usize = 12;
 pub const BENCH_HASH_MB: usize = 16;
 
-// `bench [depth] [--hash MB]`, shared by the `bench` subcommand and UCI `bench`.
 pub fn parse_bench_args<S: AsRef<str>>(args: &[S]) -> (usize, usize) {
     let mut depth = BENCH_DEPTH;
     let mut hash = BENCH_HASH_MB;
@@ -82,7 +81,6 @@ pub fn group_digits(n: u64) -> String {
     out
 }
 
-// Search bench: fixed-depth search over bench.epd; the total node count fingerprints the search.
 pub fn search_bench(depth: usize, hash_mb: usize) {
     crate::nnue::stats::reset();
 
@@ -224,7 +222,7 @@ pub fn perft_tt(board: &mut Board, depth: usize, tt: &mut PerftTable) -> u64 {
 pub fn run(use_tt: bool) -> bool {
     let cases = cases();
     
-    let mut tt = use_tt.then(|| PerftTable::with_pow2_size(22)); // 2^22 entries, ~96 MB
+    let mut tt = use_tt.then(|| PerftTable::with_pow2_size(22)); // 2^22 entries ~96 MB
 
     if let Some(&(fen, _, _)) = cases.first() {
         let _ = Board::from_fen(fen).unwrap().perft(2);
