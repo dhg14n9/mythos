@@ -13,18 +13,48 @@ use crate::types::{Color, Move, MoveList, PieceType, Score, Square};
 
 const TC_NODE_CHECK: u64 = 2048;
 
+const TREND_LEN: usize = 6;
+const TREND_CLAMP: i32 = 1000;
+
 struct StableTracker {
     mv: Move,
-    stable_iteration: usize
-
+    stable_iteration: usize,
+    scores: [i32; TREND_LEN],
+    count: usize
 }
 
 impl StableTracker {
     pub fn new() -> Self {
         Self {
             mv: Move::NULL,
-            stable_iteration: 0
+            stable_iteration: 0,
+            scores: [0; TREND_LEN],
+            count: 0
         }
+    }
+
+    fn push_score(&mut self, score: i32) {
+        self.scores[self.count % TREND_LEN] = score.clamp(-TREND_CLAMP, TREND_CLAMP);
+        self.count += 1;
+    }
+
+    fn trend(&self) -> f32 {
+        if self.count < TREND_LEN {
+            return 1.0;
+        }
+
+        let a = [tm_trend_a0(), tm_trend_a1(), tm_trend_a2(), tm_trend_a3(), tm_trend_a4()];
+        let a5 = -a.iter().sum::<i32>();
+        let weights = [a[0], a[1], a[2], a[3], a[4], a5];
+
+        let oldest = self.count % TREND_LEN;
+        let sum: i64 = (0..TREND_LEN)
+            .map(|i| weights[i] as i64 * self.scores[(oldest + i) % TREND_LEN] as i64)
+            .sum();
+
+        let lo = tm_trend_lo() as f32 / 100.0;
+        let hi = tm_trend_hi() as f32 / 100.0;
+        (-(sum as f32) / 10000.0).exp2().clamp(lo, hi.max(lo))
     }
 
     fn extension(&self) -> f32 {
@@ -35,7 +65,9 @@ impl StableTracker {
         (base - step * self.stable_iteration as f32).max(min)
     }
 
-    pub fn update(&mut self, mv: Move, depth: usize, tc: &mut TimeControl, best_node: u64, all_node: u64) {
+    pub fn update(&mut self, mv: Move, score: i32, depth: usize, tc: &mut TimeControl, best_node: u64, all_node: u64) {
+        self.push_score(score);
+
         if mv == self.mv {
             self.stable_iteration += 1;
         } else {
@@ -47,7 +79,7 @@ impl StableTracker {
             let frac = best_node as f32 / all_node as f32;
             let factor = (tm_node_base() as f32 / 100f32 - frac) * tm_node_scale() as f32 / 100f32;
 
-            tc.soft_lim = tc.soft_base.mul_f32(self.extension() * factor).min(tc.hard_lim);
+            tc.soft_lim = tc.soft_base.mul_f32(self.extension() * factor * self.trend()).min(tc.hard_lim);
         }
     }
 }
@@ -765,7 +797,7 @@ impl Search {
             }
 
             let result = (self.root_best_move, score);
-            stable_tracker.update(result.0, depth, &mut self.time_control, self.node_counter[result.0.from()][result.0.to()], self.node_counter[0][0]);
+            stable_tracker.update(result.0, result.1, depth, &mut self.time_control, self.node_counter[result.0.from()][result.0.to()], self.node_counter[0][0]);
 
             alpha = result.1 - asp_window();
             beta = result.1 + asp_window();

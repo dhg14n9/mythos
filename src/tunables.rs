@@ -130,6 +130,14 @@ tunables! {
     tm_stab_min_depth      =       9,      4,     14,    0.5;
     tm_node_base           =     139,    100,    250,    7.0;
     tm_node_scale          =     145,     50,    300,   12.0;
+    // Eval trend: zero-sum weights over the last 6 scores (oldest first), a5 = -(a0+..+a4)
+    tm_trend_a0            =     -71,   -150,    150,   10.0;
+    tm_trend_a1            =     -43,   -150,    150,   10.0;
+    tm_trend_a2            =     -14,   -150,    150,   10.0;
+    tm_trend_a3            =      14,   -150,    150,   10.0;
+    tm_trend_a4            =      43,   -150,    150,   10.0;
+    tm_trend_lo            =      60,     30,    100,    4.0;
+    tm_trend_hi            =     160,    100,    250,    6.0;
 
     // singular / double extension
     se_margin              =      25,      8,    100,    4.0;
