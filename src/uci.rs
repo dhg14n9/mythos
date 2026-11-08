@@ -6,7 +6,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::board::board::Board;
-use crate::search::{Search, TimeControl};
+use crate::search::{NodeCounter, Search, TimeControl};
 use crate::tables::{ThreadData, TransTable};
 use crate::types::{Color, Move, MoveList, Rng};
 
@@ -17,15 +17,17 @@ const HASH_DEFAULT: usize = 16;
 const HASH_MIN: usize = 1;
 const HASH_MAX: usize = 4096;
 
-const THREADS: usize = 1;
+const THREAD_MIN: usize = 1;
+const THREAD_MAX: usize = 256;
 
 struct Session {
     board: Board,
     stop: Arc<AtomicBool>,
     hash_mb: usize,
+    thread: usize,
     trans_table: TransTable,
-    thread_data: Option<ThreadData>,
-    handle: Option<JoinHandle<ThreadData>>
+    thread_data: Vec<ThreadData>,
+    handle: Option<JoinHandle<Vec<ThreadData>>>
 }
 
 impl Session {
@@ -34,8 +36,9 @@ impl Session {
             board: Board::start_pos(),
             stop: Arc::new(AtomicBool::new(false)),
             hash_mb,
+            thread: THREAD_MIN,
             trans_table: TransTable::new(hash_mb),
-            thread_data: Some(ThreadData::new()),
+            thread_data: vec![ThreadData::new()],
             handle: None
         }
     }
@@ -51,7 +54,7 @@ impl Session {
                 println!("id name {NAME}");
                 println!("id author {AUTHOR}");
                 println!("option name Hash type spin default {HASH_DEFAULT} min {HASH_MIN} max {HASH_MAX}");
-                println!("option name Threads type spin default {THREADS} min {THREADS} max {THREADS}");
+                println!("option name Threads type spin default {THREAD_MIN} min {THREAD_MIN} max {THREAD_MAX}");
                 crate::tunables::print_options();
                 println!("uciok");
             }
@@ -60,12 +63,14 @@ impl Session {
                 join_thread(&*self.stop, &mut self.handle, &mut self.thread_data);
                 self.board = Board::start_pos();
                 self.trans_table.clear();
-                if let Some(td) = self.thread_data.as_mut() { td.clear() }
+                for td in &mut self.thread_data {td.clear()}
             },
             "setoption" => {
-                if set_option(args, &mut self.hash_mb) {
+                let rebuild_tt = set_option(args, &mut self.hash_mb, &mut self.thread);
+                if rebuild_tt || self.thread != self.thread_data.len() {
                     join_thread(&*self.stop, &mut self.handle, &mut self.thread_data);
-                    self.trans_table = TransTable::new(self.hash_mb)
+                    if rebuild_tt { self.trans_table = TransTable::new(self.hash_mb) }
+                    self.thread_data.resize_with(self.thread, ThreadData::new);
                 }
             },
             "position" => position(&mut self.board, args),
@@ -212,7 +217,7 @@ fn random_line(rng: &mut Rng, start: &Board, plies: usize) -> Option<Board> {
     Some(board)
 }
 
-fn set_option(args: &[&str], hash_mb: &mut usize) -> bool {
+fn set_option(args: &[&str], hash_mb: &mut usize, thread: &mut usize) -> bool {
     // setoption name <id> value <x>
     let name = args
         .iter()
@@ -238,8 +243,8 @@ fn set_option(args: &[&str], hash_mb: &mut usize) -> bool {
         }
         Some(n) if n.eq_ignore_ascii_case("threads") => {
             match value.and_then(|v| v.parse::<usize>().ok()) {
-                Some(t) if t == THREADS => {},
-                Some(t) => println!("info string Threads {t} unsupported, staying at {THREADS}"),
+                Some(t) if (THREAD_MIN..=THREAD_MAX).contains(&t) => *thread = t,
+                Some(t) => println!("Threads {t} out of range [{THREAD_MIN}, {THREAD_MAX}], staying at {thread}"),
                 None => println!("info string invalid value for Threads"),
             }
         }
@@ -306,9 +311,9 @@ fn go(
     board: &mut Board,
     args: &[&str],
     stop: &Arc<AtomicBool>,
-    handle: &mut Option<thread::JoinHandle<ThreadData>>,
+    handle: &mut Option<JoinHandle<Vec<ThreadData>>>,
     trans_table: &mut TransTable,
-    thread_data: &mut Option<ThreadData>
+    thread_data: &mut Vec<ThreadData>
 ) {
     let start = Instant::now();
 
@@ -327,37 +332,73 @@ fn go(
     let hard_node = value(args, "nodes").unwrap_or(u64::MAX);
     let mut board = board.clone();
     let tt = trans_table.clone();
-    let td = thread_data.take().expect("No thread data");
-    *handle = Some(thread::spawn( move || {
-        let time_control = TimeControl {
-            stop,
-            start,
-            soft_lim,
-            hard_lim,
-            soft_base: soft_lim,
-            hard_node,
-            soft_node: u64::MAX
-        };
-        let mut search = Search::new(time_control, tt, td);
-        let best = search.iterative(&mut board, max_depth);
-        // Non-standard: OpenBench DATAGEN scrapes this from the PGN; must come before `bestmove`, where fastchess stops reading.
+    let tds = std::mem::take(thread_data);
+    *handle = Some(thread::spawn(move || {
+        let threads = tds.len();
+        let shared_nodes = Arc::new(NodeCounter::new(threads));
+        let mut tds = tds.into_iter();
+        let main_td = tds.next().expect("no thread data");
 
-        #[cfg(feature = "datagen")]
-        println!("info string pgncomment {}", best.1);
-        println!("bestmove {}", best.0);
+        thread::scope(|s| {
+            // Helpers: no time or node limits, they run until the main thread raises `stop`.
+            let helpers: Vec<_> = tds.enumerate().map(|(i, td)| {
+                let time_control = TimeControl {
+                    stop: Arc::clone(&stop),
+                    start,
+                    soft_lim: Duration::MAX,
+                    hard_lim: Duration::MAX,
+                    soft_base: Duration::MAX,
+                    hard_node: u64::MAX,
+                    soft_node: u64::MAX
+                };
+                let tt = tt.clone();
+                let shared_nodes = Arc::clone(&shared_nodes);
+                let mut board = board.clone();
+                s.spawn(move || {
+                    let mut search = Search::new(time_control, tt, td);
+                    search.silent = true;
+                    search.thread_id = i + 1;
+                    search.shared_nodes = shared_nodes;
+                    search.iterative(&mut board, max_depth);
+                    search.thread_data
+                })
+            }).collect();
 
-        search.thread_data
+            let time_control = TimeControl {
+                stop: Arc::clone(&stop),
+                start,
+                soft_lim,
+                hard_lim,
+                soft_base: soft_lim,
+                hard_node,
+                soft_node: u64::MAX
+            };
+            let mut search = Search::new(time_control, tt.clone(), main_td);
+            search.shared_nodes = Arc::clone(&shared_nodes);
+            let best = search.iterative(&mut board, max_depth);
+
+            stop.store(true, Ordering::Relaxed);
+
+            #[cfg(feature = "datagen")]
+            println!("info string pgncomment {}", best.1);
+            println!("bestmove {}", best.0);
+
+            let mut out = Vec::with_capacity(threads);
+            out.push(search.thread_data);
+            out.extend(helpers.into_iter().map(|h| h.join().unwrap()));
+            out
+        })
     }));
 }
 
 fn join_thread(
     stop: &AtomicBool,
-    handle: &mut Option<JoinHandle<ThreadData>>,
-    thread_data: &mut Option<ThreadData>
+    handle: &mut Option<JoinHandle<Vec<ThreadData>>>,
+    thread_data: &mut Vec<ThreadData>
 ) {
     stop.store(true, Ordering::Relaxed);
     if let Some(h) = handle.take() {
-        *thread_data = Some(h.join().unwrap())
+        *thread_data = h.join().unwrap()
     }
     stop.store(false, Ordering::Relaxed);
 }
