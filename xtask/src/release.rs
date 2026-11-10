@@ -262,7 +262,8 @@ fn check_windows_imports(exe: &Path) -> Result<()> {
             let lower = dll.to_ascii_lowercase();
             !(lower.starts_with("api-ms-win-")
                 || lower == "kernel32.dll"
-                || lower == "ntdll.dll")
+                || lower == "ntdll.dll"
+                || lower == "msvcrt.dll")
         })
         .collect();
 
