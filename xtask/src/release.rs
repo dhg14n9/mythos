@@ -12,12 +12,14 @@ struct Variant {
     target_cpu: &'static str,
     /// Extra `-C` flags, appended to RUSTFLAGS after the target-cpu.
     extra: &'static [&'static str],
+    /// Which NNUE forward pass the build compiles in; only builds sharing one must bench identically.
+    eval: &'static str,
 }
 
 const VARIANTS: &[Variant] = &[
-    Variant { name: "v1", target_cpu: "x86-64",    extra: &[] },
-    Variant { name: "v2", target_cpu: "x86-64-v2", extra: &[] },
-    Variant { name: "v3", target_cpu: "x86-64-v3", extra: &[] },
+    Variant { name: "v1", target_cpu: "x86-64",    extra: &[], eval: "scalar" },
+    Variant { name: "v2", target_cpu: "x86-64-v2", extra: &[], eval: "scalar" },
+    Variant { name: "v3", target_cpu: "x86-64-v3", extra: &[], eval: "avx2"   },
 ];
 
 // x86-64-v4 is deliberately absent: nothing uses AVX-512, and most dev machines cannot verify a v4 binary.
@@ -28,6 +30,7 @@ const V3_NOPEXT: Variant = Variant {
     name: "v3-nopext",
     target_cpu: "x86-64-v3",
     extra: &["-C", "target-feature=-bmi2"],
+    eval: "avx2",
 };
 
 struct Platform {
@@ -48,6 +51,7 @@ const BUILD_DIR: &str = "target/release-build";
 struct Artifact {
     path: PathBuf,
     variant: &'static str,
+    eval: &'static str,
     platform: &'static str,
     /// Only filled in for host binaries — we cannot run the .exe files here.
     bench: Option<(u64, u64)>,
@@ -143,6 +147,7 @@ fn build(
     Ok(Artifact {
         path: dest,
         variant: variant.name,
+        eval: variant.eval,
         platform: platform.name,
         bench: None,
     })
@@ -160,23 +165,22 @@ fn verify(artifacts: &mut [Artifact], version: &str) -> Result<()> {
         art.bench = Some(bench(&art.path)?);
     }
 
-    // The node count is a functional fingerprint: identical counts across baselines prove the PEXT and fallback movegen
-    // agree, and that the AVX2 and scalar forward passes do. A mismatch must not ship.
-    let mut counts: Vec<(&str, u64)> = artifacts
-        .iter()
-        .filter_map(|a| a.bench.map(|(nodes, _)| (a.variant, nodes)))
-        .collect();
-    counts.dedup_by_key(|(_, nodes)| *nodes);
-    if counts.len() > 1 {
-        let detail: Vec<String> = counts
-            .iter()
-            .map(|(name, nodes)| format!("{name}: {nodes}"))
-            .collect();
-        return Err(format!(
-            "bench node counts differ across baselines ({}) — a cfg-gated path \
-             disagrees with the others; do not ship",
-            detail.join(", ")
-        ));
+    // The node count is a functional fingerprint: builds sharing a forward pass must match exactly, proving the PEXT and
+    // fallback movegen agree. Across forward passes the float layers round differently (FMA, summation order), so counts
+    // legitimately differ there.
+    let benched: Vec<&Artifact> = artifacts.iter().filter(|a| a.bench.is_some()).collect();
+    for (i, art) in benched.iter().enumerate() {
+        let Some(first) = benched[..i].iter().find(|b| b.eval == art.eval) else {
+            continue;
+        };
+        let (expected, got) = (first.bench.unwrap().0, art.bench.unwrap().0);
+        if expected != got {
+            return Err(format!(
+                "bench node counts differ between {} ({expected}) and {} ({got}), which share the {} \
+                 forward pass — a cfg-gated path disagrees; do not ship",
+                first.variant, art.variant, art.eval
+            ));
+        }
     }
 
     Ok(())
