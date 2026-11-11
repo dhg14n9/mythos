@@ -12,7 +12,10 @@ pub struct StateInfo {
     pub en_passant: Square,
     pub captured_piece: Piece,
     pub checkers: Bitboard,
-    pub pawn_key: u64
+    pub pawn_key: u64, 
+    pub non_pawn_key: [u64; 2], 
+    pub minor_key: u64, 
+    pub major_key: u64, 
 }
 
 #[derive(Clone)]
@@ -32,6 +35,9 @@ pub struct Board {
     pub(super) state_history: UninitArray<StateInfo, MAX_STATE_ARRAY_LENGTH>,
     pub(super) checkers: Bitboard,
     pub(super) pawn_key: u64,
+    pub(super) non_pawn_key: [u64; 2], 
+    pub(super) minor_key: u64, 
+    pub(super) major_key: u64, 
 }
 
 impl Board {
@@ -49,7 +55,10 @@ impl Board {
             piece_count: [0; Piece::NUM],
             state_history: UninitArray::new(),
             checkers: Bitboard::EMPTY,
-            pawn_key: 0
+            pawn_key: 0,
+            non_pawn_key: [0; 2],
+            minor_key: 0, 
+            major_key: 0, 
         };
 
         let mut parts = fen.split_whitespace();
@@ -213,14 +222,43 @@ impl Board {
         self.pawn_key
     }
 
+    pub fn non_pawn_key(&self, color: Color) -> u64 {
+        self.non_pawn_key[color]
+    }
+
+    pub fn minor_key(&self) -> u64 { 
+        self.minor_key
+    }
+
+    pub fn major_key(&self) -> u64 { 
+        self.major_key
+    }
+
+    #[inline(always)]
+    fn hash_piece(&mut self, piece: Piece, key: u64) { 
+        match piece.piece_type() { 
+            PieceType::Pawn => self.pawn_key ^= key, 
+            pt => { 
+                self.non_pawn_key[piece.color()] ^= key; 
+                match pt { 
+                    PieceType::Bishop | PieceType::Knight => self.minor_key ^= key, 
+                    PieceType::Rook | PieceType::Queen => self.major_key ^= key, 
+                    _ => { 
+                        self.minor_key ^= key; 
+                        self.major_key ^= key; 
+                    }
+                }
+            }
+        }
+    }
+
     pub fn place_piece(&mut self, piece: Piece, square: Square) {
         self.place_piece_unhashed(piece, square);
 
         let key = ZobristHelper::square(square, piece);
         self.zobrist ^= key;
-        if piece.piece_type() == PieceType::Pawn {
-            self.pawn_key ^= key;
-        }
+        self.hash_piece(piece, key);
+        
     }
 
     pub fn clear_square(&mut self, square: Square) {
@@ -249,9 +287,7 @@ impl Board {
 
         let key = ZobristHelper::square(square, piece);
         self.zobrist ^= key;
-        if piece.piece_type() == PieceType::Pawn {
-            self.pawn_key ^= key;
-        }
+        self.hash_piece(piece, key);
     }
 
     fn move_piece_unhashed(&mut self, piece: Piece, from: Square, to: Square) {
@@ -266,10 +302,7 @@ impl Board {
         self.move_piece_unhashed(piece, from, to);
         let key = ZobristHelper::square(from, piece) ^ ZobristHelper::square(to, piece);
         self.zobrist ^= key;
-
-        if piece.piece_type() == PieceType::Pawn {
-            self.pawn_key ^= key;
-        }
+        self.hash_piece(piece, key);
     }
 
     // state properties only, no piece movement
@@ -281,7 +314,10 @@ impl Board {
             en_passant: self.en_passant,
             captured_piece,
             checkers: self.checkers,
-            pawn_key: self.pawn_key
+            pawn_key: self.pawn_key, 
+            non_pawn_key: self.non_pawn_key, 
+            major_key: self.major_key, 
+            minor_key: self.minor_key,
         })
     }
 
@@ -294,6 +330,9 @@ impl Board {
         self.en_passant = prev_state.en_passant;
         self.checkers = prev_state.checkers;
         self.pawn_key = prev_state.pawn_key;
+        self.non_pawn_key = prev_state.non_pawn_key; 
+        self.major_key = prev_state.major_key; 
+        self.minor_key = prev_state.minor_key; 
 
         prev_state.captured_piece
     }

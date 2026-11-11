@@ -314,7 +314,10 @@ pub struct ThreadData {
     pub killer: Killer,
     pub continuation: Continuation,
     pub capture: Capture,
-    pub pawn_corr: CorrTable
+    pub pawn_corr: CorrTable, 
+    pub non_pawn_corr: [CorrTable; 2],
+    pub minor_corr: CorrTable, 
+    pub major_corr: CorrTable, 
 }
 
 impl ThreadData {
@@ -324,7 +327,10 @@ impl ThreadData {
             killer: Killer::new(),
             continuation: Continuation::new(),
             capture: Capture::new(),
-            pawn_corr: CorrTable::new()
+            pawn_corr: CorrTable::new(),
+            non_pawn_corr: [CorrTable::new(), CorrTable::new()],
+            minor_corr: CorrTable::new(), 
+            major_corr: CorrTable::new(), 
         }
     }
 
