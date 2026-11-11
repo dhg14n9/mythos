@@ -779,7 +779,7 @@ impl Search {
         if Self::should_correction(in_check, excluded_move, best_move, bound, best, static_eval) {
             let bonus = ((best - static_eval) * depth as i32 * corr_bonus_mult() / 100).clamp(-MAX_CORR / 4, MAX_CORR / 4);
 
-            self.thread_data.correction.update(stm, board.pawn_key(), bonus);
+            self.thread_data.pawn_corr.update(stm, board.pawn_key(), bonus);
         }
 
         best
@@ -1057,7 +1057,7 @@ impl Search {
     }
 
     fn corrected_eval(&self, board: &Board, raw_eval: i32) -> i32 {
-        let entry = self.thread_data.correction.probe(board.stm(), board.pawn_key());
+        let entry = self.thread_data.pawn_corr.probe(board.stm(), board.pawn_key());
         let correction = entry / corr_div();
         (raw_eval + correction).clamp(-Score::MATE, Score::MATE)
     }
