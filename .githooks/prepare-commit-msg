@@ -12,10 +12,6 @@
 set -eu
 
 MSG_FILE=$1
-SOURCE=${2-}
-
-# Don't touch merge/squash messages.
-case "$SOURCE" in merge|squash) exit 0 ;; esac
 
 # GUI-launched clients (RustRover) often lack ~/.cargo/bin on PATH.
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
