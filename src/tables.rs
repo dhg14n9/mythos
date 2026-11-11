@@ -286,23 +286,23 @@ pub struct ContKey {
 const CORR_SIZE: usize = 16384;
 pub const MAX_CORR: i32 = 16384;
 
-pub struct Correction {
+pub struct CorrTable {
     array: Box<[[i16; CORR_SIZE]; 2]>
 }
 
-impl Correction {
+impl CorrTable {
     pub fn new() -> Self {
         Self {
             array: Box::from([[0; CORR_SIZE]; 2])
         }
     }
 
-    pub fn probe(&self, color: Color, pawn_key: u64) -> i32 {
-        self.array[color][pawn_key as usize & (CORR_SIZE - 1)] as i32
+    pub fn probe(&self, color: Color, key: u64) -> i32 {
+        self.array[color][key as usize & (CORR_SIZE - 1)] as i32
     }
 
-    pub fn update(&mut self, color: Color, pawn_key: u64, bonus: i32) {
-        let entry = &mut self.array[color][pawn_key as usize & (CORR_SIZE - 1)];
+    pub fn update(&mut self, color: Color, key: u64, bonus: i32) {
+        let entry = &mut self.array[color][key as usize & (CORR_SIZE - 1)];
         let mut value = *entry as i32;
         apply::<MAX_CORR>(&mut value, bonus);
         *entry = value as i16
@@ -314,7 +314,10 @@ pub struct ThreadData {
     pub killer: Killer,
     pub continuation: Continuation,
     pub capture: Capture,
-    pub correction: Correction
+    pub pawn_corr: CorrTable, 
+    pub non_pawn_corr: [CorrTable; 2],
+    pub minor_corr: CorrTable, 
+    pub major_corr: CorrTable, 
 }
 
 impl ThreadData {
@@ -324,7 +327,10 @@ impl ThreadData {
             killer: Killer::new(),
             continuation: Continuation::new(),
             capture: Capture::new(),
-            correction: Correction::new()
+            pawn_corr: CorrTable::new(),
+            non_pawn_corr: [CorrTable::new(), CorrTable::new()],
+            minor_corr: CorrTable::new(), 
+            major_corr: CorrTable::new(), 
         }
     }
 

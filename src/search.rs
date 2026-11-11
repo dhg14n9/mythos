@@ -779,7 +779,12 @@ impl Search {
         if Self::should_correction(in_check, excluded_move, best_move, bound, best, static_eval) {
             let bonus = ((best - static_eval) * depth as i32 * corr_bonus_mult() / 100).clamp(-MAX_CORR / 4, MAX_CORR / 4);
 
-            self.thread_data.correction.update(stm, board.pawn_key(), bonus);
+            self.thread_data.pawn_corr.update(stm, board.pawn_key(), bonus);
+            for c in [Color::White, Color::Black] {
+                self.thread_data.non_pawn_corr[c].update(stm, board.non_pawn_key(c), bonus);
+            }
+            self.thread_data.minor_corr.update(stm, board.minor_key(), bonus);
+            self.thread_data.major_corr.update(stm, board.major_key(), bonus);
         }
 
         best
@@ -1057,8 +1062,12 @@ impl Search {
     }
 
     fn corrected_eval(&self, board: &Board, raw_eval: i32) -> i32 {
-        let entry = self.thread_data.correction.probe(board.stm(), board.pawn_key());
-        let correction = entry / corr_div();
+        let stm = board.stm(); 
+
+        let pawn_entry = self.thread_data.pawn_corr.probe(stm, board.pawn_key());
+        let non_pawn_entry = self.thread_data.non_pawn_corr[Color::White].probe(stm, board.non_pawn_key(Color::White))
+                           + self.thread_data.non_pawn_corr[Color::Black].probe(stm, board.non_pawn_key(Color::Black));
+        let correction = (pawn_entry * corr_w_pawn() + non_pawn_entry * corr_w_non_pawn()) / (corr_div() * 128);
         (raw_eval + correction).clamp(-Score::MATE, Score::MATE)
     }
 }

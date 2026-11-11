@@ -151,6 +151,10 @@ tunables! {
 
     corr_bonus_mult        =     180,     50,    600,   25.0;
     corr_div               =     116,     16,    256,   12.0;
+    corr_w_pawn            =     128,      0,    256,   12.0;
+    corr_w_non_pawn        =      64,      0,    256,   12.0; // both color shared
+    // corr_w_minor           =      48,      0,    256,   12.0;
+    // corr_w_major           =      32,      0,    256,   12.0;
 
 }
 
