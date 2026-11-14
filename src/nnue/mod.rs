@@ -8,9 +8,10 @@ pub mod network;
 pub mod stats;
 pub mod trace;
 
-pub(crate) const BUCKET_SIZE: usize = 768;
+pub(crate) const BUCKET_SIZE: usize = 704;
 pub(crate) const HL: usize = 512;
 const L1: usize = 16;
+pub(crate) const L2_IN: usize = L1 * 2;
 const L2: usize = 32;
 pub(crate) const QA: i16 = 255;
 const QB: i16 = 64;

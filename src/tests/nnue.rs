@@ -37,9 +37,16 @@ fn feature_index_hand_computed() {
     // 0 * 64 + (48 ^ 7) + 384: the flip applies to the "them" half too
     assert_eq!(feature_index(Color::White, black(PieceType::Pawn), Square::A7, true, 0), 439);
 
-    // bucket k shifts the same feature by k * 768
-    assert_eq!(feature_index(Color::White, white(PieceType::Pawn), Square::A2, false, 1), 768 + 8);
-    assert_eq!(feature_index(Color::White, white(PieceType::King), Square::E1, true, 9), 9 * 768 + 323);
+    // merged kings: the enemy king has no 384 offset, it shares the king plane: 5 * 64 + 60
+    assert_eq!(feature_index(Color::White, black(PieceType::King), Square::E8, false, 0), 380);
+    assert_eq!(feature_index(Color::Black, white(PieceType::King), Square::E1, false, 0), 380);
+
+    // the last enemy plane is the queen, ending the bucket at 704: 384 + 4 * 64 + 63
+    assert_eq!(feature_index(Color::White, black(PieceType::Queen), Square::H8, false, 0), 703);
+
+    // bucket k shifts the same feature by k * 704
+    assert_eq!(feature_index(Color::White, white(PieceType::Pawn), Square::A2, false, 1), 704 + 8);
+    assert_eq!(feature_index(Color::White, white(PieceType::King), Square::E1, true, 9), 9 * 704 + 323);
 }
 
 #[test]
@@ -62,6 +69,7 @@ fn feature_index_is_colour_mirror_symmetric() {
     }
 }
 
+// Injective except for the one intended collision: both kings share a plane (merged kings).
 #[test]
 fn feature_index_is_in_range_and_injective() {
     for mirror in [false, true] {
@@ -72,10 +80,18 @@ fn feature_index_is_in_range_and_injective() {
                 for colour in Color::ALL {
                     for pt in PieceType::ALL {
                         for sq in 0..64u8 {
-                            let idx = feature_index(perspective, Piece::new(colour, pt), Square::new(sq), mirror, bucket);
+                            let square = Square::new(sq);
+                            let idx = feature_index(perspective, Piece::new(colour, pt), square, mirror, bucket);
 
                             assert!(idx < INPUT, "index {idx} out of range");
                             assert_eq!(idx / BUCKET_SIZE, bucket, "index {idx} escaped bucket {bucket}");
+
+                            if pt == PieceType::King && colour != perspective {
+                                let ours = feature_index(perspective, Piece::new(perspective, pt), square, mirror, bucket);
+                                assert_eq!(idx, ours, "enemy king on {square} is off the shared king plane");
+                                continue;
+                            }
+
                             assert!(!seen[idx], "index {idx} collided");
                             seen[idx] = true;
                         }

@@ -112,11 +112,10 @@ impl AccState {
 
 pub fn feature_index(perspective: Color, piece: Piece, square: Square, mirror: bool, bucket: usize) -> usize {
     let square = if mirror { square.flip_file() } else { square };
+    let pt = piece.piece_type();
+    let side = if pt == PieceType::King || perspective == piece.color() { 0 } else { 384 };
 
-    (piece.piece_type() as usize) * 64 +
-        (square.relative_to(perspective) as usize) +
-        if perspective == piece.color() { 0 } else { 384 } +
-        bucket * BUCKET_SIZE
+    side + (pt as usize) * 64 + (square.relative_to(perspective) as usize) + bucket * BUCKET_SIZE
 }
 
 

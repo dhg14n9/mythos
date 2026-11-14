@@ -41,7 +41,7 @@ pub fn print(board: &Board) {
     println!("  bucket  pieces  L1 active   eval (stm)");
     for bucket in 0..OUTPUT_BUCKETS {
         let low = bucket * BUCKET_DIVISOR + 2;
-        let active = l1_int(&NETWORK, &input, bucket).iter().filter(|&&x| x > 0.0).count();
+        let active = l1_int(&NETWORK, &input, bucket)[..L1].iter().filter(|&&x| x > 0.0).count();
         let score = evaluate(&NETWORK, &us, &them, bucket);
         let marker = if bucket == used { ">" } else { " " };
         println!("{marker} {bucket:>5}   {low:>2}-{:<2}    {active:>2}/{L1}      {score:>+6}", low + BUCKET_DIVISOR - 1);

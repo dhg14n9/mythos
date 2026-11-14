@@ -1,19 +1,19 @@
 use crate::board::board::Board;
 use crate::nnue::accumulator::{feature_index, king_context, needs_refresh, Accumulator, Delta, AccState, FinnyTable};
-use crate::nnue::{HL, INPUT, OUTPUT_BUCKETS, QA, QB, SCALE, L1, L2, FT_SHIFT};
+use crate::nnue::{FT_SHIFT, HL, INPUT, L1, L2, L2_IN, OUTPUT_BUCKETS, QA, QB, SCALE};
 use crate::types::{Color, Piece, Square};
 
 const L1_SCALE: f32 = (1 << FT_SHIFT) as f32 / (QA as f32 * QB as f32 * QA as f32);
 
 const NET_BYTES: usize = {
-    let raw = size_of::<[Accumulator; INPUT]>()  // feature_weights
-        + size_of::<Accumulator>()                       // feature_bias
-        + size_of::<[[[i8; HL]; L1]; OUTPUT_BUCKETS]>()  // l1_weights
-        + size_of::<[[f32; L1]; OUTPUT_BUCKETS]>()       // l1_bias
-        + size_of::<[[[f32; L1]; L2]; OUTPUT_BUCKETS]>() // l2_weights
-        + size_of::<[[f32; L2]; OUTPUT_BUCKETS]>()       // l2_bias
-        + size_of::<[[f32; L2]; OUTPUT_BUCKETS]>()       // l3_weights
-        + size_of::<[f32; OUTPUT_BUCKETS]>();            // l3_bias
+    let raw = size_of::<[Accumulator; INPUT]>()       // feature_weights
+        + size_of::<Accumulator>()                           // feature_bias
+        + size_of::<[[[i8; HL]; L1]; OUTPUT_BUCKETS]>()      // l1_weights
+        + size_of::<[[f32; L1]; OUTPUT_BUCKETS]>()           // l1_bias
+        + size_of::<[[[f32; L2_IN]; L2]; OUTPUT_BUCKETS]>()  // l2_weights
+        + size_of::<[[f32; L2]; OUTPUT_BUCKETS]>()           // l2_bias
+        + size_of::<[[f32; L2]; OUTPUT_BUCKETS]>()           // l3_weights
+        + size_of::<[f32; OUTPUT_BUCKETS]>();                // l3_bias
     let align = align_of::<Network>();
     (raw + align - 1) / align * align
 };
@@ -47,7 +47,7 @@ pub struct Network {
     feature_bias: Accumulator,
     l1_weights: [[[i8; L1 * 4]; HL / 4]; OUTPUT_BUCKETS],
     l1_bias: [[f32; L1]; OUTPUT_BUCKETS],
-    l2_weights: [[[f32; L1]; L2]; OUTPUT_BUCKETS],
+    l2_weights: [[[f32; L2_IN]; L2]; OUTPUT_BUCKETS],
     l2_bias: [[f32; L2]; OUTPUT_BUCKETS],
     l3_weights: [[f32; L2]; OUTPUT_BUCKETS],
     l3_bias: [f32; OUTPUT_BUCKETS]
@@ -183,7 +183,7 @@ pub fn pairwise_int_avx2(acc: &Accumulator, out: &mut [u8]) {
 }
 
 #[inline]
-pub(crate) fn l1_int(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] {
+pub(crate) fn l1_int(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L2_IN] {
     #[cfg(target_feature = "avx2")]
     {
         l1_int_avx2(net, input, bucket)
@@ -194,8 +194,8 @@ pub(crate) fn l1_int(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1
     }
 }
 
-pub fn l1_int_scalar(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] {
-    let mut output = [0f32; L1];
+pub fn l1_int_scalar(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L2_IN] {
+    let mut output = [0f32; L2_IN];
 
     for i in 0..L1 {
         let mut sum: i32 = 0;
@@ -204,7 +204,8 @@ pub fn l1_int_scalar(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1
         }
         let mut sum = sum as f32 * L1_SCALE;
         sum += net.l1_bias[bucket][i];
-        output[i] = screlu(sum);
+        output[i] = crelu(sum);
+        output[i + L1] = screlu(sum);
     }
 
     output
@@ -265,7 +266,7 @@ pub fn find_nnz_avx2(input: &[u8; HL], nnz: &mut [u16; HL / 4]) -> usize {
 
 #[cfg(target_feature = "avx2")]
 #[inline]
-pub fn l1_int_avx2(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] {
+pub fn l1_int_avx2(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L2_IN] {
     use std::arch::x86_64::*;
 
     const _: () = assert!(L1 == 16, "two 8-lane accumulators cover L1");
@@ -274,7 +275,7 @@ pub fn l1_int_avx2(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] 
     let weights = &net.l1_weights[bucket];
     let mut nnz = [0u16; HL / 4];
     let count = find_nnz(input, &mut nnz);
-    let mut output = [0f32; L1];
+    let mut output = [0f32; L2_IN];
 
     unsafe {
         let chunks = input.as_ptr().cast::<i32>();
@@ -311,7 +312,9 @@ pub fn l1_int_avx2(net: &Network, input: &[u8; HL], bucket: usize) -> [f32; L1] 
         for (i, sums) in [(0, lo), (8, hi)] {
             let sums = _mm256_mul_ps(_mm256_cvtepi32_ps(sums), scale);
             let sums = _mm256_add_ps(sums, _mm256_loadu_ps(bias.add(i)));
-            _mm256_storeu_ps(output.as_mut_ptr().add(i), screlu_ps(sums));
+            let clipped = crelu_ps(sums);
+            _mm256_storeu_ps(output.as_mut_ptr().add(i), clipped);
+            _mm256_storeu_ps(output.as_mut_ptr().add(i + L1), _mm256_mul_ps(clipped, clipped));
         }
     }
 
@@ -333,7 +336,7 @@ unsafe fn dpbusd(acc: std::arch::x86_64::__m256i, x: std::arch::x86_64::__m256i,
 }
 
 #[inline]
-fn l2(net: &Network, input: &[f32; L1], bucket: usize) -> [f32; L2] {
+fn l2(net: &Network, input: &[f32; L2_IN], bucket: usize) -> [f32; L2] {
     #[cfg(all(target_feature = "avx2", target_feature = "fma"))]
     {
         l2_avx2(net, input, bucket)
@@ -344,12 +347,12 @@ fn l2(net: &Network, input: &[f32; L1], bucket: usize) -> [f32; L2] {
     }
 }
 
-pub fn l2_scalar(net: &Network, input: &[f32; L1], bucket: usize) -> [f32; L2] {
+pub fn l2_scalar(net: &Network, input: &[f32; L2_IN], bucket: usize) -> [f32; L2] {
     let mut output = [0f32; L2];
 
     for i in 0..L2 {
         let mut sum: f32 = 0f32;
-        for j in 0..L1 {
+        for j in 0..L2_IN {
             sum += input[j] * net.l2_weights[bucket][i][j];
         }
         sum += net.l2_bias[bucket][i];
@@ -362,23 +365,27 @@ pub fn l2_scalar(net: &Network, input: &[f32; L1], bucket: usize) -> [f32; L2] {
 
 #[cfg(all(target_feature = "avx2", target_feature = "fma"))]
 #[inline]
-pub fn l2_avx2(net: &Network, input: &[f32; L1], bucket: usize) -> [f32; L2] {
+pub fn l2_avx2(net: &Network, input: &[f32; L2_IN], bucket: usize) -> [f32; L2] {
     use std::arch::x86_64::*;
 
     const LANES: usize = 8;
-    const _: () = assert!(L1 == 2 * LANES && L2 % LANES == 0);
+    const CHUNKS: usize = L2_IN / LANES;
+    const _: () = assert!(L2_IN % LANES == 0 && L2 % LANES == 0);
 
     let weights = &net.l2_weights[bucket];
     let mut output = [0f32; L2];
 
     unsafe {
-        let lo = _mm256_loadu_ps(input.as_ptr());
-        let hi = _mm256_loadu_ps(input.as_ptr().add(LANES));
+        let x: [__m256; CHUNKS] = std::array::from_fn(|c| _mm256_loadu_ps(input.as_ptr().add(c * LANES)));
 
         for n in (0..L2).step_by(LANES) {
             let row = |k: usize| {
                 let w = weights[n + k].as_ptr();
-                _mm256_fmadd_ps(hi, _mm256_loadu_ps(w.add(LANES)), _mm256_mul_ps(lo, _mm256_loadu_ps(w)))
+                let mut acc = _mm256_mul_ps(x[0], _mm256_loadu_ps(w));
+                for c in 1..CHUNKS {
+                    acc = _mm256_fmadd_ps(x[c], _mm256_loadu_ps(w.add(c * LANES)), acc);
+                }
+                acc
             };
 
             let s01 = _mm256_hadd_ps(row(0), row(1));
@@ -434,11 +441,19 @@ pub fn l3_avx2(net: &Network, input: &[f32; L2], bucket: usize) -> f32 {
 
 #[cfg(target_feature = "avx2")]
 #[inline]
+unsafe fn crelu_ps(x: std::arch::x86_64::__m256) -> std::arch::x86_64::__m256 {
+    use std::arch::x86_64::*;
+
+    unsafe { _mm256_min_ps(_mm256_max_ps(x, _mm256_setzero_ps()), _mm256_set1_ps(1.0)) }
+}
+
+#[cfg(target_feature = "avx2")]
+#[inline]
 unsafe fn screlu_ps(x: std::arch::x86_64::__m256) -> std::arch::x86_64::__m256 {
     use std::arch::x86_64::*;
 
     unsafe {
-        let x = _mm256_min_ps(_mm256_max_ps(x, _mm256_setzero_ps()), _mm256_set1_ps(1.0));
+        let x = crelu_ps(x);
         _mm256_mul_ps(x, x)
     }
 }
@@ -467,6 +482,10 @@ pub fn l3_scalar(net: &Network, input: &[f32; L2], bucket: usize) -> f32 {
 
 fn screlu(x: f32) -> f32 {
     x.clamp(0f32, 1f32).powi(2)
+}
+
+fn crelu(x: f32) -> f32 {
+    x.clamp(0f32, 1f32)
 }
 
 pub fn push(net: &Network, board: &Board, child: &mut AccState, delta: &Delta, finny_table: &mut FinnyTable) {
