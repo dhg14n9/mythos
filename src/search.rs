@@ -1067,7 +1067,12 @@ impl Search {
         let pawn_entry = self.thread_data.pawn_corr.probe(stm, board.pawn_key());
         let non_pawn_entry = self.thread_data.non_pawn_corr[Color::White].probe(stm, board.non_pawn_key(Color::White))
                            + self.thread_data.non_pawn_corr[Color::Black].probe(stm, board.non_pawn_key(Color::Black));
-        let correction = (pawn_entry * corr_w_pawn() + non_pawn_entry * corr_w_non_pawn()) / (corr_div() * 128);
+        let minor_entry = self.thread_data.minor_corr.probe(stm, board.minor_key());
+        let correction = (
+            pawn_entry * corr_w_pawn() + 
+            non_pawn_entry * corr_w_non_pawn() + 
+            minor_entry * corr_w_minor()
+        ) / (corr_div() * 128);
         (raw_eval + correction).clamp(-Score::MATE, Score::MATE)
     }
 }
