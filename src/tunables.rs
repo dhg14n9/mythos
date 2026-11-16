@@ -58,7 +58,7 @@ tunables! {
     razor_max_depth       =        3,      2,      8,    0.5;
 
     // null move pruning
-    nmp_min_depth         =        5,      2,      5,    0.5;
+    nmp_min_depth         =        5,      2,      8,    0.5;
     nmp_base              =        4,      2,      5,    0.5;
     nmp_depth_div         =        4,      2,      6,    0.5;
 
