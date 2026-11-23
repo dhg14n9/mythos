@@ -156,6 +156,12 @@ tunables! {
     corr_w_minor           =      48,      0,    256,   12.0;
     // corr_w_major           =      32,      0,    256,   12.0;
 
+    // probcut
+    probcut_margin        =      200,    100,    400,   15.0;
+    probcut_improving     =       50,      0,    150,    8.0;
+    probcut_min_depth     =        5,      3,      8,    0.5;
+    probcut_reduction     =        4,      3,      5,    0.5;
+
 }
 
 #[cfg(feature = "tunables")]

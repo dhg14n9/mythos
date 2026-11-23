@@ -7,7 +7,7 @@ use crate::nnue;
 use crate::nnue::accumulator::{king_context, AccState, Delta, FinnyTable};
 use crate::nnue::NETWORK;
 use crate::nnue::network::push;
-use crate::tables::{BoundType, ContKey, ThreadData, TransTable, MAX_PLY, CONT_LEN, CONT_OFFSET, MAX_CORR};
+use crate::tables::{BoundType, CONT_LEN, CONT_OFFSET, ContKey, MAX_CORR, MAX_PLY, ThreadData, TransTable};
 use crate::tunables::*;
 use crate::types::{Color, Move, MoveList, PieceType, Score, Square};
 
@@ -505,6 +505,40 @@ impl Search {
 
         if !ROOT && self.should_rfp(board, beta, depth) && static_eval > beta + rfp_margin {
             return static_eval
+        }
+
+        let pc_beta = beta + probcut_margin() - (improving as i32) * probcut_improving(); 
+        if Search::should_probcut(PV, in_check, depth, excluded_move, beta, tt_hit.is_some(), tt_depth, tt_score, pc_beta) { 
+            let pc_depth = depth.saturating_sub(probcut_reduction() as usize).max(1); 
+            let mut pc_picker = MovePicker::new(tt_move); 
+            pc_picker.gen_move(board, true);
+            pc_picker.score_noisy(board, &self.thread_data);
+
+            while let Some(mv) = pc_picker.next(board) { 
+                if pc_picker.is_bad() { break; }
+                if !see(board, mv, pc_beta - static_eval) { continue; }
+
+                self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() }); 
+                let delta = Delta::new(board, mv); 
+                
+                board.make_move(mv);
+                self.trans_table.prefetch(board.hash());
+                push(&NETWORK, board, &mut self.accumulator_stack[ply + 1], &delta, &mut self.finny_table);
+
+                let mut score = -self.qsearch::<false >(board, -pc_beta, -pc_beta + 1, ply + 1); 
+                if score >= pc_beta { 
+                    score = -self.negamax::<false, false>(board, pc_depth - 1, -pc_beta, -pc_beta + 1, ply + 1, true, !cut_node)
+                }
+                board.unmake_move(mv);
+
+                if self.stopped { return 0; }
+                if score >= pc_beta { 
+                    self.trans_table.store(board.hash(), Score::to_tt(score, ply), mv, pc_depth, BoundType::Lower, raw_eval);
+
+                    return score;
+                }
+            }
+
         }
 
         let mut best = -Score::MAX;
@@ -1017,6 +1051,25 @@ impl Search {
 
     fn should_iir(root: bool, depth: usize, tt_move: Move) -> bool {
         !root && (depth >= iir_min_depth() as usize) && tt_move.is_null()
+    }
+
+    fn should_probcut(
+        pv: bool, 
+        in_check: bool, 
+        depth: usize, 
+        excluded_move: Move, 
+        beta: i32, 
+        is_tt_hit: bool,
+        tt_depth: usize, 
+        tt_score: i32, 
+        pc_beta: i32
+    ) -> bool { 
+        !pv && 
+        !in_check && 
+        depth >= probcut_min_depth() as usize && 
+        excluded_move.is_null() && 
+        !Score::is_mate(beta) && 
+        !(is_tt_hit && tt_depth + 3 >= depth && tt_score < pc_beta)
     }
 
 

@@ -12,6 +12,7 @@ pub enum BoundType {
     Upper
 }
 
+#[derive(Clone, Copy)]
 pub struct TTHit {
     pub score: i32,
     pub mv: Move,
