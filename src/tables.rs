@@ -281,8 +281,13 @@ impl Capture {
 #[derive(Copy, Clone)]
 pub struct ContKey {
     pub(crate) piece: Piece,
-    pub(crate) square: Square
+    pub(crate) square: Square,
+    pub(crate) in_check: bool, // side making this move was in check (contcorr only)
 }
+
+// contcorr pairs the last move (cont_keys[0]) with these cont_keys slots (ply-2, ply-4, ply-6);
+// the second field is SF's per-distance update scale, out of 128
+pub const CONT_CORR_PAIRS: [(usize, i32); 3] = [(1, 130), (2, 70), (3, 35)];
 
 const CORR_SIZE: usize = 16384;
 pub const MAX_CORR: i32 = 16384;
@@ -310,6 +315,34 @@ impl CorrTable {
     }
 }
 
+pub struct ContCorr { 
+    // [in_check][piece_from][square_from][piecetype_to][square_to]
+    array: Box<[[[[[i16; Square::NUM]; PieceType::NUM]; Square::NUM]; Piece::NUM]; 2]>
+}
+
+impl ContCorr {
+    pub fn new() -> Self {
+        Self {
+            array: Box::try_from(vec![[[[[0; Square::NUM]; PieceType::NUM]; Square::NUM]; Piece::NUM]; 2].into_boxed_slice()).unwrap()
+        }
+    }
+
+    pub fn probe(&self, in_check: bool, piece_from: Piece, piece_to: Piece, square_from: Square, square_to: Square) -> i32 { 
+        self.array[in_check as usize][piece_from][square_from][piece_to.piece_type()][square_to] as i32
+    }
+
+    pub fn update(&mut self, in_check: bool, piece_from: Piece, piece_to: Piece, square_from: Square, square_to: Square, bonus: i32) { 
+        let entry = &mut self.array[in_check as usize][piece_from][square_from][piece_to.piece_type()][square_to]; 
+        let mut value = *entry as i32; 
+        apply::<MAX_CORR>(&mut value, bonus);
+        *entry = value as i16
+    }
+
+
+}
+
+
+
 pub struct ThreadData {
     pub butterfly: Butterfly,
     pub killer: Killer,
@@ -319,6 +352,7 @@ pub struct ThreadData {
     pub non_pawn_corr: [CorrTable; 2],
     pub minor_corr: CorrTable, 
     pub major_corr: CorrTable, 
+    pub cont_corr: ContCorr
 }
 
 impl ThreadData {
@@ -332,6 +366,7 @@ impl ThreadData {
             non_pawn_corr: [CorrTable::new(), CorrTable::new()],
             minor_corr: CorrTable::new(), 
             major_corr: CorrTable::new(), 
+            cont_corr: ContCorr::new(), 
         }
     }
 

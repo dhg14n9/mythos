@@ -155,6 +155,8 @@ tunables! {
     corr_w_non_pawn        =     115,      0,    256,   12.0; // both color shared
     corr_w_minor           =      48,      0,    256,   12.0;
     // corr_w_major           =      32,      0,    256,   12.0;
+    corr_w_cont            =      48,      0,    256,   12.0; // ply-1 paired with ply-2 and ply-4
+    corr_w_cont_far        =      39,      0,    256,   12.0; // ply-1 paired with ply-6
 
     // probcut
     probcut_margin        =      200,    100,    400,   15.0;

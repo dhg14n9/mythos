@@ -7,7 +7,7 @@ use crate::nnue;
 use crate::nnue::accumulator::{king_context, AccState, Delta, FinnyTable};
 use crate::nnue::NETWORK;
 use crate::nnue::network::push;
-use crate::tables::{BoundType, CONT_LEN, CONT_OFFSET, ContKey, MAX_CORR, MAX_PLY, ThreadData, TransTable};
+use crate::tables::{BoundType, CONT_CORR_PAIRS, CONT_LEN, CONT_OFFSET, ContKey, MAX_CORR, MAX_PLY, ThreadData, TransTable};
 use crate::tunables::*;
 use crate::types::{Color, Move, MoveList, PieceType, Score, Square};
 
@@ -292,7 +292,7 @@ impl Search {
         }
 
         let raw_eval = if in_check { Score::NONE } else if tt_eval != Score::NONE { tt_eval } else { nnue::eval(board, &mut self.accumulator_stack, ply) };
-        let static_eval = if in_check { -Score::INF } else { self.corrected_eval(board, raw_eval) };
+        let static_eval = if in_check { -Score::INF } else { self.corrected_eval(board, raw_eval, ply) };
 
         if ply >= MAX_PLY - 1 {
             return nnue::eval(board, &mut self.accumulator_stack, ply);
@@ -342,7 +342,7 @@ impl Search {
                 continue;
             }
 
-            self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() });
+            self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to(), in_check });
 
             let delta = Delta::new(board, mv);
 
@@ -452,7 +452,7 @@ impl Search {
 
         let stm = board.stm();
         let raw_eval = if in_check { Score::NONE } else if tt_eval != Score::NONE { tt_eval } else { nnue::eval(board, &mut self.accumulator_stack, ply) };
-        let static_eval = if in_check { -Score::INF } else { self.corrected_eval(board, raw_eval) };
+        let static_eval = if in_check { -Score::INF } else { self.corrected_eval(board, raw_eval, ply) };
 
         self.eval_ply[ply] = if in_check { Score::NONE } else { static_eval };
 
@@ -518,7 +518,7 @@ impl Search {
                 if pc_picker.is_bad() { break; }
                 if !see(board, mv, pc_beta - static_eval) { continue; }
 
-                self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() }); 
+                self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to(), in_check }); 
                 let delta = Delta::new(board, mv); 
                 
                 board.make_move(mv);
@@ -597,7 +597,7 @@ impl Search {
                 );
                 self.excluded[ply] = Move::NULL;
 
-                self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to() });
+                self.cont_stack[ply] = Some(ContKey { piece: board.piece_at(mv.from()), square: mv.to(), in_check });
 
                 if score < s_beta {
                     extension = 1;
@@ -615,7 +615,7 @@ impl Search {
             }
 
             let moved = board.piece_at(mv.from());
-            self.cont_stack[ply] = Some(ContKey { piece: moved, square: mv.to() });
+            self.cont_stack[ply] = Some(ContKey { piece: moved, square: mv.to(), in_check });
 
 
             let hist = if i != 0 && mv.is_quiet() {
@@ -819,6 +819,7 @@ impl Search {
             }
             self.thread_data.minor_corr.update(stm, board.minor_key(), bonus);
             self.thread_data.major_corr.update(stm, board.major_key(), bonus);
+            self.update_cont_corr(ply, bonus);
         }
 
         best
@@ -1114,19 +1115,41 @@ impl Search {
 
     }
 
-    fn corrected_eval(&self, board: &Board, raw_eval: i32) -> i32 {
-        let stm = board.stm(); 
+    fn corrected_eval(&self, board: &Board, raw_eval: i32, ply: usize) -> i32 {
+        let stm = board.stm();
 
         let pawn_entry = self.thread_data.pawn_corr.probe(stm, board.pawn_key());
         let non_pawn_entry = self.thread_data.non_pawn_corr[Color::White].probe(stm, board.non_pawn_key(Color::White))
                            + self.thread_data.non_pawn_corr[Color::Black].probe(stm, board.non_pawn_key(Color::Black));
         let minor_entry = self.thread_data.minor_corr.probe(stm, board.minor_key());
+        let [cont_2, cont_4, cont_6] = self.cont_corr_entries(ply);
         let correction = (
-            pawn_entry * corr_w_pawn() + 
-            non_pawn_entry * corr_w_non_pawn() + 
-            minor_entry * corr_w_minor()
+            pawn_entry * corr_w_pawn() +
+            non_pawn_entry * corr_w_non_pawn() +
+            minor_entry * corr_w_minor() +
+            (cont_2 + cont_4) * corr_w_cont() +
+            cont_6 * corr_w_cont_far()
         ) / (corr_div() * 128);
         (raw_eval + correction).clamp(-Score::MATE, Score::MATE)
+    }
+
+    fn cont_corr_entries(&self, ply: usize) -> [i32; 3] {
+        let keys = self.cont_keys(ply);
+        let Some(last) = keys[0] else { return [0; 3] };
+        CONT_CORR_PAIRS.map(|(slot, _)| match keys[slot] {
+            Some(prev) => self.thread_data.cont_corr.probe(prev.in_check, prev.piece, last.piece, prev.square, last.square),
+            None => 0,
+        })
+    }
+
+    fn update_cont_corr(&mut self, ply: usize, bonus: i32) {
+        let keys = self.cont_keys(ply);
+        let Some(last) = keys[0] else { return };
+        for (slot, scale) in CONT_CORR_PAIRS {
+            if let Some(prev) = keys[slot] {
+                self.thread_data.cont_corr.update(prev.in_check, prev.piece, last.piece, prev.square, last.square, bonus * scale / 128);
+            }
+        }
     }
 }
 
