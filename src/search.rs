@@ -542,7 +542,7 @@ impl Search {
         }
 
         let spc_beta = beta + small_probcut_margin(); 
-        if Search::should_small_probcut(PV, in_check, depth, excluded_move, beta, tt_hit.is_some(), tt_depth, tt_score, tt_bound, spc_beta) { 
+        if Search::should_small_probcut(PV, depth, excluded_move, beta, tt_hit.is_some(), tt_depth, tt_score, tt_bound, spc_beta) { 
             return spc_beta
         }
 
@@ -1079,7 +1079,6 @@ impl Search {
 
     fn should_small_probcut(
         pv: bool, 
-        in_check: bool, 
         depth: usize, 
         excluded_move: Move, 
         beta: i32, 
