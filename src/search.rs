@@ -1096,7 +1096,7 @@ impl Search {
         tt_depth + 4 >= depth && 
         tt_score >= spc_beta && 
         !Score::is_mate(beta) && 
-        !Score::is_mate(spc_beta)
+        !Score::is_mate(tt_score)
     }
 
 
