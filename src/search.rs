@@ -541,6 +541,11 @@ impl Search {
 
         }
 
+        let spc_beta = beta + small_probcut_margin(); 
+        if Search::should_small_probcut(PV, in_check, depth, excluded_move, beta, tt_hit.is_some(), tt_depth, tt_score, tt_bound, spc_beta) { 
+            return spc_beta
+        }
+
         let mut best = -Score::MAX;
         let mut best_move = Move::NULL;
 
@@ -1070,6 +1075,28 @@ impl Search {
         excluded_move.is_null() && 
         !Score::is_mate(beta) && 
         !(is_tt_hit && tt_depth + 3 >= depth && tt_score < pc_beta)
+    }
+
+    fn should_small_probcut(
+        pv: bool, 
+        in_check: bool, 
+        depth: usize, 
+        excluded_move: Move, 
+        beta: i32, 
+        is_tt_hit: bool,
+        tt_depth: usize, 
+        tt_score: i32, 
+        tt_bound: BoundType,
+        spc_beta: i32
+    ) -> bool { 
+        !pv && 
+        excluded_move.is_null() && 
+        is_tt_hit && 
+        tt_bound != BoundType::Upper && 
+        tt_depth + 4 >= depth && 
+        tt_score >= spc_beta && 
+        !Score::is_mate(beta) && 
+        !Score::is_mate(spc_beta)
     }
 
 

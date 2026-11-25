@@ -22,6 +22,10 @@ datagen = []
 [dependencies]
 log = "0.4.33"
 
+[lints.clippy]
+style = { level = "allow", priority = -1 }
+complexity = { level = "allow", priority = -1 }
+
 [workspace]
 members = ["xtask","datagen"]
 exclude = ["target"]

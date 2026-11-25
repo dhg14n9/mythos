@@ -161,6 +161,7 @@ tunables! {
     probcut_improving     =       50,      0,    150,    8.0;
     probcut_min_depth     =        5,      3,      8,    0.5;
     probcut_reduction     =        4,      3,      5,    0.5;
+    small_probcut_margin  =      400,    200,    700,   25.0;
 
 }
 
