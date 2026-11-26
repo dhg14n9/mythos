@@ -407,7 +407,7 @@ impl Search {
             return 0; // search cancelled
         }
 
-        if ply > 0 && board.is_draw() {
+        if ply > 0 && board.is_draw(ply) {
             return Score::ZERO;
         }
 
@@ -419,7 +419,7 @@ impl Search {
             }
         }
 
-        if !ROOT && alpha < Score::ZERO && board.upcoming_reps() { 
+        if !ROOT && alpha < Score::ZERO && board.upcoming_reps(ply) { 
             alpha = Score::ZERO; 
             if alpha >= beta { 
                 return alpha; 
@@ -953,7 +953,7 @@ impl Search {
             board.make_move(mv);
         }
 
-        if board.is_draw() {
+        if board.is_draw(pv.len()) {
             return;
         }
 
@@ -977,7 +977,7 @@ impl Search {
             board.make_move(mv);
             pv.push(mv);
 
-            if board.is_draw() {
+            if board.is_draw(pv.len()) {
                 break;
             }
         }

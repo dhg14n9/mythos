@@ -285,7 +285,7 @@ fn play_game(cfg: &Config, rng: &mut Rng, tt: &TransTable, mut td: ThreadData, l
         if list.len() == 0 {
             break if board.is_check() { if board.stm() == Color::White { -1 } else { 1 } } else { 0 };
         }
-        if board.is_draw() || moves.len() >= cfg.max_plies {
+        if board.is_draw(0) || moves.len() >= cfg.max_plies {
             break 0;
         }
 

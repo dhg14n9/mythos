@@ -16,6 +16,8 @@ pub struct StateInfo {
     pub non_pawn_key: [u64; 2], 
     pub minor_key: u64, 
     pub major_key: u64, 
+    pub plies_from_null: u16, 
+    pub repetition: i16,
 }
 
 #[derive(Clone)]
@@ -38,6 +40,10 @@ pub struct Board {
     pub(super) non_pawn_key: [u64; 2], 
     pub(super) minor_key: u64, 
     pub(super) major_key: u64, 
+    pub(super) plies_from_null: u16,
+    // Distance to the previous occurrence of this position, negated if that occurrence
+    // was itself a repetition (so this one is a threefold); 0 if the position has not repeated.
+    pub(super) repetition: i16,
 }
 
 impl Board {
@@ -59,6 +65,8 @@ impl Board {
             non_pawn_key: [0; 2],
             minor_key: 0, 
             major_key: 0, 
+            plies_from_null: 0,
+            repetition: 0,
         };
 
         let mut parts = fen.split_whitespace();
@@ -318,6 +326,8 @@ impl Board {
             non_pawn_key: self.non_pawn_key, 
             major_key: self.major_key, 
             minor_key: self.minor_key,
+            plies_from_null: self.plies_from_null,
+            repetition: self.repetition,
         })
     }
 
@@ -333,6 +343,8 @@ impl Board {
         self.non_pawn_key = prev_state.non_pawn_key; 
         self.major_key = prev_state.major_key; 
         self.minor_key = prev_state.minor_key; 
+        self.plies_from_null = prev_state.plies_from_null; 
+        self.repetition = prev_state.repetition;
 
         prev_state.captured_piece
     }
@@ -404,6 +416,9 @@ impl Board {
 
         let checkers = self.checkers(!us);
         self.checkers = checkers;
+        self.plies_from_null += 1; 
+
+        self.update_repetition();
     }
 
     pub fn unmake_move(&mut self, mv: Move) {
@@ -467,6 +482,8 @@ impl Board {
         self.side_to_move = !self.side_to_move;
         self.zobrist ^= ZobristHelper::color();
         self.checkers = Bitboard::EMPTY;
+        self.plies_from_null = 0; 
+        self.repetition = 0;
     }
 
     pub fn unmake_null_move(&mut self) {
@@ -476,32 +493,40 @@ impl Board {
         self.side_to_move = !self.side_to_move;
     }
 
-    pub fn is_draw(&self) -> bool {
-        if self.half_move >= 100 { return true }
+    fn update_repetition(&mut self) {
+        self.repetition = 0;
 
-        let mut i = 2;
-        let state_len = self.state_history.len();
-        let cur_zobrist = self.zobrist;
-        while (i as u16) <= self.half_move.min(state_len as u16) {
-            if self.state_history.read(state_len - i).hash == cur_zobrist {
-                return true
+        let len = self.state_history.len();
+        let end = (self.half_move as usize).min(self.plies_from_null as usize).min(len);
+
+        let mut i = 4;
+        while i <= end {
+            let prev = self.state_history.read(len - i);
+            if prev.hash == self.zobrist {
+                self.repetition = if prev.repetition != 0 { -(i as i16) } else { i as i16 };
+                return;
             }
             i += 2;
         }
-
-        false
     }
 
-    pub fn upcoming_reps(&self) -> bool { 
+    pub fn is_draw(&self, ply: usize) -> bool {
+        if self.half_move >= 100 { return true }
+
+        self.repetition != 0 && (self.repetition as i32) < ply as i32
+    }
+
+    pub fn upcoming_reps(&self, ply: usize) -> bool { 
         let len = self.state_history.len(); 
-        let end = (self.half_move as usize).min(len); 
+        let end = (self.half_move as usize).min(self.plies_from_null as usize).min(len); 
         if end < 3 { 
             return false; 
         }; 
         
         let mut i = 3; 
         while i <= end { 
-            let diff = self.hash() ^ self.state_history.read(len - i).hash; 
+            let prev = self.state_history.read(len - i); 
+            let diff = self.hash() ^ prev.hash; 
             
             let mut slot = h1(diff) as usize; 
             if CUCKOO.keys[slot] != diff { 
@@ -516,7 +541,8 @@ impl Board {
             let between = BETWEEN[sq1][sq2]; 
             if (between & self.occ()).is_empty() 
             && (((self.piece_at(sq1).color() == self.stm()) && self.piece_at(sq2) == Piece::None)
-            || ((self.piece_at(sq2).color() == self.stm()) && self.piece_at(sq1) == Piece::None)) { 
+            || ((self.piece_at(sq2).color() == self.stm()) && self.piece_at(sq1) == Piece::None))
+            && (ply > i || prev.repetition != 0) { 
                 return true; 
             }
             i += 2; 
@@ -545,6 +571,8 @@ mod tests {
         game_ply: usize,
         zobrist: u64,
         hist_len: usize,
+        plies_from_null: u16,
+        repetition: i16,
     }
 
     fn snapshot(b: &Board) -> Snapshot {
@@ -577,6 +605,8 @@ mod tests {
             game_ply: b.game_ply,
             zobrist: b.zobrist,
             hist_len: b.state_history.len(),
+            plies_from_null: b.plies_from_null,
+            repetition: b.repetition,
         }
     }
 
@@ -607,6 +637,8 @@ mod tests {
         assert_eq!(a.game_ply, b.game_ply, "game_ply after {ctx}");
         assert_eq!(a.zobrist, b.zobrist, "zobrist after {ctx}");
         assert_eq!(a.hist_len, b.hist_len, "state_history len after {ctx}");
+        assert_eq!(a.plies_from_null, b.plies_from_null, "plies_from_null after {ctx}");
+        assert_eq!(a.repetition, b.repetition, "repetition after {ctx}");
     }
 
     // The XOR relocation in move_piece can be wrong in a way that still round-trips, so check the intermediate position.

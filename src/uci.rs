@@ -183,7 +183,7 @@ pub(crate) fn random_opening(
 
         let mut list = MoveList::new();
         board.gen_move(&mut list, false);
-        if list.len() == 0 || board.is_draw() {
+        if list.len() == 0 || board.is_draw(0) {
             continue;
         }
 
