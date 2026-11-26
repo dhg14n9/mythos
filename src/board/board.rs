@@ -1,6 +1,6 @@
-use crate::board::lookup::{bishop_attack, king_attack, knight_attack, pawn_attack, rook_attack};
+use crate::board::lookup::{CUCKOO, Cuckoo, bishop_attack, h1, h2, king_attack, knight_attack, pawn_attack, rook_attack};
 use crate::types::uninit_array::UninitArray;
-use crate::types::{Bitboard, Castling, CastlingKind, Color, File, Move, MoveKind, Piece, PieceType, Rank, Square, ZobristHelper};
+use crate::types::{BETWEEN, Bitboard, Castling, CastlingKind, Color, File, Move, MoveKind, Piece, PieceType, Rank, Square, ZobristHelper};
 
 const MAX_STATE_ARRAY_LENGTH: usize = 1024;
 
@@ -487,6 +487,39 @@ impl Board {
                 return true
             }
             i += 2;
+        }
+
+        false
+    }
+
+    pub fn upcoming_reps(&self) -> bool { 
+        let len = self.state_history.len(); 
+        let end = (self.half_move as usize).min(len); 
+        if end < 3 { 
+            return false; 
+        }; 
+        
+        let mut i = 3; 
+        while i <= end { 
+            let diff = self.hash() ^ self.state_history.read(len - i).hash; 
+            
+            let mut slot = h1(diff) as usize; 
+            if CUCKOO.keys[slot] != diff { 
+                slot = h2(diff) as usize; 
+                if CUCKOO.keys[slot] != diff { 
+                    i += 2; 
+                    continue;
+                }
+            }
+
+            let (sq1, sq2) = CUCKOO.squares[slot]; 
+            let between = BETWEEN[sq1][sq2]; 
+            if (between & self.occ()).is_empty() 
+            && (((self.piece_at(sq1).color() == self.stm()) && self.piece_at(sq2) == Piece::None)
+            || ((self.piece_at(sq2).color() == self.stm()) && self.piece_at(sq1) == Piece::None)) { 
+                return true; 
+            }
+            i += 2; 
         }
 
         false

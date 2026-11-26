@@ -419,6 +419,13 @@ impl Search {
             }
         }
 
+        if !ROOT && alpha < Score::ZERO && board.upcoming_reps() { 
+            alpha = Score::ZERO; 
+            if alpha >= beta { 
+                return alpha; 
+            }
+        }
+
         let excluded_move = self.excluded[ply];
         let in_check = board.is_check();
 
