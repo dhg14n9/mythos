@@ -85,4 +85,12 @@ impl ZobristHelper {
     pub fn color() -> u64 {
         ZOBRIST_KEY.btm_key
     }
+
+    pub(crate) const fn square_const(square: usize, piece: usize) -> u64 {
+        ZOBRIST_KEY.square_key[square][piece]
+    }
+
+    pub(crate) const fn color_const() -> u64 {
+        ZOBRIST_KEY.btm_key
+    }
 }

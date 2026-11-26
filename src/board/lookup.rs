@@ -1,3 +1,5 @@
+use crate::types::{Piece, PieceType, Square, ZobristHelper};
+
 const fn bit(rank: i32, file: i32) -> u64 {
     1u64 << (rank * 8 + file) as u32
 }
@@ -184,11 +186,11 @@ const fn table_size() -> usize {
     total
 }
 
-const fn h1(input: u64) -> u16 { 
+pub const fn h1(input: u64) -> u16 { 
     (input & 0x1fff) as u16
 } 
 
-const fn h2(input: u64) -> u16 { 
+pub const fn h2(input: u64) -> u16 { 
     ((input >> 16) & 0x1fff) as u16
 }
 
@@ -208,8 +210,91 @@ const fn cuckoo_insert(hash: u64, sqs: (Square, Square), keys: &mut [u64; 8192],
     squares[cuck] = sqs; 
 }
 
-const fn gen_cuckroo(keys: &mut [u64; 8192], squares: &mut [(Square, Square); 8192]) { 
-    
+pub const CUCKOO_SIZE: usize = 8192;
+const CUCKOO_MOVES: usize = 3668;
+
+pub struct Cuckoo {
+    pub keys: [u64; CUCKOO_SIZE],
+    pub squares: [(Square, Square); CUCKOO_SIZE],
+}
+
+pub static CUCKOO: Cuckoo = build_cuckoo();
+
+const fn empty_board_reach(piece_type: usize, s1: usize, s2: usize) -> bool {
+    let dr = ((s2 / 8) as i32 - (s1 / 8) as i32).abs();
+    let df = ((s2 % 8) as i32 - (s1 % 8) as i32).abs();
+    let straight = dr == 0 || df == 0;
+    let diagonal = dr == df;
+
+    if piece_type == PieceType::Knight as usize {
+        (dr == 1 && df == 2) || (dr == 2 && df == 1)
+    } else if piece_type == PieceType::Bishop as usize {
+        diagonal
+    } else if piece_type == PieceType::Rook as usize {
+        straight
+    } else if piece_type == PieceType::Queen as usize {
+        straight || diagonal
+    } else if piece_type == PieceType::King as usize {
+        dr <= 1 && df <= 1
+    } else {
+        false
+    }
+}
+
+const fn cuckoo_moves() -> [(u64, (Square, Square)); CUCKOO_MOVES] {
+    let mut out = [(0, (Square::A1, Square::A1)); CUCKOO_MOVES];
+    let mut n = 0;
+
+    let mut piece = Piece::WhiteKnight as usize;
+    while piece < Piece::NUM {
+        let piece_type = piece >> 1;
+        let mut s1 = 0;
+        while s1 < Square::NUM {
+            let mut s2 = s1 + 1;
+            while s2 < Square::NUM {
+                if empty_board_reach(piece_type, s1, s2) {
+                    let key = ZobristHelper::square_const(s1, piece)
+                        ^ ZobristHelper::square_const(s2, piece)
+                        ^ ZobristHelper::color_const();
+                    out[n] = (key, (Square::new(s1 as u8), Square::new(s2 as u8)));
+                    n += 1;
+                }
+                s2 += 1;
+            }
+            s1 += 1;
+        }
+        piece += 1;
+    }
+
+    assert!(n == CUCKOO_MOVES);
+    out
+}
+
+const fn gen_cuckoo(keys: &mut [u64; CUCKOO_SIZE], squares: &mut [(Square, Square); CUCKOO_SIZE]) {
+    let moves = cuckoo_moves();
+
+    let mut i = 0;
+    while i < CUCKOO_MOVES {
+        let (key, sqs) = moves[i];
+        cuckoo_insert(key, sqs, keys, squares, h1(key) as usize);
+        i += 1;
+    }
+
+    let mut i = 0;
+    while i < CUCKOO_MOVES {
+        let key = moves[i].0;
+        assert!(keys[h1(key) as usize] == key || keys[h2(key) as usize] == key);
+        i += 1;
+    }
+}
+
+const fn build_cuckoo() -> Cuckoo {
+    let mut cuckoo = Cuckoo {
+        keys: [0; CUCKOO_SIZE],
+        squares: [(Square::A1, Square::A1); CUCKOO_SIZE],
+    };
+    gen_cuckoo(&mut cuckoo.keys, &mut cuckoo.squares);
+    cuckoo
 }
 
 #[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
@@ -659,4 +744,3 @@ mod leapers {
 
 pub use leapers::{king_attack, knight_attack, pawn_attack};
 
-use crate::types::{Move, Square};
