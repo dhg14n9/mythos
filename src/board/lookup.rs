@@ -184,6 +184,34 @@ const fn table_size() -> usize {
     total
 }
 
+const fn h1(input: u64) -> u16 { 
+    (input & 0x1fff) as u16
+} 
+
+const fn h2(input: u64) -> u16 { 
+    ((input >> 16) & 0x1fff) as u16
+}
+
+// insert into key cuck. 
+const fn cuckoo_insert(hash: u64, sqs: (Square, Square), keys: &mut [u64; 8192], squares: &mut [(Square, Square); 8192], cuck: usize) { 
+    if keys[cuck] == hash { 
+        return; 
+    };
+
+    if keys[cuck] != 0 { 
+        let k = keys[cuck]; 
+        let other = if cuck == h1(k) as usize {h2(k)} else {h1(k)}; 
+        cuckoo_insert(keys[cuck], squares[cuck], keys, squares, other as usize);
+    };
+    
+    keys[cuck] = hash; 
+    squares[cuck] = sqs; 
+}
+
+const fn gen_cuckroo(keys: &mut [u64; 8192], squares: &mut [(Square, Square); 8192]) { 
+    
+}
+
 #[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
 pub const ROOK_MAGICS: [(u64, u32); 64] = [
     (0x2080001040002081, 52), // a1
@@ -630,3 +658,5 @@ mod leapers {
 }
 
 pub use leapers::{king_attack, knight_attack, pawn_attack};
+
+use crate::types::{Move, Square};
