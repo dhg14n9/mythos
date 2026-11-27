@@ -267,6 +267,13 @@ impl Search {
 
         let in_check = board.is_check();
 
+        if alpha < Score::ZERO && board.upcoming_reps(ply) { 
+            alpha = Score::ZERO; 
+            if alpha >= beta { 
+                return alpha; 
+            }
+        }
+
         let tt_hit = self.trans_table.probe(board.hash());
         let mut tt_move = Move::NULL;
         let mut tt_score = Score::NONE;
