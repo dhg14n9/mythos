@@ -251,7 +251,7 @@ impl Search {
         self.stopped
     }
 
-    pub fn qsearch<const PV: bool>(
+    pub fn qsearch<const PV: bool, const CHECK_REPS: bool>(
         &mut self,
         board: &mut Board,
         mut alpha: i32,
@@ -267,7 +267,7 @@ impl Search {
 
         let in_check = board.is_check();
 
-        if alpha < Score::ZERO && board.upcoming_reps(ply) { 
+        if CHECK_REPS && alpha < Score::ZERO && board.upcoming_reps(ply) { 
             alpha = Score::ZERO; 
             if alpha >= beta { 
                 return alpha; 
@@ -358,7 +358,7 @@ impl Search {
 
             push(&NETWORK, board, &mut self.accumulator_stack[ply + 1], &delta, &mut self.finny_table);
 
-            let score = -self.qsearch::<PV>(board, -beta, -alpha, ply + 1);
+            let score = -self.qsearch::<PV, true>(board, -beta, -alpha, ply + 1);
             board.unmake_move(mv);
             best = best.max(score);
 
@@ -461,7 +461,7 @@ impl Search {
         }
 
         if depth == 0 {
-            return self.qsearch::<PV>(board, alpha, beta, ply);
+            return self.qsearch::<PV, false>(board, alpha, beta, ply);
         };
 
         let stm = board.stm();
@@ -486,7 +486,7 @@ impl Search {
 
         // temporary, havent sprt-ed
         if Self::should_razor(PV, in_check, static_eval, alpha, depth, tt_move, tt_bound) {
-            return self.qsearch::<false>(board, alpha, beta, ply);
+            return self.qsearch::<false, false>(board, alpha, beta, ply);
         }
 
         if !ROOT && allow_null && self.should_nmp(beta, depth, board, static_eval) {
@@ -539,7 +539,7 @@ impl Search {
                 self.trans_table.prefetch(board.hash());
                 push(&NETWORK, board, &mut self.accumulator_stack[ply + 1], &delta, &mut self.finny_table);
 
-                let mut score = -self.qsearch::<false >(board, -pc_beta, -pc_beta + 1, ply + 1); 
+                let mut score = -self.qsearch::<false, true>(board, -pc_beta, -pc_beta + 1, ply + 1); 
                 if score >= pc_beta { 
                     score = -self.negamax::<false, false>(board, pc_depth - 1, -pc_beta, -pc_beta + 1, ply + 1, true, !cut_node)
                 }
